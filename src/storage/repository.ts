@@ -1,0 +1,180 @@
+import { addItem as addItemTo, parseCloset, removeItems } from '../core/closet';
+import { emptyCloset, type ClosetData, type ColorGroup, type Item, type ItemType, type Occasion } from '../core/model';
+import { blobToText, type FileStore } from './fileStore';
+
+/**
+ * closet.json is written alternately to two files with an increasing
+ * generation number. If the app is killed mid-write, the other file still
+ * holds the previous complete version, and load() picks the newest valid one.
+ */
+export const CLOSET_FILES = ['closet-a.json', 'closet-b.json'] as const;
+export const IMAGES_DIR = 'images';
+
+interface Envelope {
+  generation: number;
+  savedAt: string;
+  closet: ClosetData;
+}
+
+export interface NewItem {
+  name: string;
+  type: ItemType;
+  colorGroup: ColorGroup;
+  occasions: Occasion[];
+}
+
+export interface StoredImage {
+  blob: Blob;
+  ext: 'webp' | 'jpg';
+}
+
+export class ClosetCorruptedError extends Error {
+  constructor() {
+    super('The closet files exist but none of them could be read');
+    this.name = 'ClosetCorruptedError';
+  }
+}
+
+export class ClosetRepository {
+  private data: ClosetData = emptyCloset();
+  private generation = 0;
+  private queue: Promise<unknown> = Promise.resolve();
+
+  constructor(
+    private readonly store: FileStore,
+    private readonly clock: () => string = () => new Date().toISOString(),
+    private readonly newId: () => string = () => crypto.randomUUID(),
+  ) {}
+
+  getData(): ClosetData {
+    return this.data;
+  }
+
+  /** Runs operations one at a time so writes never interleave. */
+  private enqueue<T>(op: () => Promise<T>): Promise<T> {
+    const run = this.queue.then(op, op);
+    this.queue = run.catch(() => undefined);
+    return run;
+  }
+
+  load(): Promise<ClosetData> {
+    return this.enqueue(async () => {
+      let best: Envelope | null = null;
+      let foundAny = false;
+      let highestSeen = 0;
+      for (const file of CLOSET_FILES) {
+        const blob = await this.store.read(file);
+        if (!blob) continue;
+        foundAny = true;
+        const { envelope, generation } = await readEnvelope(blob);
+        highestSeen = Math.max(highestSeen, generation ?? 0);
+        if (envelope && (!best || envelope.generation > best.generation)) best = envelope;
+      }
+      // Always save above every generation on disk, even one we could not read
+      // (e.g. written by a newer app version), so a later save is never outranked.
+      this.generation = highestSeen;
+      if (foundAny && !best) throw new ClosetCorruptedError();
+      this.data = best ? best.closet : emptyCloset();
+      await this.removeOrphanImages();
+      return this.data;
+    });
+  }
+
+  private async persist(next: ClosetData): Promise<ClosetData> {
+    const generation = this.generation + 1;
+    const envelope: Envelope = { generation, savedAt: this.clock(), closet: next };
+    const file = CLOSET_FILES[generation % 2];
+    await this.store.write(file, new Blob([JSON.stringify(envelope)], { type: 'application/json' }));
+    this.generation = generation;
+    this.data = next;
+    return next;
+  }
+
+  /** Applies a pure change to the closet and saves it. */
+  update(change: (current: ClosetData) => ClosetData): Promise<ClosetData> {
+    return this.enqueue(() => this.persist(change(this.data)));
+  }
+
+  addItem(input: NewItem, image: StoredImage): Promise<Item> {
+    return this.enqueue(async () => {
+      const id = this.newId();
+      const path = `${IMAGES_DIR}/${id}.${image.ext}`;
+      const now = this.clock();
+      const item: Item = {
+        id,
+        name: input.name,
+        type: input.type,
+        colorGroup: input.colorGroup,
+        occasions: [...input.occasions],
+        status: 'active',
+        image: path,
+        createdAt: now,
+        updatedAt: now,
+      };
+      // Photo first, then the list: a crash in between leaves only an orphan photo,
+      // which the next load() removes.
+      await this.store.write(path, image.blob);
+      try {
+        await this.persist(addItemTo(this.data, item));
+      } catch (err) {
+        await this.store.remove(path).catch(() => undefined);
+        throw err;
+      }
+      return item;
+    });
+  }
+
+  deleteItems(ids: string[]): Promise<ClosetData> {
+    return this.enqueue(async () => {
+      const set = new Set(ids);
+      const paths = this.data.items.filter((it) => set.has(it.id)).map((it) => it.image);
+      const next = await this.persist(removeItems(this.data, ids));
+      for (const p of paths) await this.store.remove(p).catch(() => undefined);
+      return next;
+    });
+  }
+
+  readImage(path: string): Promise<Blob | null> {
+    return this.store.read(path);
+  }
+
+  /** Replaces the whole closet (used by restore from backup). */
+  replaceAll(next: ClosetData, images: Map<string, Blob>): Promise<ClosetData> {
+    return this.enqueue(async () => {
+      for (const item of next.items) {
+        const blob = images.get(item.image);
+        if (!blob) throw new Error(`Missing photo ${item.image}`);
+        await this.store.write(item.image, blob);
+      }
+      const saved = await this.persist(next);
+      await this.removeOrphanImages();
+      return saved;
+    });
+  }
+
+  private async removeOrphanImages(): Promise<void> {
+    const referenced = new Set(this.data.items.map((it) => it.image));
+    const names = await this.store.list(IMAGES_DIR);
+    for (const name of names) {
+      const path = `${IMAGES_DIR}/${name}`;
+      if (!referenced.has(path)) await this.store.remove(path).catch(() => undefined);
+    }
+  }
+}
+
+async function readEnvelope(blob: Blob): Promise<{ envelope: Envelope | null; generation: number | null }> {
+  let raw: Partial<Envelope>;
+  try {
+    raw = JSON.parse(await blobToText(blob)) as Partial<Envelope>;
+  } catch {
+    return { envelope: null, generation: null };
+  }
+  const generation =
+    typeof raw?.generation === 'number' && Number.isInteger(raw.generation) && raw.generation >= 1 ? raw.generation : null;
+  if (generation === null) return { envelope: null, generation: null };
+  try {
+    return { envelope: { generation, savedAt: String(raw.savedAt), closet: parseCloset(raw.closet) }, generation };
+  } catch {
+    return { envelope: null, generation };
+  }
+}
