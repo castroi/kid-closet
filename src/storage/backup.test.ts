@@ -66,9 +66,11 @@ describe('backup', () => {
     const data = closetWith([makeItem({ id: 'p', image: 'images/p.jpg' })]);
     const zip = manifestZip({ format: BACKUP_FORMAT, closet: data }, { 'images/p.jpg': gpsJpeg });
     const restored = await blobToBytes(readBackup(zip).images.get('images/p.jpg')!);
-    expect(String.fromCharCode(...gpsJpeg)).toContain('GPS');
-    expect(String.fromCharCode(...restored)).not.toContain('GPS');
-    expect(String.fromCharCode(...restored)).not.toContain('Exif');
+    // EXIF stores the location as numeric tags inside the "Exif" block, next to the camera name.
+    for (const marker of ['Exif', 'TestCam']) {
+      expect(String.fromCharCode(...gpsJpeg)).toContain(marker);
+      expect(String.fromCharCode(...restored)).not.toContain(marker);
+    }
   });
 
   it('rejects a photo that is not the image type its name says', () => {

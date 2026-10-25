@@ -147,8 +147,11 @@ describe('stripPhotoMetadata: WebP', () => {
 });
 
 describe('stripPhotoMetadata: real photo files', () => {
-  /** Byte strings the fixtures' metadata contains and the picture data doesn't. */
-  const SECRETS = ['Exif', 'GPS', 'TestCam', 'COMMENT-ME', 'COPYRIGHT-ME', 'GPSXMP'];
+  /**
+   * Text found only in the fixtures' metadata, never in the picture data. EXIF keeps
+   * the GPS location as numeric tags, so its block is found by "Exif" and the camera name.
+   */
+  const SECRETS = ['Exif', 'TestCam', 'COMMENT-ME', 'COPYRIGHT-ME', 'GPSXMP'];
   const text = (b: Uint8Array) => String.fromCharCode(...b);
 
   it.each([
