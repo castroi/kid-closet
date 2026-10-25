@@ -30,7 +30,10 @@ Outfit picker for one 11-year-old on her iPhone. Static PWA on Vercel; no server
 | Hebrew, right to left; touch targets ≥ 44 px | It's for the kid |
 | Theme: "כמו בטלפון" (follows the phone, default) / בהיר / כהה, chosen by her in הגדרות (gear next to the lock in the closet screen), saved per device in localStorage (`src/app/theme.ts`), never in the closet or backups | It's her preference and belongs to the device; the dress-up screen keeps its 3 decisions |
 | Colours only through the tokens in `src/styles.css`; text on an `--ink` fill uses `--on-ink`; accent/danger as text use `--accent-text` / `--danger-text` | Both themes keep readable contrast |
-| The inline script in `index.html` applies the theme before paint and must match `applyTheme()` (key, colours) | No flash of the wrong theme |
+| The inline script in `index.html` applies the theme before paint and must match `applyTheme()` (key, colours). Its SHA-256 is allowed in the CSP in `vercel.json`; update it whenever the script changes (`securityHeaders.test.ts` fails until you do) | No flash of the wrong theme; the CSP blocks any other inline script |
+| Security headers for every page live in `vercel.json` (CSP, nosniff, no referrer, no framing, HSTS). The CSP allows only this site's own files, `blob:` images, and WebAssembly for the WebP encoder | Even a compromised dependency can't load outside code or send photos elsewhere |
+| `.npmrc` sets `ignore-scripts=true`; dependencies don't run install scripts locally, in CI or on Vercel | A hijacked package version can't run code during install |
+| Libraries that ship inside the app (every entry in `dependencies`: `@jsquash/webp`, `fflate`, `react`, `react-dom`) are pinned to exact versions; update them deliberately in their own PR. GitHub Actions are pinned to full commit SHAs with the version in a comment | The lockfile workflow can't silently pull a newer, possibly hijacked release into the app; a moved tag can't change what CI runs |
 | Garment photos are never filtered or dimmed in dark mode | She matches real colours |
 | Delete only in the parent area (behind a question); the kid has "outgrown" with undo | Safe from accidental taps |
 | Bump `SCHEMA_VERSION` when `closet.json` changes shape, and keep reading old versions | Saved closets and backups keep working |

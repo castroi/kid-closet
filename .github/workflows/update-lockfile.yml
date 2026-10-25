@@ -27,13 +27,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Pinned to exact commits because this job can write to the repository.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Don't leave a write token in .git/config for the npm step; only the push below gets it.
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
-      - run: npm install --package-lock-only
+      # Resolves versions only; no package code runs (.npmrc also sets ignore-scripts).
+      # The new lockfile lands on the PR branch, so it is part of the PR the owner reviews.
+      - run: npm install --package-lock-only --ignore-scripts
       - name: Commit the lockfile if it changed
         id: commit
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           if [ -z "$(git status --porcelain -- package-lock.json)" ]; then
             echo "package-lock.json is already up to date"
@@ -43,7 +50,10 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add package-lock.json
           git commit -m "Update package-lock.json"
-          git push
+          # The token goes in a header for this one command only, never into the URL or .git/config.
+          AUTH="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::${AUTH}"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${AUTH}" push origin "HEAD:${GITHUB_REF_NAME}"
           echo "pushed=true" >> "$GITHUB_OUTPUT"
       - name: Run CI on the new commit
         if: steps.commit.outputs.pushed == 'true'

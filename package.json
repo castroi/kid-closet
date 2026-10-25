@@ -15,10 +15,10 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@jsquash/webp": "^1.4.0",
-    "fflate": "^0.8.2",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "@jsquash/webp": "1.5.0",
+    "fflate": "0.8.3",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.28.0",
