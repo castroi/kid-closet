@@ -7,7 +7,9 @@ import { Icon } from '../ui/common';
 import { DressUp } from '../ui/DressUp';
 import { Favorites } from '../ui/Favorites';
 import { Parent } from '../ui/Parent';
+import { Settings } from '../ui/Settings';
 import type { ShareEnv, StorageLike } from './device';
+import { browserThemeEnv, useTheme, type ThemeEnv } from './theme';
 
 export type Tab = 'dress' | 'favorites' | 'closet' | 'add' | 'parent';
 
@@ -23,10 +25,14 @@ export interface AppProps {
   shareEnv: ShareEnv;
   storage?: StorageLike;
   today?: Date;
+  themeEnv?: ThemeEnv;
 }
 
-export function App({ imageDeps, shareEnv, storage, today }: AppProps) {
+export function App({ imageDeps, shareEnv, storage, today, themeEnv }: AppProps) {
   const [tab, setTab] = useState<Tab>('dress');
+  const [env] = useState<ThemeEnv>(() => themeEnv ?? browserThemeEnv());
+  const theme = useTheme(env);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   // Opening a favourite remounts the dress-up screen with that outfit selected.
   const [opened, setOpened] = useState<{ outfit: Outfit; key: number } | null>(null);
 
@@ -47,7 +53,7 @@ export function App({ imageDeps, shareEnv, storage, today }: AppProps) {
           />
         )}
         {tab === 'favorites' && <Favorites onOpen={openOutfit} />}
-        {tab === 'closet' && <Closet onOpenParent={() => setTab('parent')} />}
+        {tab === 'closet' && <Closet onOpenParent={() => setTab('parent')} onOpenSettings={() => setSettingsOpen(true)} />}
         {tab === 'add' && <AddItem imageDeps={imageDeps} onOpenCloset={() => setTab('closet')} />}
         {tab === 'parent' && <Parent onBack={() => setTab('closet')} shareEnv={shareEnv} storage={storage} />}
       </main>
@@ -64,6 +70,9 @@ export function App({ imageDeps, shareEnv, storage, today }: AppProps) {
           </button>
         ))}
       </nav>
+      {settingsOpen && (
+        <Settings theme={theme.choice} onThemeChange={theme.setChoice} onClose={() => setSettingsOpen(false)} />
+      )}
     </div>
   );
 }

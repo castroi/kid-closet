@@ -56,7 +56,7 @@ export function Favorites({ onOpen }: { onOpen: (outfit: Outfit) => void }) {
                   <button
                     type="button"
                     className="icon-btn"
-                    style={{ color: 'var(--accent)' }}
+                    style={{ color: 'var(--accent-text)' }}
                     aria-label={`הסרה מהמועדפים: ${description}`}
                     onClick={() => removeOutfit(o.id)}
                   >

@@ -25,7 +25,7 @@ interface Undo {
   previous: ItemStatus;
 }
 
-export function Closet({ onOpenParent }: { onOpenParent: () => void }) {
+export function Closet({ onOpenParent, onOpenSettings }: { onOpenParent: () => void; onOpenSettings: () => void }) {
   const { data, setStatus } = useCloset();
   const [tab, setTab] = useState<Tab>('top');
   const [selecting, setSelecting] = useState(false);
@@ -83,8 +83,12 @@ export function Closet({ onOpenParent }: { onOpenParent: () => void }) {
               </button>
             ) : (
               <>
-                <button type="button" className="icon-btn" aria-label="אזור הורים" onClick={onOpenParent}>
-                  <Icon name="lock" />
+                <button type="button" className="labeled-icon-btn" onClick={onOpenSettings}>
+                  <Icon name="gear" size={22} />
+                  הגדרות
+                </button>
+                <button type="button" className="icon-btn parent-btn" aria-label="אזור הורים" onClick={onOpenParent}>
+                  <Icon name="lock" size={18} />
                 </button>
                 <button type="button" className="small-btn" onClick={() => { setSelecting(true); setUndo(null); }} disabled={visible.length === 0}>
                   בחירה
