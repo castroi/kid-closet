@@ -63,7 +63,6 @@ export function allowedVersions(branch, base) {
   }
 }
 
-/** Returns { ok, message }. */
 /**
  * The branch a GitHub merge commit came from, e.g. "Merge pull request #12 from castroi/feat/x" → "feat/x";
  * null for any other commit message (a squash merge, a direct commit).
@@ -73,7 +72,7 @@ export function branchFromMergeMessage(message) {
   return m ? m[1] : null;
 }
 
-/** lock is package-lock.json's top-level version, rootLock its packages[""].version. */
+/** Returns { ok, message }. lock is package-lock.json's top-level version, rootLock its packages[""].version. */
 export function checkVersion({ branch, base, head, lock, rootLock = lock }) {
   try {
     parseVersion(base);
