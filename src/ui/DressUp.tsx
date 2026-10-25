@@ -10,8 +10,8 @@ import {
   stepSelection,
   type SlotFilter,
 } from '../core/closet';
+import { filterParts } from '../core/gallery';
 import {
-  COLOR_INFO,
   ITEM_TYPES,
   OCCASIONS,
   OCCASION_LABEL,
@@ -23,12 +23,16 @@ import {
   type Slot,
 } from '../core/model';
 import { ColorPicker, Garment, Icon, Sheet, Swatch, Toast, explainedElsewhere } from './common';
+import { Gallery } from './Gallery';
 
 /** November to March counts as cold by default (Israel). */
 export function isColdSeason(date: Date): boolean {
   const month = date.getMonth();
   return month >= 10 || month <= 2;
 }
+
+/** A click this soon after the finger moved is the end of a swipe or scroll, not a tap. */
+const SWIPE_CLICK_MS = 500;
 
 const COLD_BOTTOM: SlotFilter = { type: 'pants', color: null };
 
@@ -57,6 +61,7 @@ export function DressUp({ initialOutfit = null, today = new Date(), onOpenFavori
     bottom: initialOutfit?.bottomId ?? null,
   });
   const [sheet, setSheet] = useState<Slot | null>(null);
+  const [gallery, setGallery] = useState<Slot | null>(null);
   const [preview, setPreview] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
   const [saveError, setSaveError] = useState(false);
@@ -77,8 +82,17 @@ export function DressUp({ initialOutfit = null, today = new Date(), onOpenFavori
   const canPreview = top !== null && bottom !== null;
 
   const setFilter = (slot: Slot, filter: SlotFilter) => {
+    // Remember the garment she's looking at, so widening the filter keeps it instead of jumping to the first one.
+    const shown = view(slot).current;
+    if (shown) setSelected((s) => ({ ...s, [slot]: shown.id }));
     setFilters((f) => ({ ...f, [slot]: filter }));
     setJustSaved(false);
+  };
+
+  const pick = (slot: Slot, id: string) => {
+    setSelected((s) => ({ ...s, [slot]: id }));
+    setJustSaved(false);
+    setGallery(null);
   };
 
   const step = (slot: Slot, list: Item[], delta: 1 | -1) => {
@@ -187,27 +201,12 @@ export function DressUp({ initialOutfit = null, today = new Date(), onOpenFavori
         {slots.map((slot) => {
           const { list, off, current } = view(slot);
           const filter = filters[slot];
-          const filterParts = [
-            filter.type ? TYPE_INFO[filter.type].short : null,
-            filter.color ? COLOR_INFO[filter.color].label : null,
-          ].filter(Boolean);
-          const hasFilter = filterParts.length > 0;
+          const parts = filterParts(filter);
+          const hasFilter = parts.length > 0;
           return (
             <section key={slot} aria-label={SLOT_LABEL[slot]}>
               <div className="row-header">
                 <h2>{SLOT_LABEL[slot]}</h2>
-                {hasFilter && (
-                  <button
-                    type="button"
-                    className="filter-tag"
-                    aria-label={`ניקוי סינון: ${filterParts.join(' ')}`}
-                    onClick={() => setFilter(slot, NO_FILTER)}
-                  >
-                    {filter.color && <Swatch color={filter.color} />}
-                    <span>{filterParts.join(' · ')}</span>
-                    <Icon name="close" size={12} />
-                  </button>
-                )}
                 <span className="spacer" />
                 {slot === 'layer' && (
                   <button
@@ -222,15 +221,36 @@ export function DressUp({ initialOutfit = null, today = new Date(), onOpenFavori
                     בלי
                   </button>
                 )}
+                {/* When a filter is on, the button itself shows it (dark, with the colour), so the row never hides a filter. */}
+                <button
+                  type="button"
+                  className="small-btn filter-btn"
+                  aria-pressed={hasFilter}
+                  onClick={() => setSheet(slot)}
+                  disabled={off}
+                  aria-label={hasFilter ? `סוג וצבע של ${SLOT_LABEL[slot]}: ${parts.join(' ')}` : `סוג וצבע של ${SLOT_LABEL[slot]}`}
+                >
+                  {hasFilter ? (
+                    <>
+                      {filter.color && <Swatch color={filter.color} />}
+                      <span className="filter-btn-text">{parts.join(' · ')}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Icon name="filter" size={14} />
+                      סוג וצבע
+                    </>
+                  )}
+                </button>
                 <button
                   type="button"
                   className="small-btn"
-                  onClick={() => setSheet(slot)}
+                  onClick={() => setGallery(slot)}
                   disabled={off}
-                  aria-label={`סוג וצבע של ${SLOT_LABEL[slot]}`}
+                  aria-label={`גלריה של ${SLOT_LABEL[slot]}`}
                 >
-                  <Icon name="filter" size={16} />
-                  סוג וצבע
+                  <Icon name="grid" size={14} />
+                  גלריה
                 </button>
               </div>
               {off ? (
@@ -242,6 +262,7 @@ export function DressUp({ initialOutfit = null, today = new Date(), onOpenFavori
                   total={list.length}
                   height={cold ? 112 : 150}
                   onStep={(d) => step(slot, list, d)}
+                  onOpen={() => setGallery(slot)}
                 />
               ) : (
                 <div className="empty-slot">
@@ -263,6 +284,22 @@ export function DressUp({ initialOutfit = null, today = new Date(), onOpenFavori
         {canPreview ? 'לראות את הלוק' : 'צריך לבחור חולצה ומכנסיים'}
       </button>
 
+      {gallery && (
+        <Gallery
+          slot={gallery}
+          pool={view(gallery).pool}
+          filter={filters[gallery]}
+          selectedId={view(gallery).current?.id ?? selected[gallery]}
+          context={slots
+            .filter((s) => s !== gallery)
+            .map((s) => view(s).current)
+            .filter((it): it is Item => it !== null)}
+          onFilterChange={(f) => setFilter(gallery, f)}
+          onPick={(id) => pick(gallery, id)}
+          onClose={() => setGallery(null)}
+        />
+      )}
+
       {sheet && (
         <FilterSheet
           slot={sheet}
@@ -282,32 +319,57 @@ function Carousel({
   total,
   height,
   onStep,
+  onOpen,
 }: {
   item: Item;
   index: number;
   total: number;
   height: number;
   onStep: (delta: 1 | -1) => void;
+  onOpen: () => void;
 }) {
-  const startX = useRef<number | null>(null);
+  const start = useRef<{ x: number; y: number } | null>(null);
+  // When the finger last moved (a swipe or scroll). Only the click the browser sends right after it is ignored,
+  // so a later keyboard or VoiceOver activation, which has no pointer, still opens the gallery.
+  const movedAt = useRef<number | null>(null);
   return (
     <div
       className="carousel"
       onPointerDown={(e) => {
-        startX.current = e.clientX;
+        start.current = { x: e.clientX, y: e.clientY };
+        movedAt.current = null;
       }}
       onPointerUp={(e) => {
-        if (startX.current === null) return;
-        const dx = e.clientX - startX.current;
-        startX.current = null;
+        if (start.current === null) return;
+        const dx = e.clientX - start.current.x;
+        const dy = e.clientY - start.current.y;
+        start.current = null;
+        if (Math.abs(dx) > 10 || Math.abs(dy) > 10) movedAt.current = e.timeStamp;
         if (Math.abs(dx) > 40 && total > 1) onStep(dx < 0 ? 1 : -1);
+      }}
+      onPointerCancel={(e) => {
+        start.current = null;
+        movedAt.current = e.timeStamp;
       }}
     >
       <button type="button" className="icon-btn step" aria-label="הקודם" onClick={() => onStep(-1)} disabled={total < 2}>
         <Icon name="prev" />
       </button>
       <div className="garment-box">
-        <Garment item={item} height={height} />
+        <button
+          type="button"
+          className="garment-btn"
+          aria-label={`פתיחת הגלריה: ${item.name}`}
+          onClick={(e) => {
+            const swipedJustNow = movedAt.current !== null && e.timeStamp - movedAt.current < SWIPE_CLICK_MS;
+            movedAt.current = null;
+            // detail is 0 for keyboard and assistive-technology clicks: never ignore those.
+            if (swipedJustNow && e.detail !== 0) return;
+            onOpen();
+          }}
+        >
+          <Garment item={item} height={height} />
+        </button>
         <span className="garment-name">
           {item.name} <span className="count">· {index + 1}/{total}</span>
         </span>

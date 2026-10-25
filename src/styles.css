@@ -290,8 +290,9 @@ button:disabled {
 
 .row-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 4px 6px;
   min-height: 48px;
   padding: 0 6px;
 }
@@ -306,26 +307,6 @@ button:disabled {
   flex: 1;
 }
 
-.filter-tag {
-  min-height: 36px;
-  max-width: 140px;
-  padding: 0 10px;
-  border-radius: 18px;
-  border: none;
-  background: var(--tag);
-  font-size: 13px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  overflow: hidden;
-}
-
-.filter-tag span {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .small-btn {
   min-height: 44px;
   padding: 0 12px;
@@ -337,11 +318,43 @@ button:disabled {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  white-space: nowrap;
 }
 
 .small-btn[aria-pressed='true'] {
   background: var(--ink);
   color: var(--on-ink);
+}
+
+/* With a filter on, the button shows it; long combinations are cut, the full text is in its label. */
+.filter-btn {
+  max-width: 136px;
+  overflow: hidden;
+}
+
+.filter-btn .swatch {
+  border-color: var(--on-ink);
+}
+
+.filter-btn-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Row buttons are a little tighter so heading, "בלי", "סוג וצבע" and "גלריה" fit one line on a 360px phone. */
+.row-header .small-btn {
+  padding: 0 10px;
+  gap: 4px;
+}
+
+/* The garment photo opens the gallery. */
+.garment-btn {
+  border: none;
+  background: transparent;
+  padding: 0;
+  width: 100%;
+  display: flex;
+  justify-content: center;
 }
 
 .carousel {
@@ -823,4 +836,158 @@ button:disabled {
   justify-content: center;
   gap: 6px;
   white-space: normal;
+}
+
+/* Gallery: a near full-screen sheet; filters stay on top while the grid scrolls. */
+.sheet.tall {
+  height: 92dvh;
+  max-height: 92dvh;
+  overflow: hidden;
+  overscroll-behavior: contain;
+  padding-bottom: 0;
+  gap: 10px;
+}
+
+.gallery-head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.gallery-head > .muted {
+  margin-top: -8px;
+}
+
+.clear-chip {
+  align-self: flex-start;
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 22px;
+  border: none;
+  background: var(--ink);
+  color: var(--on-ink);
+  font-size: 15px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.clear-chip .swatch {
+  border-color: var(--on-ink);
+}
+
+.look-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.look-thumb {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.look-thumb .garment,
+.look-thumb .garment-placeholder {
+  width: 36px !important;
+  height: 36px !important;
+  border-radius: 8px;
+}
+
+.chips.scroll-row {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+}
+
+.chips.scroll-row .chip {
+  flex: none;
+}
+
+.colors.compact {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.colors.compact .color-btn {
+  flex: none;
+  width: 52px;
+}
+
+.gallery-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* The tiles' offsetParent, so the gallery can scroll the current tile into the middle. */
+  position: relative;
+  margin: 0 -20px;
+  padding: 12px 20px calc(20px + env(safe-area-inset-bottom));
+  background: var(--bg);
+}
+
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.gallery-tile {
+  position: relative;
+  border-radius: 20px;
+  background: var(--surface);
+  border: 3px solid transparent;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.gallery-tile[aria-current='true'] {
+  border-color: var(--ink);
+}
+
+.gallery-photo {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  max-height: 200px;
+  border-radius: 14px;
+  background: var(--surface-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.gallery-photo .garment-placeholder {
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: 14px;
+}
+
+.gallery-photo .garment {
+  height: 100% !important;
+  border-radius: 14px;
+  outline: 1px solid var(--photo-border);
+}
+
+.gallery-name {
+  font-size: 13px;
+  font-weight: 500;
+  text-align: center;
+}
+
+.btn.show-all {
+  width: 100%;
+  margin-top: 16px;
 }
