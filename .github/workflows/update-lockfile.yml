@@ -1,10 +1,17 @@
-# Regenerates package-lock.json after a dependency change in package.json, for
-# when `npm install` can't be run locally. Run it from the Actions tab
-# ("Update lockfile" → Run workflow → choose your branch, never main). It
-# commits to that branch and then starts CI for the new commit.
+# Regenerates package-lock.json when package.json changes on a branch, for
+# when `npm install` can't be run locally. Runs by itself on every push to a
+# branch other than main that touches package.json (or this file); can also be
+# started from the Actions tab. It commits to that branch and then starts CI
+# for the new commit. Its own commit only changes package-lock.json, so it
+# does not start itself again.
 name: Update lockfile
 
 on:
+  push:
+    branches-ignore: [main]
+    paths:
+      - package.json
+      - .github/workflows/update-lockfile.yml
   workflow_dispatch:
 
 permissions:

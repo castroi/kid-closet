@@ -7,7 +7,7 @@ Outfit picker for one 11-year-old on her iPhone. Static PWA on Vercel; no server
 - Every change gets its own branch from `main`, named `<type>/<short-description>` (`feat`, `fix`, `chore`, `docs`, `test`). Why: `main` is what Vercel deploys.
 - Never commit directly to `main`; push the branch and open a pull request. Only the owner merges, after CI is green.
 - Run `npm run lint`, `npm run typecheck` and `npm run test:coverage` before pushing.
-- Commit `package-lock.json` with every dependency change. If `npm install` can't run locally, use the "Update lockfile" workflow in the Actions tab on your branch (never on `main`).
+- Commit `package-lock.json` with every dependency change. If `npm install` can't run locally, just push the `package.json` change to your branch: the "Update lockfile" workflow commits the lockfile there by itself and reruns CI (never on `main`).
 - A code review agent reviews every change before it is pushed.
 
 ## Platform decisions
