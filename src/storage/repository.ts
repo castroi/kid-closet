@@ -35,15 +35,58 @@ export class ClosetCorruptedError extends Error {
   }
 }
 
+/** Thrown when another open copy of the app saved since this copy loaded the closet. */
+export class ClosetChangedElsewhereError extends Error {
+  constructor() {
+    super('The closet was changed in another window');
+    this.name = 'ClosetChangedElsewhereError';
+  }
+}
+
+export type WriteLock = <T>(fn: () => Promise<T>) => Promise<T>;
+
+/** How long to wait for another copy to release the lock (e.g. a suspended background tab). */
+export const WRITE_LOCK_WAIT_MS = 15_000;
+
+/**
+ * A WriteLock shared by every tab of this site, or undefined where the phone has no
+ * Web Locks. Waiting for it gives up after WRITE_LOCK_WAIT_MS (where the phone
+ * supports AbortSignal.timeout), so the operation fails with an error the parent can
+ * retry instead of hanging.
+ */
+export function webWriteLock(
+  locks: Pick<LockManager, 'request'> | undefined,
+  // null means "wait without a limit"; undefined would fall back to this default.
+  timeoutSignal: ((ms: number) => AbortSignal) | null = typeof AbortSignal !== 'undefined' &&
+  typeof AbortSignal.timeout === 'function'
+    ? (ms) => AbortSignal.timeout(ms)
+    : null,
+): WriteLock | undefined {
+  if (!locks) return undefined;
+  return <T>(fn: () => Promise<T>) => {
+    const options: LockOptions = timeoutSignal ? { signal: timeoutSignal(WRITE_LOCK_WAIT_MS) } : {};
+    // request() resolves with what the callback's promise resolves to.
+    return locks.request('kid-closet-write', options, () => fn()) as unknown as Promise<T>;
+  };
+}
+
 export class ClosetRepository {
   private data: ClosetData = emptyCloset();
   private generation = 0;
   private queue: Promise<unknown> = Promise.resolve();
 
+  /**
+   * `writeLock` runs each whole operation (load, save, add, delete, backup read,
+   * restore) exclusively across all open copies of the app; main.tsx passes one
+   * built on the Web Locks API. Whole operations, not just the closet write, so one
+   * copy's photo cleanup can't delete a photo another copy is in the middle of
+   * adding. Without a lock (older Safari), saves are still checked against the disk.
+   */
   constructor(
     private readonly store: FileStore,
     private readonly clock: () => string = () => new Date().toISOString(),
     private readonly newId: () => string = () => crypto.randomUUID(),
+    private readonly writeLock: WriteLock = (fn) => fn(),
   ) {}
 
   getData(): ClosetData {
@@ -57,8 +100,13 @@ export class ClosetRepository {
     return run;
   }
 
+  /** One at a time in this copy, and exclusive across copies. The lock is not re-entrant: never nest. */
+  private locked<T>(op: () => Promise<T>): Promise<T> {
+    return this.enqueue(() => this.writeLock(op));
+  }
+
   load(): Promise<ClosetData> {
-    return this.enqueue(async () => {
+    return this.locked(async () => {
       let best: Envelope | null = null;
       let foundAny = false;
       let highestSeen = 0;
@@ -85,7 +133,35 @@ export class ClosetRepository {
     });
   }
 
-  private async persist(next: ClosetData): Promise<ClosetData> {
+  /** The highest generation in the closet files on disk, readable or not. */
+  private async highestOnDisk(): Promise<number> {
+    let highest = 0;
+    for (const file of CLOSET_FILES) {
+      const blob = await this.store.read(file);
+      if (!blob) continue;
+      const { generation } = await readEnvelope(blob);
+      highest = Math.max(highest, generation ?? 0);
+    }
+    return highest;
+  }
+
+  /**
+   * Saves `next` above every generation on disk. If another copy of the app (a
+   * second tab) has saved since this one loaded, a normal save is refused rather
+   * than silently overwriting that copy's changes; a restore (`replace`) goes
+   * ahead, since it replaces the whole closet on purpose. Callers hold the lock.
+   *
+   * One harmless false alarm: if a write is reported as failed but did land (the
+   * file worker timed out just as it finished), the next save sees its own
+   * generation as newer and is refused as "changed elsewhere". The reload then
+   * shows that saved closet, so nothing is lost; only the message is off.
+   */
+  private async persist(next: ClosetData, mode: 'change' | 'replace' = 'change'): Promise<ClosetData> {
+    const onDisk = await this.highestOnDisk();
+    if (onDisk > this.generation) {
+      if (mode === 'change') throw new ClosetChangedElsewhereError();
+      this.generation = onDisk;
+    }
     const generation = this.generation + 1;
     const envelope: Envelope = { generation, savedAt: this.clock(), closet: next };
     const file = CLOSET_FILES[generation % 2];
@@ -97,11 +173,11 @@ export class ClosetRepository {
 
   /** Applies a pure change to the closet and saves it. */
   update(change: (current: ClosetData) => ClosetData): Promise<ClosetData> {
-    return this.enqueue(() => this.persist(change(this.data)));
+    return this.locked(() => this.persist(change(this.data)));
   }
 
   addItem(input: NewItem, image: StoredImage): Promise<Item> {
-    return this.enqueue(async () => {
+    return this.locked(async () => {
       const id = this.newId();
       const path = `${IMAGES_DIR}/${id}.${image.ext}`;
       const now = this.clock();
@@ -130,7 +206,7 @@ export class ClosetRepository {
   }
 
   deleteItems(ids: string[]): Promise<ClosetData> {
-    return this.enqueue(async () => {
+    return this.locked(async () => {
       const set = new Set(ids);
       const paths = this.data.items.filter((it) => set.has(it.id)).map((it) => it.image);
       const next = await this.persist(removeItems(this.data, ids));
@@ -149,7 +225,7 @@ export class ClosetRepository {
    * can become unreadable once the file is deleted.
    */
   snapshot(): Promise<{ data: ClosetData; images: Map<string, Uint8Array | null> }> {
-    return this.enqueue(async () => {
+    return this.locked(async () => {
       const data = this.data;
       const images = new Map<string, Uint8Array | null>();
       for (const item of data.items) {
@@ -162,13 +238,13 @@ export class ClosetRepository {
 
   /** Replaces the whole closet (used by restore from backup). */
   replaceAll(next: ClosetData, images: Map<string, Blob>): Promise<ClosetData> {
-    return this.enqueue(async () => {
+    return this.locked(async () => {
       for (const item of next.items) {
         const blob = images.get(item.image);
         if (!blob) throw new Error(`Missing photo ${item.image}`);
         await this.store.write(item.image, blob);
       }
-      const saved = await this.persist(next);
+      const saved = await this.persist(next, 'replace');
       await this.removeOrphanImages();
       return saved;
     });

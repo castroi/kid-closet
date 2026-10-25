@@ -2,7 +2,15 @@
 import { describe, expect, it, vi } from 'vitest';
 import { NOW, closetWith, makeItem, makeOutfit, seededStore } from '../test/data';
 import { MemoryFileStore, blobToText } from './fileStore';
-import { CLOSET_FILES, ClosetCorruptedError, ClosetRepository } from './repository';
+import {
+  CLOSET_FILES,
+  ClosetChangedElsewhereError,
+  ClosetCorruptedError,
+  ClosetRepository,
+  WRITE_LOCK_WAIT_MS,
+  webWriteLock,
+  type WriteLock,
+} from './repository';
 
 const image = { blob: new Blob(['photo'], { type: 'image/webp' }), ext: 'webp' as const };
 const newItem = { name: 'חולצה', type: 'tee' as const, colorGroup: 'blue' as const, occasions: ['school' as const] };
@@ -224,5 +232,138 @@ describe('ClosetRepository', () => {
     const repo = new ClosetRepository(store);
     expect(await repo.readImage('images/a.webp')).not.toBeNull();
     expect(await repo.readImage('images/none.webp')).toBeNull();
+  });
+});
+
+describe('two open copies of the app', () => {
+  async function twoCopies() {
+    const store = seededStore(closetWith([makeItem({ id: 'a' })]));
+    const first = new ClosetRepository(store, () => NOW, () => 'fromFirst');
+    const second = new ClosetRepository(store, () => NOW, () => 'fromSecond');
+    await first.load();
+    await second.load();
+    return { store, first, second };
+  }
+
+  it('refuses a save that would overwrite the other copy, and keeps its change', async () => {
+    const { store, first, second } = await twoCopies();
+    await second.addItem(newItem, image);
+    await expect(first.update((d) => ({ ...d, lastBackupAt: NOW }))).rejects.toBeInstanceOf(ClosetChangedElsewhereError);
+    const onDisk = await new ClosetRepository(store).load();
+    expect(onDisk.items.map((i) => i.id)).toEqual(['a', 'fromSecond']);
+    expect(onDisk.lastBackupAt).toBeNull();
+  });
+
+  it('saves again once it has reloaded the newer closet', async () => {
+    const { store, first, second } = await twoCopies();
+    await second.update((d) => ({ ...d, lastBackupAt: NOW }));
+    await expect(first.update((d) => d)).rejects.toBeInstanceOf(ClosetChangedElsewhereError);
+    await first.load();
+    await first.addItem(newItem, image);
+    const onDisk = await new ClosetRepository(store).load();
+    expect(onDisk.items.map((i) => i.id).sort()).toEqual(['a', 'fromFirst']);
+    expect(onDisk.lastBackupAt).toBe(NOW);
+  });
+
+  it('removes the photo of a refused new item', async () => {
+    const { store, first, second } = await twoCopies();
+    await second.update((d) => d);
+    await expect(first.addItem(newItem, image)).rejects.toBeInstanceOf(ClosetChangedElsewhereError);
+    expect(store.files.has('images/fromFirst.webp')).toBe(false);
+    expect(first.getData().items.map((i) => i.id)).toEqual(['a']);
+  });
+
+  it('keeps the photos of a refused delete', async () => {
+    const { store, first, second } = await twoCopies();
+    await second.update((d) => d);
+    await expect(first.deleteItems(['a'])).rejects.toBeInstanceOf(ClosetChangedElsewhereError);
+    expect(store.files.has('images/a.webp')).toBe(true);
+  });
+
+  it('lets a restore replace the closet, saving above the other copy', async () => {
+    const { store, first, second } = await twoCopies();
+    await second.update((d) => d); // generation 2
+    await second.update((d) => d); // generation 3
+    await first.replaceAll(closetWith([makeItem({ id: 'r' })]), new Map([['images/r.webp', new Blob(['r'])]]));
+    expect(await savedGeneration(store, CLOSET_FILES[0])).toBe(4);
+    expect((await new ClosetRepository(store).load()).items.map((i) => i.id)).toEqual(['r']);
+  });
+
+  it('runs every file access of every operation inside the shared write lock', async () => {
+    const store = seededStore(closetWith([makeItem({ id: 'a' })]));
+    let inside = false;
+    const outside: string[] = [];
+    const lock: WriteLock = async (fn) => {
+      inside = true;
+      try {
+        return await fn();
+      } finally {
+        inside = false;
+      }
+    };
+    for (const method of ['read', 'write', 'remove', 'list'] as const) {
+      const original = store[method].bind(store) as unknown as (...args: unknown[]) => Promise<unknown>;
+      vi.spyOn(store, method).mockImplementation((async (...args: unknown[]) => {
+        if (!inside) outside.push(`${method} ${String(args[0])}`);
+        return original(...args);
+      }) as never);
+    }
+    const repo = new ClosetRepository(store, () => NOW, () => 'x', lock);
+    await repo.load(); // reads both closet files, lists photos
+    await repo.addItem(newItem, image); // photo write, generation check, closet write
+    await repo.update((d) => d);
+    await repo.snapshot();
+    await repo.deleteItems(['a']); // closet write, then photo removal
+    await repo.replaceAll(closetWith([makeItem({ id: 'r' })]), new Map([['images/r.webp', new Blob(['r'])]]));
+    expect(outside).toEqual([]);
+  });
+
+  it('never takes the lock twice in one operation (it is not re-entrant)', async () => {
+    let depth = 0;
+    let deepest = 0;
+    const lock: WriteLock = async (fn) => {
+      depth += 1;
+      deepest = Math.max(deepest, depth);
+      try {
+        return await fn();
+      } finally {
+        depth -= 1;
+      }
+    };
+    const repo = new ClosetRepository(seededStore(closetWith([makeItem({ id: 'a' })])), () => NOW, () => 'x', lock);
+    await repo.load();
+    await repo.addItem(newItem, image);
+    await repo.deleteItems(['a']);
+    await repo.replaceAll(closetWith([]), new Map());
+    expect(deepest).toBe(1);
+  });
+});
+
+describe('webWriteLock', () => {
+  it('is missing where the phone has no Web Locks', () => {
+    expect(webWriteLock(undefined)).toBeUndefined();
+  });
+
+  it('runs the operation under one lock name, gives up waiting after a while, and returns its result', async () => {
+    const request = vi.fn((_name: string, _options: LockOptions, callback: () => unknown) => Promise.resolve(callback()));
+    const signal = new AbortController().signal;
+    const timeoutSignal = vi.fn(() => signal);
+    const lock = webWriteLock({ request } as unknown as Pick<LockManager, 'request'>, timeoutSignal)!;
+    await expect(lock(async () => 42)).resolves.toBe(42);
+    expect(request).toHaveBeenCalledWith('kid-closet-write', { signal }, expect.any(Function));
+    expect(timeoutSignal).toHaveBeenCalledWith(WRITE_LOCK_WAIT_MS);
+  });
+
+  it('waits without a limit where the phone has no AbortSignal.timeout', async () => {
+    const request = vi.fn((_name: string, _options: LockOptions, callback: () => unknown) => Promise.resolve(callback()));
+    const lock = webWriteLock({ request } as unknown as Pick<LockManager, 'request'>, null)!;
+    await expect(lock(async () => 'ok')).resolves.toBe('ok');
+    expect(request).toHaveBeenCalledWith('kid-closet-write', {}, expect.any(Function));
+  });
+
+  it('reports a timed-out wait as an error', async () => {
+    const request = vi.fn(() => Promise.reject(new DOMException('timed out', 'AbortError')));
+    const lock = webWriteLock({ request } as unknown as Pick<LockManager, 'request'>, () => new AbortController().signal)!;
+    await expect(lock(async () => 1)).rejects.toThrow('timed out');
   });
 });

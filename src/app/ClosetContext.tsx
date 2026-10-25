@@ -8,7 +8,7 @@ import {
 } from '../core/closet';
 import type { ClosetData, Item, ItemStatus, Outfit } from '../core/model';
 import { exportBackup, importBackup } from '../storage/backup';
-import type { ClosetRepository, NewItem, StoredImage } from '../storage/repository';
+import { ClosetChangedElsewhereError, type ClosetRepository, type NewItem, type StoredImage } from '../storage/repository';
 
 export type OutfitInput = Omit<Outfit, 'id' | 'createdAt'>;
 
@@ -63,17 +63,50 @@ export function ClosetProvider({ repo, children, now = defaultNow, newId = defau
     };
   }, [repo]);
 
-  const commit = useCallback(
-    async (change: (d: ClosetData) => ClosetData) => {
-      const data = await repo.update(change);
-      setState({ kind: 'ready', data });
+  const [changedElsewhere, setChangedElsewhere] = useState(false);
+
+  /**
+   * Runs a save. If another open copy of the app saved first, the save was refused
+   * so nothing got overwritten: show that copy's newer closet and say so. The error
+   * still reaches the caller, which shows its own "try again" message.
+   */
+  const guard = useCallback(
+    async <T,>(save: () => Promise<T>): Promise<T> => {
+      try {
+        return await save();
+      } catch (err) {
+        if (err instanceof ClosetChangedElsewhereError) {
+          try {
+            setState({ kind: 'ready', data: await repo.load() });
+            setChangedElsewhere(true);
+          } catch (loadError) {
+            // The newer closet can't be read. Keeping the old one on screen would let
+            // the next save overwrite it, so show the recovery screen instead.
+            setState({
+              kind: 'error',
+              error: loadError instanceof Error ? loadError : new Error(String(loadError)),
+            });
+          }
+        }
+        throw err;
+      }
     },
     [repo],
+  );
+
+  const commit = useCallback(
+    (change: (d: ClosetData) => ClosetData) =>
+      guard(async () => {
+        const data = await repo.update(change);
+        setState({ kind: 'ready', data });
+      }),
+    [repo, guard],
   );
 
   const restore = useCallback(
     async (zip: Uint8Array) => {
       const data = await importBackup(repo, zip);
+      setChangedElsewhere(false);
       setState({ kind: 'ready', data });
     },
     [repo],
@@ -87,17 +120,19 @@ export function ClosetProvider({ repo, children, now = defaultNow, newId = defau
     if (!data) return null;
     return {
       data,
-      async addItem(input, image) {
-        const item = await repo.addItem(input, image);
-        setState({ kind: 'ready', data: repo.getData() });
-        return item;
-      },
+      addItem: (input, image) =>
+        guard(async () => {
+          const item = await repo.addItem(input, image);
+          setState({ kind: 'ready', data: repo.getData() });
+          return item;
+        }),
       updateItem: (id, patch) => commit((d) => updateItemIn(d, id, patch, now())),
       setStatus: (ids, status) => commit((d) => setStatusOf(d, ids, status, now())),
-      async deleteItems(ids) {
-        const next = await repo.deleteItems(ids);
-        setState({ kind: 'ready', data: next });
-      },
+      deleteItems: (ids) =>
+        guard(async () => {
+          const next = await repo.deleteItems(ids);
+          setState({ kind: 'ready', data: next });
+        }),
       addOutfit: (outfit) => commit((d) => addOutfitTo(d, { ...outfit, id: newId(), createdAt: now() })),
       removeOutfit: (id) => commit((d) => removeOutfitFrom(d, id)),
       exportBackup: () => exportBackup(repo, now()),
@@ -105,7 +140,7 @@ export function ClosetProvider({ repo, children, now = defaultNow, newId = defau
       importBackup: restore,
       readImage,
     };
-  }, [data, repo, commit, restore, readImage, now, newId]);
+  }, [data, repo, commit, guard, restore, readImage, now, newId]);
 
   if (state.kind === 'loading') {
     return (
@@ -117,5 +152,17 @@ export function ClosetProvider({ repo, children, now = defaultNow, newId = defau
   if (state.kind === 'error') {
     return <>{renderError ? renderError(state.error, restore) : <p className="error">{state.error.message}</p>}</>;
   }
-  return <ClosetContext.Provider value={api}>{children}</ClosetContext.Provider>;
+  return (
+    <ClosetContext.Provider value={api}>
+      {changedElsewhere && (
+        <div className="warn changed-elsewhere" role="status" dir="rtl">
+          <span>הארון השתנה בחלון אחר, אז השינוי האחרון לא נשמר. עכשיו מוצג הארון המעודכן.</span>
+          <button type="button" className="btn" onClick={() => setChangedElsewhere(false)}>
+            הבנתי
+          </button>
+        </div>
+      )}
+      {children}
+    </ClosetContext.Provider>
+  );
 }
