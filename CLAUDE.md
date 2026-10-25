@@ -10,9 +10,9 @@ Outfit picker for one 11-year-old on her iPhone. Static PWA on Vercel; no server
 - Commit `package-lock.json` with every dependency change. If `npm install` can't run locally, just push the `package.json` change to your branch: the "Update lockfile" workflow commits the lockfile there by itself and reruns CI (never on `main`).
 - A code review agent reviews every pull request before it is merged, on the pull request itself, so the review stays in the PR's history:
   1. Push the branch and open the pull request as a **draft**. CI runs while the review happens.
-  2. The review agent reads the PR diff and posts its verdict and findings as a GitHub review (line comments where they help). It posts as the PR author, so the review is a comment review with the verdict in its text; GitHub doesn't let authors approve their own PR.
-  3. Fix findings as new commits on the branch (no force-push, so the history shows how each was answered) and reply on the review.
-  4. When CI is green and every finding is fixed or explicitly left to the owner, mark the PR ready for review. Only the owner merges.
+  2. The review agent reads the PR diff and posts its verdict and findings as a GitHub review (line comments where they help). When it posts with the PR author's token, the review must be a comment review with the verdict in its text, because GitHub doesn't let authors approve their own PR.
+  3. Fix findings as new commits on the branch. Never force-push, so the history shows how each finding was answered; if the branch falls behind `main`, merge `main` into it instead of rebasing. Then post one PR comment that lists every finding with the commit that fixed it, or why it is left to the owner.
+  4. The review agent checks the fix commits and posts a short follow-up review. When CI is green and that follow-up confirms every finding is fixed or listed as left to the owner, mark the PR ready for review. Only the owner merges.
 - One review agent can review a series of PRs in a row, keeping its project context, but each PR gets its own review.
 
 ## Platform decisions
