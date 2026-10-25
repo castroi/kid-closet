@@ -38,9 +38,23 @@ export function Closet({ onOpenParent, onOpenSettings }: { onOpenParent: () => v
   const activeCount = data.items.filter((it) => it.status === 'active').length;
   const isOutgrownTab = tab === 'outgrown';
 
+  // An error belongs to the action she just tried; moving on to something else clears it.
   const changeTab = (t: Tab) => {
     setTab(t);
     setSelected(new Set());
+    setError(null);
+  };
+
+  const startSelecting = () => {
+    setSelecting(true);
+    setUndo(null);
+    setError(null);
+  };
+
+  const stopSelecting = () => {
+    setSelecting(false);
+    setSelected(new Set());
+    setError(null);
   };
 
   /** Moves items between the closet and "קטן עליי". Throws on failure; the caller shows the error where she is looking. */
@@ -101,7 +115,7 @@ export function Closet({ onOpenParent, onOpenSettings }: { onOpenParent: () => v
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             {selecting ? (
-              <button type="button" className="small-btn" aria-pressed="true" onClick={() => { setSelecting(false); setSelected(new Set()); }}>
+              <button type="button" className="small-btn" aria-pressed="true" onClick={stopSelecting}>
                 ביטול
               </button>
             ) : (
@@ -113,7 +127,7 @@ export function Closet({ onOpenParent, onOpenSettings }: { onOpenParent: () => v
                 <button type="button" className="icon-btn parent-btn" aria-label="אזור הורים" onClick={onOpenParent}>
                   <Icon name="lock" size={18} />
                 </button>
-                <button type="button" className="small-btn" onClick={() => { setSelecting(true); setUndo(null); }} disabled={visible.length === 0}>
+                <button type="button" className="small-btn" onClick={startSelecting} disabled={visible.length === 0}>
                   בחירה
                 </button>
               </>

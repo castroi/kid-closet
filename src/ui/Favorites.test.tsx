@@ -59,7 +59,9 @@ describe('Favorites', () => {
     const { repo } = await renderWithCloset(<Favorites onOpen={vi.fn()} />, sampleCloset());
     vi.spyOn(repo, 'update').mockRejectedValueOnce(new Error('disk full'));
     await user.click(screen.getByRole('button', { name: /^הסרה מהמועדפים/ }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('לא הצלחנו להסיר את הלוק. נסי שוב.');
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('לא הצלחנו להסיר את הלוק. נסי שוב.');
+    expect(alert.closest('.action-bar')).not.toBeNull(); // outside the scrolling list, always in view
     expect(screen.getByRole('button', { name: /^פתיחת הלוק/ })).toBeInTheDocument();
     expect(screen.queryByText('הלוק הוסר מהמועדפים')).not.toBeInTheDocument();
     // The next tap clears the message and works.
@@ -101,5 +103,24 @@ describe('Favorites', () => {
     expect(screen.getByRole('button', { name: /^הסרה מהמועדפים/ })).toBeDisabled();
     finish();
     expect(await screen.findByText('הלוק הוסר מהמועדפים')).toBeInTheDocument();
+  });
+
+  it('keeps every heart disabled while its own removal is saving', async () => {
+    const user = userEvent.setup();
+    const { repo } = await renderWithCloset(<Favorites onOpen={vi.fn()} />, closetWithTwoLooks());
+    let finish: () => void = () => undefined;
+    const update = repo.update.bind(repo);
+    vi.spyOn(repo, 'update').mockImplementationOnce(async (change) => {
+      await new Promise<void>((r) => (finish = r));
+      return update(change);
+    });
+    const [first, second] = screen.getAllByRole('button', { name: /^הסרה מהמועדפים/ });
+    await user.click(first); // held
+    await user.click(second); // waits behind it in the save queue
+    expect(first).toBeDisabled();
+    expect(second).toBeDisabled();
+    finish();
+    expect(await screen.findByText(/עוד אין לוקים שמורים/)).toBeInTheDocument();
+    expect(repo.getData().outfits).toEqual([]);
   });
 });

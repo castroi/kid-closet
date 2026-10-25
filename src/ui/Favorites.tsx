@@ -7,22 +7,31 @@ import { Garment, Icon, Toast, explainedElsewhere } from './common';
 export function Favorites({ onOpen }: { onOpen: (outfit: Outfit) => void }) {
   const { data, removeOutfit, addOutfit } = useCloset();
   const [occasion, setOccasion] = useState<Occasion | null>(null);
-  const [removing, setRemoving] = useState<string | null>(null);
+  // Every look whose removal is still saving: its heart stays disabled until then.
+  const [removing, setRemoving] = useState<ReadonlySet<string>>(new Set());
   const [removed, setRemoved] = useState<Outfit | null>(null);
   const [error, setError] = useState<string | null>(null);
   const outfits = data.outfits.filter((o) => occasion === null || o.occasion === occasion);
 
+  const setRemovingId = (id: string, on: boolean) =>
+    setRemoving((current) => {
+      const next = new Set(current);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+
   // The card stays until the save is done, so a failed save never makes a look vanish and come back.
   const remove = async (outfit: Outfit) => {
     setError(null);
-    setRemoving(outfit.id);
+    setRemovingId(outfit.id, true);
     try {
       await removeOutfit(outfit.id);
       setRemoved(outfit);
     } catch (err) {
       if (!explainedElsewhere(err)) setError('לא הצלחנו להסיר את הלוק. נסי שוב.');
     } finally {
-      setRemoving(null);
+      setRemovingId(outfit.id, false);
     }
   };
 
@@ -30,6 +39,7 @@ export function Favorites({ onOpen }: { onOpen: (outfit: Outfit) => void }) {
     if (!removed) return;
     setError(null);
     try {
+      // Re-added as a new save, so the look comes back at the top of the list.
       await addOutfit({ occasion: removed.occasion, layerId: removed.layerId, topId: removed.topId, bottomId: removed.bottomId });
       setRemoved(null);
     } catch (err) {
@@ -53,12 +63,6 @@ export function Favorites({ onOpen }: { onOpen: (outfit: Outfit) => void }) {
             </button>
           ))}
         </div>
-        {/* Right under the filters, so it is seen even when the list is long. */}
-        {error && (
-          <p className="error" role="alert">
-            {error}
-          </p>
-        )}
         {outfits.length === 0 ? (
           <div className="center-message muted">
             {data.outfits.length === 0 ? 'עוד אין לוקים שמורים. במסך "להתלבש" לוחצים "לראות את הלוק" ואז "לשמור".' : 'אין לוקים שמורים כאן.'}
@@ -93,7 +97,7 @@ export function Favorites({ onOpen }: { onOpen: (outfit: Outfit) => void }) {
                       className="icon-btn"
                       style={{ color: 'var(--accent-text)' }}
                       aria-label={`הסרה מהמועדפים: ${description}`}
-                      disabled={removing === o.id}
+                      disabled={removing.has(o.id)}
                       onClick={() => remove(o)}
                     >
                       <Icon name="heart" filled />
@@ -106,9 +110,15 @@ export function Favorites({ onOpen }: { onOpen: (outfit: Outfit) => void }) {
         )}
       </div>
 
-      {removed && (
+      {/* Outside the scrolling list, so the message is seen wherever she tapped. */}
+      {(error || removed) && (
         <div className="action-bar">
-          <Toast text="הלוק הוסר מהמועדפים" actionLabel="ביטול" onAction={undo} />
+          {error && (
+            <p className="error" role="alert">
+              {error}
+            </p>
+          )}
+          {removed && <Toast text="הלוק הוסר מהמועדפים" actionLabel="ביטול" onAction={undo} />}
         </div>
       )}
     </>

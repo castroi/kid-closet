@@ -125,6 +125,29 @@ describe('Closet', () => {
     expect(alert.parentElement).toBe(moveButton.parentElement); // in the action bar, not below the list
   });
 
+  it('clears an old error once she moves on', async () => {
+    const user = userEvent.setup();
+    const { repo } = await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} />, sampleCloset());
+    const failOnce = () => vi.spyOn(repo, 'update').mockRejectedValueOnce(new Error('disk full'));
+
+    failOnce();
+    await user.click(screen.getByRole('button', { name: 'בחירה' }));
+    await user.click(screen.getByRole('button', { name: 'חולצה כחולה' }));
+    await user.click(screen.getByRole('button', { name: 'העברה ל"קטן עליי" (1)' }));
+    await screen.findByRole('alert');
+    await user.click(screen.getByRole('button', { name: 'מכנסיים (3)' })); // another tab
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+    failOnce();
+    await user.click(screen.getByRole('button', { name: 'ג׳ינס' }));
+    await user.click(screen.getByRole('button', { name: 'העברה ל"קטן עליי" (1)' }));
+    await screen.findByRole('alert');
+    await user.click(screen.getByRole('button', { name: 'ביטול' })); // leaves selection mode
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'בחירה' }));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('shows a failed undo next to the undo toast', async () => {
     const user = userEvent.setup();
     const { repo } = await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} />, sampleCloset());
