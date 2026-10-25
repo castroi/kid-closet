@@ -1,9 +1,9 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
-import { SHELL_FILES, buildId, serviceWorkerSource } from './serviceWorkerSource';
+import { SHELL_FILES, buildId, precacheFilesFromBuild, serviceWorkerSource } from './serviceWorkerSource';
 
 const ORIGIN = 'https://closet.test';
-const BUILD = ['/assets/index-abc.js', '/assets/opfs.worker-def.js', '/assets/webp_enc-123.wasm'];
+const BUILD = ['/assets/index-abc.js', '/assets/opfs.worker-def.js', '/assets/webp_enc-123.wasm', '/assets/webp_enc-456.js'];
 
 type Key = string | { url: string };
 const path = (key: Key) => (typeof key === 'string' ? key : new URL(key.url).pathname);
@@ -39,16 +39,24 @@ function fakeCaches(fetchFn: (key: Key) => Promise<Response>) {
   };
 }
 
+const HTML_PATHS = ['/', '/index.html'];
+/** A short page-load timeout, so tests of the weak-signal fallback stay fast. */
+const NAV_TIMEOUT = 30;
+
 /** Runs the generated service worker against fakes and returns handles to drive it. */
 function startWorker(buildFiles = BUILD) {
   const listeners = new Map<string, (event: unknown) => void>();
   let online = true;
+  let slow: Promise<void> | null = null;
   const served: string[] = [];
-  const fetchFn = vi.fn(async (key: Key) => {
+  const fetchFn = vi.fn(async (key: Key & { mode?: string }) => {
+    if (slow) await slow;
     if (!online) throw new TypeError('offline');
-    served.push(path(key));
-    if (path(key) === '/missing.js') return new Response('', { status: 404 });
-    return new Response(`network ${path(key)}`, { status: 200 });
+    const p = path(key);
+    served.push(p);
+    if (p === '/missing.js') return new Response('', { status: 404 });
+    const html = HTML_PATHS.includes(p) || (typeof key !== 'string' && key.mode === 'navigate' && !p.includes('.'));
+    return new Response(`network ${p}`, { status: 200, headers: { 'content-type': html ? 'text/html' : 'application/octet-stream' } });
   });
   const caches = fakeCaches(fetchFn);
   const claim = vi.fn(async () => undefined);
@@ -57,35 +65,56 @@ function startWorker(buildFiles = BUILD) {
     location: { origin: ORIGIN },
     clients: { claim },
   };
-  new Function('self', 'caches', 'fetch', serviceWorkerSource(buildFiles))(self, caches.api, fetchFn);
+  const source = serviceWorkerSource(buildFiles, NAV_TIMEOUT);
+  new Function('self', 'caches', 'fetch', source)(self, caches.api, fetchFn);
 
   const lifecycle = async (type: 'install' | 'activate') => {
     let work: Promise<unknown> = Promise.resolve();
     listeners.get(type)!({ waitUntil: (p: Promise<unknown>) => (work = p) });
     await work;
   };
-  const request = async (pathname: string, init: { method?: string; mode?: string; origin?: string } = {}) => {
+  /** Dispatches a fetch; resolves with the answer and a promise for the event's background work. */
+  const dispatch = (pathname: string, init: { method?: string; mode?: string; origin?: string } = {}) => {
     let reply: Promise<Response> | undefined;
+    const extended: Promise<unknown>[] = [];
     listeners.get('fetch')!({
       request: { url: `${init.origin ?? ORIGIN}${pathname}`, method: init.method ?? 'GET', mode: init.mode ?? 'cors' },
       respondWith: (p: Promise<Response>) => (reply = p),
+      waitUntil: (p: Promise<unknown>) => extended.push(p),
     });
+    // Like the browser: wait for every waitUntil promise, including ones added while waiting.
+    const background = async () => {
+      for (let i = 0; i < extended.length; i++) await extended[i];
+    };
+    return { reply, extended, background };
+  };
+  const request = async (pathname: string, init: { method?: string; mode?: string; origin?: string } = {}) => {
+    const { reply, background } = dispatch(pathname, init);
     if (!reply) return undefined;
     const response = await reply;
-    await new Promise((r) => setTimeout(r, 0)); // let background cache writes finish
+    await background();
     return response;
   };
+  let release: () => void = () => undefined;
   return {
     caches,
     claim,
     fetchFn,
     served,
     lifecycle,
+    dispatch,
     request,
     goOffline: () => (online = false),
-    cacheName: `kid-closet-${buildId(buildFiles)}`,
+    slowNetwork: () => (slow = new Promise<void>((r) => (release = r))),
+    releaseNetwork: () => {
+      slow = null;
+      release();
+    },
+    cacheName: `kid-closet-${/CACHE_PREFIX \+ "(\w+)"/.exec(source)![1]}`,
   };
 }
+
+const cacheNameOf = (source: string) => /CACHE_PREFIX \+ "(\w+)"/.exec(source)![1];
 
 describe('generated service worker', () => {
   it('pre-caches the app shell and every file of the build on install', async () => {
@@ -124,6 +153,40 @@ describe('generated service worker', () => {
     expect(await (await sw.request('/anything', { mode: 'navigate' }))!.text()).toBe('network /');
   });
 
+  it('shows the cached page on a weak signal, and still refreshes it from the late answer', async () => {
+    const sw = startWorker();
+    await sw.lifecycle('install');
+    sw.slowNetwork();
+    const { reply, background } = sw.dispatch('/', { mode: 'navigate' });
+    expect(await (await reply!)!.text()).toBe('network /index.html'); // the cached page, after the timeout
+    sw.releaseNetwork();
+    await background();
+    sw.goOffline();
+    expect(await (await sw.request('/', { mode: 'navigate' }))!.text()).toBe('network /');
+  });
+
+  it('waits for the network on a weak signal when no page is cached yet', async () => {
+    const sw = startWorker();
+    sw.slowNetwork();
+    const { reply } = sw.dispatch('/', { mode: 'navigate' });
+    setTimeout(() => sw.releaseNetwork(), NAV_TIMEOUT * 3);
+    expect(await (await reply!)!.text()).toBe('network /');
+  });
+
+  it('answers a page load with a network error when offline and nothing is cached', async () => {
+    const sw = startWorker();
+    sw.goOffline();
+    expect((await sw.request('/', { mode: 'navigate' }))!.type).toBe('error');
+  });
+
+  it('keeps only an HTML answer as the offline page', async () => {
+    const sw = startWorker();
+    await sw.lifecycle('install');
+    await sw.request('/manifest.webmanifest', { mode: 'navigate' }); // someone opened the manifest directly
+    sw.goOffline();
+    expect(await (await sw.request('/', { mode: 'navigate' }))!.text()).toBe('network /index.html');
+  });
+
   it('serves build files from the cache without the network', async () => {
     const sw = startWorker();
     await sw.lifecycle('install');
@@ -132,9 +195,13 @@ describe('generated service worker', () => {
     expect(sw.served).toEqual([]);
   });
 
-  it('fetches and caches a build file that is not cached yet', async () => {
+  it('fetches and caches a build file that is not cached yet, keeping the worker alive for the write', async () => {
     const sw = startWorker();
-    expect(await (await sw.request('/assets/late-chunk.js'))!.text()).toBe('network /assets/late-chunk.js');
+    const { reply, extended, background } = sw.dispatch('/assets/late-chunk.js');
+    expect(extended.length).toBe(1); // kept alive from the moment of the request, not only later
+    expect(await (await reply!)!.text()).toBe('network /assets/late-chunk.js');
+    expect(extended.length).toBeGreaterThan(1); // and the cache write is tied to the event too
+    await background();
     sw.goOffline();
     expect(await (await sw.request('/assets/late-chunk.js'))!.text()).toBe('network /assets/late-chunk.js');
   });
@@ -160,10 +227,41 @@ describe('generated service worker', () => {
     expect(await sw.request('/api', { method: 'POST' })).toBeUndefined();
     expect(await sw.request('/x.js', { origin: 'https://elsewhere.test' })).toBeUndefined();
   });
+
+  it('names the cache after both the files and the worker logic', () => {
+    expect(cacheNameOf(serviceWorkerSource(BUILD))).toBe(cacheNameOf(serviceWorkerSource([...BUILD].reverse())));
+    expect(cacheNameOf(serviceWorkerSource(BUILD))).not.toBe(cacheNameOf(serviceWorkerSource([...BUILD, '/assets/x.js'])));
+    // Different logic (here: another timeout), same files: a new cache.
+    expect(cacheNameOf(serviceWorkerSource(BUILD, 3000))).not.toBe(cacheNameOf(serviceWorkerSource(BUILD, 30)));
+  });
+});
+
+describe('precacheFilesFromBuild', () => {
+  it('lists the build files as site paths, without source maps, the page or the worker script itself', () => {
+    expect(
+      precacheFilesFromBuild([
+        'assets/index-abc.js',
+        'assets/index-abc.js.map',
+        'assets/opfs.worker-def.js',
+        'assets/webp_enc-123.wasm',
+        'assets/webp_enc-456.js',
+        'index.html',
+        'sw.js',
+      ]),
+    ).toEqual(['/assets/index-abc.js', '/assets/opfs.worker-def.js', '/assets/webp_enc-123.wasm', '/assets/webp_enc-456.js']);
+  });
+
+  it.each([
+    ['the file worker', ['assets/index.js', 'assets/webp_enc.wasm', 'assets/webp_enc.js']],
+    ['the WebP encoder (.wasm)', ['assets/index.js', 'assets/opfs.worker-1.js', 'assets/webp_enc.js']],
+    ['the WebP encoder (its .js loader)', ['assets/index.js', 'assets/opfs.worker-1.js', 'assets/webp_enc.wasm']],
+  ])('stops the build when %s is missing', (what, files) => {
+    expect(() => precacheFilesFromBuild(files)).toThrow(what);
+  });
 });
 
 describe('buildId', () => {
-  it('is the same for the same files in any order, and changes with them', () => {
+  it('is the same for the same parts in any order, and changes with them', () => {
     expect(buildId(['/a', '/b'])).toBe(buildId(['/b', '/a']));
     expect(buildId(['/a', '/b'])).not.toBe(buildId(['/a', '/c']));
     expect(buildId([])).toMatch(/^[0-9a-z]+$/);
