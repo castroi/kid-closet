@@ -1,17 +1,25 @@
 /// <reference types="vitest/config" />
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
-import { serviceWorkerSource } from './src/sw/serviceWorkerSource';
+import { precacheFilesFromBuild, serviceWorkerSource } from './src/sw/serviceWorkerSource';
 
-/** Writes /sw.js for this build, listing every file the build produced so it is all cached for offline use. */
+/**
+ * Writes /sw.js for this build, listing every file the build produced so it is all
+ * cached for offline use. Runs after the other plugins, so their files are in the
+ * list, and fails the build if the file worker or the WebP encoder is missing.
+ */
 function serviceWorker(): Plugin {
   return {
     name: 'kid-closet-service-worker',
     apply: 'build',
+    enforce: 'post',
     generateBundle(_options, bundle) {
-      const files = Object.keys(bundle)
-        .filter((name) => !name.endsWith('.map') && name !== 'index.html' && name !== 'sw.js')
-        .map((name) => `/${name}`);
+      let files: string[];
+      try {
+        files = precacheFilesFromBuild(Object.keys(bundle));
+      } catch (err) {
+        this.error((err as Error).message);
+      }
       this.emitFile({ type: 'asset', fileName: 'sw.js', source: serviceWorkerSource(files) });
     },
   };
