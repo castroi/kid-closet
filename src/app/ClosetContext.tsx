@@ -76,9 +76,17 @@ export function ClosetProvider({ repo, children, now = defaultNow, newId = defau
         return await save();
       } catch (err) {
         if (err instanceof ClosetChangedElsewhereError) {
-          const fresh = await repo.load().catch(() => null);
-          if (fresh) setState({ kind: 'ready', data: fresh });
-          setChangedElsewhere(true);
+          try {
+            setState({ kind: 'ready', data: await repo.load() });
+            setChangedElsewhere(true);
+          } catch (loadError) {
+            // The newer closet can't be read. Keeping the old one on screen would let
+            // the next save overwrite it, so show the recovery screen instead.
+            setState({
+              kind: 'error',
+              error: loadError instanceof Error ? loadError : new Error(String(loadError)),
+            });
+          }
         }
         throw err;
       }

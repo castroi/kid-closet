@@ -7,6 +7,7 @@ import {
   ClosetChangedElsewhereError,
   ClosetCorruptedError,
   ClosetRepository,
+  WRITE_LOCK_WAIT_MS,
   webWriteLock,
   type WriteLock,
 } from './repository';
@@ -288,10 +289,10 @@ describe('two open copies of the app', () => {
     expect((await new ClosetRepository(store).load()).items.map((i) => i.id)).toEqual(['r']);
   });
 
-  it('runs every save inside the shared write lock', async () => {
-    const store = seededStore(closetWith([]));
+  it('runs every file access of every operation inside the shared write lock', async () => {
+    const store = seededStore(closetWith([makeItem({ id: 'a' })]));
     let inside = false;
-    const seen: boolean[] = [];
+    const outside: string[] = [];
     const lock: WriteLock = async (fn) => {
       inside = true;
       try {
@@ -300,16 +301,41 @@ describe('two open copies of the app', () => {
         inside = false;
       }
     };
-    const write = store.write.bind(store);
-    vi.spyOn(store, 'write').mockImplementation(async (path, data) => {
-      if (path.endsWith('.json')) seen.push(inside);
-      return write(path, data);
-    });
+    for (const method of ['read', 'write', 'remove', 'list'] as const) {
+      const original = store[method].bind(store) as unknown as (...args: unknown[]) => Promise<unknown>;
+      vi.spyOn(store, method).mockImplementation((async (...args: unknown[]) => {
+        if (!inside) outside.push(`${method} ${String(args[0])}`);
+        return original(...args);
+      }) as never);
+    }
     const repo = new ClosetRepository(store, () => NOW, () => 'x', lock);
+    await repo.load(); // reads both closet files, lists photos
+    await repo.addItem(newItem, image); // photo write, generation check, closet write
+    await repo.update((d) => d);
+    await repo.snapshot();
+    await repo.deleteItems(['a']); // closet write, then photo removal
+    await repo.replaceAll(closetWith([makeItem({ id: 'r' })]), new Map([['images/r.webp', new Blob(['r'])]]));
+    expect(outside).toEqual([]);
+  });
+
+  it('never takes the lock twice in one operation (it is not re-entrant)', async () => {
+    let depth = 0;
+    let deepest = 0;
+    const lock: WriteLock = async (fn) => {
+      depth += 1;
+      deepest = Math.max(deepest, depth);
+      try {
+        return await fn();
+      } finally {
+        depth -= 1;
+      }
+    };
+    const repo = new ClosetRepository(seededStore(closetWith([makeItem({ id: 'a' })])), () => NOW, () => 'x', lock);
     await repo.load();
     await repo.addItem(newItem, image);
-    await repo.update((d) => d);
-    expect(seen).toEqual([true, true]);
+    await repo.deleteItems(['a']);
+    await repo.replaceAll(closetWith([]), new Map());
+    expect(deepest).toBe(1);
   });
 });
 
@@ -318,10 +344,26 @@ describe('webWriteLock', () => {
     expect(webWriteLock(undefined)).toBeUndefined();
   });
 
-  it('runs the save under one lock name and returns its result', async () => {
-    const request = vi.fn((_name: string, callback: () => unknown) => Promise.resolve(callback()));
-    const lock = webWriteLock({ request } as unknown as Pick<LockManager, 'request'>)!;
+  it('runs the operation under one lock name, gives up waiting after a while, and returns its result', async () => {
+    const request = vi.fn((_name: string, _options: LockOptions, callback: () => unknown) => Promise.resolve(callback()));
+    const signal = new AbortController().signal;
+    const timeoutSignal = vi.fn(() => signal);
+    const lock = webWriteLock({ request } as unknown as Pick<LockManager, 'request'>, timeoutSignal)!;
     await expect(lock(async () => 42)).resolves.toBe(42);
-    expect(request).toHaveBeenCalledWith('kid-closet-write', expect.any(Function));
+    expect(request).toHaveBeenCalledWith('kid-closet-write', { signal }, expect.any(Function));
+    expect(timeoutSignal).toHaveBeenCalledWith(WRITE_LOCK_WAIT_MS);
+  });
+
+  it('waits without a limit where the phone has no AbortSignal.timeout', async () => {
+    const request = vi.fn((_name: string, _options: LockOptions, callback: () => unknown) => Promise.resolve(callback()));
+    const lock = webWriteLock({ request } as unknown as Pick<LockManager, 'request'>, undefined)!;
+    await expect(lock(async () => 'ok')).resolves.toBe('ok');
+    expect(request).toHaveBeenCalledWith('kid-closet-write', {}, expect.any(Function));
+  });
+
+  it('reports a timed-out wait as an error', async () => {
+    const request = vi.fn(() => Promise.reject(new DOMException('timed out', 'AbortError')));
+    const lock = webWriteLock({ request } as unknown as Pick<LockManager, 'request'>, () => new AbortController().signal)!;
+    await expect(lock(async () => 1)).rejects.toThrow('timed out');
   });
 });

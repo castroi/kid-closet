@@ -74,6 +74,36 @@ describe('ClosetProvider', () => {
     await vi.waitFor(() => expect(result).toEqual(['ClosetChangedElsewhereError', 'saved']));
   });
 
+  it('shows the error screen, not the old closet, when the newer closet cannot be read', async () => {
+    const user = userEvent.setup();
+    const store = seededStore(closetWith([makeItem({ id: 'a' })]));
+    const here = new ClosetRepository(store, () => NOW);
+    const otherCopy = new ClosetRepository(store, () => NOW);
+    function SaveButton() {
+      const { markBackedUp } = useCloset();
+      return (
+        <button type="button" onClick={() => markBackedUp().catch(() => undefined)}>
+          save
+        </button>
+      );
+    }
+    render(
+      <ClosetProvider repo={here}>
+        <Probe />
+        <SaveButton />
+      </ClosetProvider>,
+    );
+    expect(await screen.findByText('1 items')).toBeInTheDocument();
+    await otherCopy.load();
+    await otherCopy.update((d) => d);
+    vi.spyOn(here, 'load').mockRejectedValueOnce(new ClosetCorruptedError());
+
+    await user.click(screen.getByRole('button', { name: 'save' }));
+    expect(await screen.findByText(/none of them could be read/)).toBeInTheDocument();
+    expect(screen.queryByText('1 items')).not.toBeInTheDocument();
+    expect(screen.queryByText(/הארון השתנה בחלון אחר/)).not.toBeInTheDocument();
+  });
+
   it('shows loading, then the children', async () => {
     const repo = new ClosetRepository(seededStore(closetWith([makeItem({ id: 'a' })])), () => NOW);
     render(

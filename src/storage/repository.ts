@@ -45,11 +45,28 @@ export class ClosetChangedElsewhereError extends Error {
 
 export type WriteLock = <T>(fn: () => Promise<T>) => Promise<T>;
 
-/** A WriteLock shared by every tab of this site, or undefined where the phone has no Web Locks. */
-export function webWriteLock(locks: Pick<LockManager, 'request'> | undefined): WriteLock | undefined {
+/** How long to wait for another copy to release the lock (e.g. a suspended background tab). */
+export const WRITE_LOCK_WAIT_MS = 15_000;
+
+/**
+ * A WriteLock shared by every tab of this site, or undefined where the phone has no
+ * Web Locks. Waiting for it gives up after WRITE_LOCK_WAIT_MS (where the phone
+ * supports AbortSignal.timeout), so the operation fails with an error the parent can
+ * retry instead of hanging.
+ */
+export function webWriteLock(
+  locks: Pick<LockManager, 'request'> | undefined,
+  timeoutSignal: ((ms: number) => AbortSignal) | undefined = typeof AbortSignal !== 'undefined' &&
+  typeof AbortSignal.timeout === 'function'
+    ? (ms) => AbortSignal.timeout(ms)
+    : undefined,
+): WriteLock | undefined {
   if (!locks) return undefined;
-  // request() resolves with what the callback's promise resolves to.
-  return <T>(fn: () => Promise<T>) => locks.request('kid-closet-write', () => fn()) as unknown as Promise<T>;
+  return <T>(fn: () => Promise<T>) => {
+    const options: LockOptions = timeoutSignal ? { signal: timeoutSignal(WRITE_LOCK_WAIT_MS) } : {};
+    // request() resolves with what the callback's promise resolves to.
+    return locks.request('kid-closet-write', options, () => fn()) as unknown as Promise<T>;
+  };
 }
 
 export class ClosetRepository {
@@ -58,9 +75,11 @@ export class ClosetRepository {
   private queue: Promise<unknown> = Promise.resolve();
 
   /**
-   * `writeLock` runs the check-then-write of a save exclusively across all open
-   * copies of the app (main.tsx passes one built on the Web Locks API). Without
-   * one, saves are still checked, only the tiny gap between check and write is open.
+   * `writeLock` runs each whole operation (load, save, add, delete, backup read,
+   * restore) exclusively across all open copies of the app; main.tsx passes one
+   * built on the Web Locks API. Whole operations, not just the closet write, so one
+   * copy's photo cleanup can't delete a photo another copy is in the middle of
+   * adding. Without a lock (older Safari), saves are still checked against the disk.
    */
   constructor(
     private readonly store: FileStore,
@@ -80,8 +99,13 @@ export class ClosetRepository {
     return run;
   }
 
+  /** One at a time in this copy, and exclusive across copies. The lock is not re-entrant: never nest. */
+  private locked<T>(op: () => Promise<T>): Promise<T> {
+    return this.enqueue(() => this.writeLock(op));
+  }
+
   load(): Promise<ClosetData> {
-    return this.enqueue(async () => {
+    return this.locked(async () => {
       let best: Envelope | null = null;
       let foundAny = false;
       let highestSeen = 0;
@@ -124,32 +148,35 @@ export class ClosetRepository {
    * Saves `next` above every generation on disk. If another copy of the app (a
    * second tab) has saved since this one loaded, a normal save is refused rather
    * than silently overwriting that copy's changes; a restore (`replace`) goes
-   * ahead, since it replaces the whole closet on purpose.
+   * ahead, since it replaces the whole closet on purpose. Callers hold the lock.
+   *
+   * One harmless false alarm: if a write is reported as failed but did land (the
+   * file worker timed out just as it finished), the next save sees its own
+   * generation as newer and is refused as "changed elsewhere". The reload then
+   * shows that saved closet, so nothing is lost; only the message is off.
    */
-  private persist(next: ClosetData, mode: 'change' | 'replace' = 'change'): Promise<ClosetData> {
-    return this.writeLock(async () => {
-      const onDisk = await this.highestOnDisk();
-      if (onDisk > this.generation) {
-        if (mode === 'change') throw new ClosetChangedElsewhereError();
-        this.generation = onDisk;
-      }
-      const generation = this.generation + 1;
-      const envelope: Envelope = { generation, savedAt: this.clock(), closet: next };
-      const file = CLOSET_FILES[generation % 2];
-      await this.store.write(file, new Blob([JSON.stringify(envelope)], { type: 'application/json' }));
-      this.generation = generation;
-      this.data = next;
-      return next;
-    });
+  private async persist(next: ClosetData, mode: 'change' | 'replace' = 'change'): Promise<ClosetData> {
+    const onDisk = await this.highestOnDisk();
+    if (onDisk > this.generation) {
+      if (mode === 'change') throw new ClosetChangedElsewhereError();
+      this.generation = onDisk;
+    }
+    const generation = this.generation + 1;
+    const envelope: Envelope = { generation, savedAt: this.clock(), closet: next };
+    const file = CLOSET_FILES[generation % 2];
+    await this.store.write(file, new Blob([JSON.stringify(envelope)], { type: 'application/json' }));
+    this.generation = generation;
+    this.data = next;
+    return next;
   }
 
   /** Applies a pure change to the closet and saves it. */
   update(change: (current: ClosetData) => ClosetData): Promise<ClosetData> {
-    return this.enqueue(() => this.persist(change(this.data)));
+    return this.locked(() => this.persist(change(this.data)));
   }
 
   addItem(input: NewItem, image: StoredImage): Promise<Item> {
-    return this.enqueue(async () => {
+    return this.locked(async () => {
       const id = this.newId();
       const path = `${IMAGES_DIR}/${id}.${image.ext}`;
       const now = this.clock();
@@ -178,7 +205,7 @@ export class ClosetRepository {
   }
 
   deleteItems(ids: string[]): Promise<ClosetData> {
-    return this.enqueue(async () => {
+    return this.locked(async () => {
       const set = new Set(ids);
       const paths = this.data.items.filter((it) => set.has(it.id)).map((it) => it.image);
       const next = await this.persist(removeItems(this.data, ids));
@@ -197,7 +224,7 @@ export class ClosetRepository {
    * can become unreadable once the file is deleted.
    */
   snapshot(): Promise<{ data: ClosetData; images: Map<string, Uint8Array | null> }> {
-    return this.enqueue(async () => {
+    return this.locked(async () => {
       const data = this.data;
       const images = new Map<string, Uint8Array | null>();
       for (const item of data.items) {
@@ -210,7 +237,7 @@ export class ClosetRepository {
 
   /** Replaces the whole closet (used by restore from backup). */
   replaceAll(next: ClosetData, images: Map<string, Blob>): Promise<ClosetData> {
-    return this.enqueue(async () => {
+    return this.locked(async () => {
       for (const item of next.items) {
         const blob = images.get(item.image);
         if (!blob) throw new Error(`Missing photo ${item.image}`);
