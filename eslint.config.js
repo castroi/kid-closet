@@ -20,10 +20,4 @@ export default tseslint.config(
       ...reactHooks.configs.recommended.rules,
     },
   },
-  {
-    files: ['public/sw.js'],
-    languageOptions: {
-      globals: globals.serviceworker,
-    },
-  },
 );
