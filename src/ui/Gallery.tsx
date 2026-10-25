@@ -1,8 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { NO_FILTER, applyFilter, availableColors, type SlotFilter } from '../core/closet';
-import { galleryCount, galleryTitle, isFiltered, noMatchLabel, showAllLabel } from '../core/gallery';
-import { COLOR_INFO, ITEM_TYPES, TYPE_INFO, type Item, type Slot } from '../core/model';
-import { ColorPicker, Garment, Icon, Sheet } from './common';
+import { filterParts, galleryCount, galleryTitle, isFiltered, noMatchLabel, showAllLabel } from '../core/gallery';
+import { ITEM_TYPES, TYPE_INFO, type Item, type Slot } from '../core/model';
+import { ColorPicker, Garment, Icon, Sheet, Swatch } from './common';
 
 interface Props {
   slot: Slot;
@@ -28,15 +28,18 @@ export function Gallery({ slot, pool, filter, selectedId, context, onFilterChang
   const types = ITEM_TYPES.filter((t) => TYPE_INFO[t].slot === slot);
   const colors = availableColors(applyFilter(pool, { type: filter.type, color: null }));
   if (filter.color && !colors.includes(filter.color)) colors.push(filter.color);
-  const filterText = [filter.type ? TYPE_INFO[filter.type].short : null, filter.color ? COLOR_INFO[filter.color].label : null]
-    .filter(Boolean)
-    .join(' · ');
+  const filterText = filterParts(filter).join(' · ');
 
   const currentRef = useRef<HTMLButtonElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
   const currentId = current?.id ?? null;
   useEffect(() => {
-    // Show the garment she's wearing now, even if it's far down the grid.
-    currentRef.current?.scrollIntoView?.({ block: 'center' });
+    // Show the garment she's wearing now, even if it's far down the grid. Only the grid area scrolls,
+    // never the sheet, so the title and filters stay in view.
+    const tile = currentRef.current;
+    const area = scrollRef.current;
+    if (!tile || !area) return;
+    area.scrollTop = Math.max(0, tile.offsetTop - (area.clientHeight - tile.offsetHeight) / 2);
   }, [currentId]);
 
   return (
@@ -47,7 +50,7 @@ export function Gallery({ slot, pool, filter, selectedId, context, onFilterChang
         </p>
         {filtered && (
           <button type="button" className="clear-chip" aria-label={`ביטול הסינון: ${filterText}`} onClick={() => onFilterChange(NO_FILTER)}>
-            {filter.color && <span className={`swatch${filter.color === 'multi' ? ' multi' : ''}`} style={{ background: COLOR_INFO[filter.color].hex }} aria-hidden="true" />}
+            {filter.color && <Swatch color={filter.color} />}
             {filterText}
             <Icon name="close" size={14} />
           </button>
@@ -82,7 +85,7 @@ export function Gallery({ slot, pool, filter, selectedId, context, onFilterChang
         )}
       </div>
 
-      <div className="gallery-scroll">
+      <div className="gallery-scroll" ref={scrollRef}>
         {list.length === 0 ? (
           <div className="empty-slot">
             {pool.length === 0 ? 'אין עדיין בגדים כאן. אפשר להוסיף בלשונית "הוספה".' : noMatchLabel(slot)}

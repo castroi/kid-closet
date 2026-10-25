@@ -1,5 +1,5 @@
 import type { SlotFilter } from './closet';
-import type { ColorGroup, ItemType, Slot } from './model';
+import { COLOR_INFO, TYPE_INFO, type ColorGroup, type ItemType, type Slot } from './model';
 
 /** Hebrew plural noun for a row, with its grammatical gender (adjectives must agree). */
 type Noun = { word: string; definite: string; gender: 'f' | 'm' };
@@ -35,6 +35,14 @@ const COLOR_PLURAL: Record<ColorGroup, [string, string]> = {
   brown: ['חומות', 'חומים'],
   multi: ['צבעוניות', 'צבעוניים'],
 };
+
+/** The words for an active filter, e.g. ["ארוכה", "כחול"]; empty when no filter is on. Shared by the row button and the gallery chip. */
+export function filterParts(filter: SlotFilter): string[] {
+  const parts: string[] = [];
+  if (filter.type) parts.push(TYPE_INFO[filter.type].short);
+  if (filter.color) parts.push(COLOR_INFO[filter.color].label);
+  return parts;
+}
 
 export function isFiltered(filter: SlotFilter): boolean {
   return filter.type !== null || filter.color !== null;

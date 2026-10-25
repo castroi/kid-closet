@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { NO_FILTER } from './closet';
-import { galleryCount, galleryTitle, isFiltered, noMatchLabel, showAllLabel } from './gallery';
+import { filterParts, galleryCount, galleryTitle, isFiltered, noMatchLabel, showAllLabel } from './gallery';
 import { COLOR_GROUPS, ITEM_TYPES } from './model';
 
 describe('gallery labels', () => {
@@ -43,6 +43,13 @@ describe('gallery labels', () => {
     expect(showAllLabel('bottom', 2)).toBe('להציג את כל 2 המכנסיים');
     expect(showAllLabel('layer', 4)).toBe('להציג את כל 4 השכבות העליונות');
     expect(noMatchLabel('top')).toBe('אין חולצות כאלה');
+  });
+
+  it('lists the words of an active filter', () => {
+    expect(filterParts(NO_FILTER)).toEqual([]);
+    expect(filterParts({ type: 'longTop', color: null })).toEqual(['ארוכה']);
+    expect(filterParts({ type: 'longTop', color: 'blue' })).toEqual(['ארוכה', 'כחול']);
+    expect(filterParts({ type: null, color: 'beige' })).toEqual(['בז׳']);
   });
 
   it('knows when a filter is on', () => {

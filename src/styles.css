@@ -318,15 +318,12 @@ button:disabled {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  white-space: nowrap;
 }
 
 .small-btn[aria-pressed='true'] {
   background: var(--ink);
   color: var(--on-ink);
-}
-
-.small-btn {
-  white-space: nowrap;
 }
 
 /* With a filter on, the button shows it; long combinations are cut, the full text is in its label. */
@@ -846,6 +843,7 @@ button:disabled {
   height: 92dvh;
   max-height: 92dvh;
   overflow: hidden;
+  overscroll-behavior: contain;
   padding-bottom: 0;
   gap: 10px;
 }
@@ -929,6 +927,9 @@ button:disabled {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  /* The tiles' offsetParent, so the gallery can scroll the current tile into the middle. */
+  position: relative;
   margin: 0 -20px;
   padding: 12px 20px calc(20px + env(safe-area-inset-bottom));
   background: var(--bg);
@@ -966,6 +967,12 @@ button:disabled {
   align-items: center;
   justify-content: center;
   overflow: hidden;
+}
+
+.gallery-photo .garment-placeholder {
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: 14px;
 }
 
 .gallery-photo .garment {
