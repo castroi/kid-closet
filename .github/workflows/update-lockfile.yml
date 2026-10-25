@@ -2,8 +2,12 @@
 # On every push to a branch other than main it:
 #   1. sets the version the branch type needs against main as it is now
 #      (feat/ → next minor, fix/ → next patch, chore/docs/test → main's;
-#      a version that's already right, e.g. a deliberate next major, is kept),
-#   2. regenerates package-lock.json (for when `npm install` can't run locally),
+#      a version that's already right, e.g. a deliberate next major, is kept).
+#      Only once the branch contains main: bumping past a main it hasn't merged
+#      would make the version lines conflict, so until then it waits for
+#      "Update branch" (merging main), which is itself a push and runs this again,
+#   2. regenerates package-lock.json when it doesn't list package.json's
+#      dependencies (for when `npm install` can't run locally),
 #   3. commits both to that branch if anything changed, and starts CI for the new commit.
 # It never touches main: the commit lands on the PR branch, where the owner reviews it.
 # Its own commit doesn't start it again (pushes made with the workflow token never do).
@@ -32,20 +36,27 @@ jobs:
         with:
           # Don't leave a write token in .git/config for the npm step; only the push below gets it.
           persist-credentials: false
+          # Full history, so the script can tell whether the branch already contains main.
+          fetch-depth: 0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
       # Main as it is right now (the repository is public, so no token is needed to read it).
       - name: Fetch main
-        run: git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main
+        run: git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
       # Same rules as CI's check (scripts/version-check.mjs). The branch name reaches the script
       # through an environment variable, never pasted into the shell command.
       - name: Set the version
         env:
           BRANCH: ${{ github.ref_name }}
         run: node scripts/version-check.mjs --bump --branch "$BRANCH" --base-ref origin/main
-      # Resolves versions only; no package code runs (.npmrc also sets ignore-scripts).
-      - run: npm install --package-lock-only --ignore-scripts
+      # Only when the lockfile doesn't already list package.json's dependencies, so a push that
+      # changed none can't pick up lockfile churn from a different npm. Resolves versions only;
+      # no package code runs (.npmrc also sets ignore-scripts).
+      - name: Update package-lock.json
+        run: |
+          if node scripts/version-check.mjs --lock-in-sync; then exit 0; fi
+          npm install --package-lock-only --ignore-scripts
       - name: Commit if anything changed
         id: commit
         env:

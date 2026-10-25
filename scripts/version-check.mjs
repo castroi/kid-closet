@@ -15,7 +15,12 @@
  *   node scripts/version-check.mjs --bump [--branch <name>] [--base-ref origin/main]
  *     Set the version the branch needs (keeps it if it's already right) in package.json
  *     and both fields of package-lock.json. `npm run version:bump`; the "Update version
- *     and lockfile" workflow runs it on every push to a branch.
+ *     and lockfile" workflow runs it on every push to a branch. Does nothing until the
+ *     branch contains main: bumping past a main the branch hasn't merged yet would make
+ *     the version lines conflict.
+ *   node scripts/version-check.mjs --lock-in-sync
+ *     Exit 0 if package-lock.json already records package.json's dependencies (so there's
+ *     nothing for npm install to do), 1 if not.
  *   node scripts/version-check.mjs --merge-commit HEAD
  *     On main after a pull request was merged: the merged branch's type comes from the
  *     merge message ("Merge pull request #12 from owner/feat/x"), the base is the
@@ -78,6 +83,22 @@ export function targetVersion(branch, base, head) {
   const rule = allowedVersions(branch, base);
   if (!rule) return null;
   return rule.allowed.includes(head) ? head : rule.allowed[0];
+}
+
+const DEPENDENCY_FIELDS = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'];
+
+/**
+ * Whether package-lock.json's root entry lists exactly package.json's dependencies. When it does,
+ * the lockfile is already in sync and npm install has nothing to do (and can't add churn).
+ */
+export function lockfileMatches(pkg, lock) {
+  const root = lock?.packages?.[''] ?? {};
+  return DEPENDENCY_FIELDS.every((field) => JSON.stringify(sorted(pkg[field])) === JSON.stringify(sorted(root[field])));
+}
+
+function sorted(deps) {
+  if (!deps || Object.keys(deps).length === 0) return {};
+  return Object.fromEntries(Object.entries(deps).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 }
 
 /** package.json and package-lock.json text with the version set; formatted the way npm writes them. */
@@ -151,6 +172,12 @@ function bump(args) {
     console.error(`Can't read ${baseRef}:package.json. Fetch main first: git fetch origin main`);
     return 2;
   }
+  if (!containsCommit(baseRef)) {
+    console.log(
+      `${branch} doesn't contain ${baseRef} yet; version left as is. Merge main into the branch (GitHub's "Update branch" button), then the version is set.`,
+    );
+    return 0;
+  }
   const packageText = readFileSync('package.json', 'utf8');
   const lockText = readFileSync('package-lock.json', 'utf8');
   const head = JSON.parse(packageText).version;
@@ -170,8 +197,23 @@ function bump(args) {
   return 0;
 }
 
+/** Whether HEAD already contains ref (git merge-base --is-ancestor: exit 0 yes, 1 no). */
+function containsCommit(ref) {
+  try {
+    execFileSync('git', ['merge-base', '--is-ancestor', ref, 'HEAD'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function main(args) {
   if (args.includes('--bump')) return bump(args);
+  if (args.includes('--lock-in-sync')) {
+    const inSync = lockfileMatches(JSON.parse(readFileSync('package.json', 'utf8')), JSON.parse(readFileSync('package-lock.json', 'utf8')));
+    console.log(inSync ? 'package-lock.json lists the same dependencies as package.json.' : 'package-lock.json is out of date.');
+    return inSync ? 0 : 1;
+  }
   let branch = readArg(args, '--branch');
   let baseRef = readArg(args, '--base-ref');
   const mergeCommit = readArg(args, '--merge-commit');

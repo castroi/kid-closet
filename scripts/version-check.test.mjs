@@ -6,6 +6,7 @@ import {
   checkVersion,
   nextVersions,
   parseVersion,
+  lockfileMatches,
   targetVersion,
   withVersion,
 } from './version-check.mjs';
@@ -156,6 +157,26 @@ describe('withVersion', () => {
     const out = withVersion(pkg, lock, '1.3.0');
     expect(out.packageText).toBe(pkg);
     expect(out.lockText).toBe(lock);
+  });
+});
+
+describe('lockfileMatches', () => {
+  const pkg = { dependencies: { react: '19.3.1', fflate: '0.8.3' }, devDependencies: { vitest: '^3.2.0' } };
+  const lockFor = (root) => ({ packages: { '': root } });
+
+  it('is true when the lockfile lists the same dependencies, in any order', () => {
+    expect(lockfileMatches(pkg, lockFor({ dependencies: { fflate: '0.8.3', react: '19.3.1' }, devDependencies: { vitest: '^3.2.0' } }))).toBe(true);
+  });
+
+  it('is false when a dependency was added, removed or changed', () => {
+    expect(lockfileMatches(pkg, lockFor({ dependencies: { react: '19.3.1' }, devDependencies: { vitest: '^3.2.0' } }))).toBe(false);
+    expect(lockfileMatches(pkg, lockFor({ dependencies: { react: '19.3.0', fflate: '0.8.3' }, devDependencies: { vitest: '^3.2.0' } }))).toBe(false);
+    expect(lockfileMatches({ ...pkg, optionalDependencies: { a: '1.0.0' } }, lockFor({ dependencies: pkg.dependencies, devDependencies: pkg.devDependencies }))).toBe(false);
+  });
+
+  it('treats a missing field like an empty one, and a missing root as out of date', () => {
+    expect(lockfileMatches({ dependencies: { a: '1' }, devDependencies: {} }, lockFor({ dependencies: { a: '1' } }))).toBe(true);
+    expect(lockfileMatches(pkg, {})).toBe(false);
   });
 });
 
