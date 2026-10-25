@@ -1,6 +1,14 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useCloset } from '../app/ClosetContext';
 import { COLOR_INFO, type ColorGroup, type Item } from '../core/model';
+import { BackupTooLargeError, InvalidBackupError } from '../storage/backup';
+
+/** What to tell the parent when reading or restoring a backup fails. */
+export function restoreErrorText(err: unknown): string {
+  if (err instanceof BackupTooLargeError) return 'קובץ הגיבוי גדול מדי לשחזור בטלפון.';
+  if (err instanceof InvalidBackupError) return 'הקובץ הזה אינו גיבוי תקין של הארון.';
+  return 'השחזור נכשל.';
+}
 
 /** Object URL for a stored photo; revoked when the component unmounts or the path changes. */
 export function useImageUrl(path: string | null): string | null {

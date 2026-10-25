@@ -1,5 +1,6 @@
 import { useId, useState } from 'react';
-import { BackupTooLargeError, InvalidBackupError, readBackupFile } from '../storage/backup';
+import { readBackupFile } from '../storage/backup';
+import { restoreErrorText } from './common';
 import { ClosetCorruptedError } from '../storage/repository';
 
 interface Props {
@@ -87,13 +88,7 @@ function RestoreFromBackup({ error, onRestore }: { error: Error; onRestore: (zip
             try {
               await onRestore(await readBackupFile(file));
             } catch (err) {
-              setMessage(
-                err instanceof BackupTooLargeError
-                  ? 'קובץ הגיבוי גדול מדי לשחזור בטלפון.'
-                  : err instanceof InvalidBackupError
-                    ? 'הקובץ אינו גיבוי תקין.'
-                    : 'השחזור נכשל.',
-              );
+              setMessage(restoreErrorText(err));
             }
           }}
         />

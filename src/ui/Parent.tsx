@@ -10,16 +10,10 @@ import {
   type StorageStatus,
 } from '../app/device';
 import { COLOR_INFO } from '../core/model';
-import { BackupTooLargeError, InvalidBackupError, backupFileName, readBackupFile } from '../storage/backup';
-import { Icon, Sheet, Swatch } from './common';
+import { backupFileName, readBackupFile } from '../storage/backup';
+import { Icon, Sheet, Swatch, restoreErrorText } from './common';
 
 export const BACKUP_REMINDER_DAYS = 14;
-
-function restoreErrorText(err: unknown): string {
-  if (err instanceof BackupTooLargeError) return 'קובץ הגיבוי גדול מדי לשחזור בטלפון.';
-  if (err instanceof InvalidBackupError) return 'הקובץ הזה אינו גיבוי תקין של הארון.';
-  return 'השחזור נכשל.';
-}
 
 export function randomQuestion(): [number, number] {
   const pick = () => 6 + Math.floor(Math.random() * 4); // 6..9

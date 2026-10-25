@@ -79,7 +79,7 @@ describe('ClosetProvider', () => {
     expect(await screen.findByRole('heading', { name: 'לא הצלחנו לפתוח את הארון' })).toBeInTheDocument();
 
     await user.upload(screen.getByLabelText('שחזור מגיבוי'), new File(['junk'], 'x.zip', { type: 'application/zip' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('הקובץ אינו גיבוי תקין.');
+    expect(await screen.findByRole('alert')).toHaveTextContent('הקובץ הזה אינו גיבוי תקין של הארון.');
 
     await user.upload(screen.getByLabelText('שחזור מגיבוי'), new File([zip as BlobPart], 'b.zip', { type: 'application/zip' }));
     expect(await screen.findByText('2 items')).toBeInTheDocument();

@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { strToU8, zipSync } from 'fflate';
 import { describe, expect, it, vi } from 'vitest';
 import type { ShareEnv } from '../app/device';
-import { MAX_BACKUP_FILE_BYTES, exportBackup } from '../storage/backup';
+import { MAX_BACKUP_FILE_BYTES, backupFileName, exportBackup } from '../storage/backup';
 import { ClosetRepository } from '../storage/repository';
 import { NOW, closetWith, makeItem, renderWithCloset, sampleCloset, seededStore } from '../test/fixtures';
 import { Parent, randomQuestion } from './Parent';
@@ -54,7 +54,8 @@ describe('Parent', () => {
     expect(screen.getByText(/עוד לא נעשה גיבוי/)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'ייצוא גיבוי' }));
     expect(await screen.findByText(/הגיבוי נוצר/)).toBeInTheDocument();
-    expect(shareEnv.download).toHaveBeenCalledWith(expect.objectContaining({ name: 'kid-closet-backup-2026-10-24.zip' }));
+    // Named by the phone's local date, so compute it the same way rather than assume a time zone.
+    expect(shareEnv.download).toHaveBeenCalledWith(expect.objectContaining({ name: backupFileName(TODAY()) }));
     expect(repo.getData().lastBackupAt).toBe(NOW);
     expect(screen.queryByText(/עוד לא נעשה גיבוי/)).not.toBeInTheDocument();
   });

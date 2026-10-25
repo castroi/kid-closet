@@ -58,14 +58,27 @@ describe('backup', () => {
     const store = seededStore(sample());
     const repo = new ClosetRepository(store, () => NOW);
     await repo.load();
+    // Hold the first photo read until the delete has finished, so without the queue
+    // the export would find the last photo ('b') already gone.
+    let releaseRead: () => void = () => undefined;
+    const readHeld = new Promise<void>((r) => (releaseRead = r));
+    const read = store.read.bind(store);
+    let firstImageRead = true;
+    vi.spyOn(store, 'read').mockImplementation(async (path) => {
+      if (path.startsWith('images/') && firstImageRead) {
+        firstImageRead = false;
+        await Promise.race([readHeld, new Promise((r) => setTimeout(r, 50))]);
+      }
+      return read(path);
+    });
     const exporting = exportBackup(repo, NOW); // queued first, so it sees the closet before the delete
-    const deleting = repo.deleteItems(['t']);
+    const deleting = repo.deleteItems(['b']).then(() => releaseRead());
     const zip = await exporting;
     await deleting;
     const { closet, images } = readBackup(zip);
     expect(closet.items.map((i) => i.id)).toEqual(['t', 'b']);
     expect([...images.keys()].sort()).toEqual(['images/b.jpg', 'images/t.webp']);
-    expect(store.files.has('images/t.webp')).toBe(false);
+    expect(store.files.has('images/b.jpg')).toBe(false);
   });
 
   it('names the file by the local date', () => {
