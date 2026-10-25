@@ -1,21 +1,22 @@
-# Regenerates package-lock.json when package.json changes on a branch, for
-# when `npm install` can't be run locally. Runs by itself on every push to a
-# branch other than main that touches package.json (or this file); can also be
-# started from the Actions tab. It commits to that branch and then starts CI
-# for the new commit. Its own commit only changes package-lock.json, so it
-# does not start itself again.
-name: Update lockfile
+# Keeps a branch's version and lockfile right, so nobody has to remember either.
+# On every push to a branch other than main it:
+#   1. sets the version the branch type needs against main as it is now
+#      (feat/ → next minor, fix/ → next patch, chore/docs/test → main's;
+#      a version that's already right, e.g. a deliberate next major, is kept),
+#   2. regenerates package-lock.json (for when `npm install` can't run locally),
+#   3. commits both to that branch if anything changed, and starts CI for the new commit.
+# It never touches main: the commit lands on the PR branch, where the owner reviews it.
+# Its own commit doesn't start it again (pushes made with the workflow token never do).
+# If it committed, pull before you push again. Can also be started from the Actions tab.
+name: Update version and lockfile
 
 on:
   push:
     branches-ignore: [main]
-    paths:
-      - package.json
-      - .github/workflows/update-lockfile.yml
   workflow_dispatch:
 
 permissions:
-  contents: write # commit the lockfile
+  contents: write # commit the version and the lockfile
   actions: write # start CI for that commit (pushes by this workflow don't trigger it)
 
 concurrency: lockfile-${{ github.ref }}
@@ -34,22 +35,36 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
+      # Main as it is right now (the repository is public, so no token is needed to read it).
+      - name: Fetch main
+        run: git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main
+      # Same rules as CI's check (scripts/version-check.mjs). The branch name reaches the script
+      # through an environment variable, never pasted into the shell command.
+      - name: Set the version
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: node scripts/version-check.mjs --bump --branch "$BRANCH" --base-ref origin/main
       # Resolves versions only; no package code runs (.npmrc also sets ignore-scripts).
-      # The new lockfile lands on the PR branch, so it is part of the PR the owner reviews.
       - run: npm install --package-lock-only --ignore-scripts
-      - name: Commit the lockfile if it changed
+      - name: Commit if anything changed
         id: commit
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [ -z "$(git status --porcelain -- package-lock.json)" ]; then
-            echo "package-lock.json is already up to date"
+          if [ -z "$(git status --porcelain -- package.json package-lock.json)" ]; then
+            echo "Version and package-lock.json are already right"
             exit 0
+          fi
+          VERSION="$(node -p "require('./package.json').version")"
+          if [ -n "$(git diff --name-only -- package.json)" ]; then
+            MESSAGE="Set version to ${VERSION}"
+          else
+            MESSAGE="Update package-lock.json"
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add package-lock.json
-          git commit -m "Update package-lock.json"
+          git add package.json package-lock.json
+          git commit -m "${MESSAGE}" -m "Made by the \"Update version and lockfile\" workflow against main at $(git rev-parse --short origin/main)."
           # The token goes in a header for this one command only, never into the URL or .git/config.
           AUTH="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
           echo "::add-mask::${AUTH}"

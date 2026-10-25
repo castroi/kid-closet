@@ -82,17 +82,23 @@ every push to `main` and every pull request. The coverage report is uploaded as 
 ## Versions
 
 The app's version is in `package.json` and is shown in the parent area together with the commit it was built from
-(linked to GitHub). Each pull request sets the version itself, and CI checks it against `main`:
+(linked to GitHub). The version follows the branch type, against `main`:
 
-| Branch | Version | Command |
-| --- | --- | --- |
-| `feat/...` | next minor (1.3.0 → 1.4.0), or next major for a big change | `npm version minor --no-git-tag-version` |
-| `fix/...` | next patch (1.3.0 → 1.3.1) | `npm version patch --no-git-tag-version` |
-| `chore/...`, `docs/...`, `test/...` | unchanged, or next patch | — |
+| Branch | Version |
+| --- | --- |
+| `feat/...` | next minor (1.3.0 → 1.4.0), or a deliberate next major |
+| `fix/...` | next patch (1.3.0 → 1.3.1) |
+| `chore/...`, `docs/...`, `test/...` | unchanged, or next patch |
 
-If `main` gets a new version while your PR is open, merge `main` into the branch and bump again. CI checks
-the version on every run of the branch against `main` as it is at that moment, and again on `main` after
-each merge. To have GitHub require an up-to-date branch before the merge button works, turn on
-Settings → Branches → the rule for `main` → "Require status checks to pass" and "Require branches to be up to
-date before merging".
+**You don't set it by hand.** On every push to a branch, the "Update version and lockfile" workflow sets the
+version against `main` as it is at that moment, updates `package-lock.json`, commits both to the branch and reruns
+CI. It never changes `main`. If it made a commit, pull before you push again. Locally, `npm run version:bump` does
+the same.
 
+CI checks the version on every run of a branch and again on `main` after each merge. If `main` gets a new version
+while your PR is open, push again or press GitHub's "Update branch" button, and the workflow bumps it again. To have
+GitHub require an up-to-date branch before the merge button works, turn on Settings → Branches → the rule for
+`main` → "Require status checks to pass" and "Require branches to be up to date before merging".
+
+The commit shown in the app is set by Vercel's build from the commit it deployed, so it changes on every merge
+without anyone doing anything.

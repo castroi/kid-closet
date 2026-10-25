@@ -1,6 +1,14 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { allowedVersions, branchFromMergeMessage, checkVersion, nextVersions, parseVersion } from './version-check.mjs';
+import {
+  allowedVersions,
+  branchFromMergeMessage,
+  checkVersion,
+  nextVersions,
+  parseVersion,
+  targetVersion,
+  withVersion,
+} from './version-check.mjs';
 
 const ok = (branch, base, head) => checkVersion({ branch, base, head, lock: head });
 
@@ -25,7 +33,8 @@ describe('checkVersion', () => {
     const missed = ok('feat/gallery', '1.3.0', '1.3.0');
     expect(missed.ok).toBe(false);
     expect(missed.message).toContain('needs version 1.4.0 or 2.0.0');
-    expect(missed.message).toContain('npm version minor --no-git-tag-version');
+    expect(missed.message).toContain('npm run version:bump');
+    expect(missed.message).toContain('"Update version and lockfile" workflow');
     expect(ok('feat/gallery', '1.3.0', '1.3.1').ok).toBe(false);
     expect(ok('feat/gallery', '1.3.0', '1.5.0').ok).toBe(false);
   });
@@ -33,7 +42,7 @@ describe('checkVersion', () => {
   it('fix needs the next patch', () => {
     expect(ok('fix/swipe', '1.3.0', '1.3.1').ok).toBe(true);
     expect(ok('fix/swipe', '1.3.0', '1.4.0').ok).toBe(false);
-    expect(ok('fix/swipe', '1.3.0', '1.3.0').message).toContain('npm version patch');
+    expect(ok('fix/swipe', '1.3.0', '1.3.0').message).toContain('npm run version:bump');
   });
 
   it('chore, docs and test may keep the version or bump the patch', () => {
@@ -60,10 +69,11 @@ describe('checkVersion', () => {
     expect(allowedVersions('feature/x', '1.0.0')).toBeNull();
   });
 
-  it('tells chore, docs and test branches how to undo a wrong bump', () => {
+  it('tells chore, docs and test branches what versions they may have', () => {
     const r = ok('docs/readme', '1.3.0', '1.4.0');
     expect(r.ok).toBe(false);
-    expect(r.message).toContain('set "version" in package.json back to 1.3.0 (or 1.3.1)');
+    expect(r.message).toContain('needs version 1.3.0 or 1.3.1');
+    expect(r.message).toContain('npm run version:bump');
   });
 
   it('requires both versions in package-lock.json to match', () => {
@@ -94,3 +104,58 @@ describe('branchFromMergeMessage', () => {
     expect(branchFromMergeMessage('')).toBeNull();
   });
 });
+
+describe('targetVersion', () => {
+  it('sets what the branch type needs', () => {
+    expect(targetVersion('feat/x', '1.3.0', '1.3.0')).toBe('1.4.0');
+    expect(targetVersion('fix/x', '1.3.0', '1.3.0')).toBe('1.3.1');
+    expect(targetVersion('docs/x', '1.3.0', '1.3.0')).toBe('1.3.0');
+  });
+
+  it('keeps a version that is already right', () => {
+    expect(targetVersion('feat/x', '1.3.0', '1.4.0')).toBe('1.4.0');
+    expect(targetVersion('feat/x', '1.3.0', '2.0.0')).toBe('2.0.0'); // a deliberate major
+    expect(targetVersion('chore/x', '1.3.0', '1.3.1')).toBe('1.3.1');
+  });
+
+  it('re-bumps when main moved on', () => {
+    // This branch took 1.4.0, then another feat merged 1.4.0 first.
+    expect(targetVersion('feat/x', '1.4.0', '1.4.0')).toBe('1.5.0');
+    expect(targetVersion('fix/x', '1.3.1', '1.3.1')).toBe('1.3.2');
+  });
+
+  it('undoes a wrong bump on chore, docs and test', () => {
+    expect(targetVersion('test/x', '1.3.0', '1.4.0')).toBe('1.3.0');
+  });
+
+  it('fixes an unreadable version', () => {
+    expect(targetVersion('fix/x', '1.3.0', 'oops')).toBe('1.3.1');
+  });
+
+  it('leaves untyped branches alone', () => {
+    expect(targetVersion('patch-1', '1.3.0', '1.3.0')).toBeNull();
+  });
+});
+
+describe('withVersion', () => {
+  const pkg = `${JSON.stringify({ name: 'kid-closet', version: '1.3.0', scripts: { test: 'vitest run' } }, null, 2)}\n`;
+  const lock = `${JSON.stringify(
+    { name: 'kid-closet', version: '1.3.0', lockfileVersion: 3, packages: { '': { name: 'kid-closet', version: '1.3.0' }, 'node_modules/a': { version: '9.9.9' } } },
+    null,
+    2,
+  )}\n`;
+
+  it('changes only the version, in package.json and both lockfile fields', () => {
+    const out = withVersion(pkg, lock, '1.4.0');
+    expect(out.packageText).toBe(pkg.replace('"version": "1.3.0"', '"version": "1.4.0"'));
+    expect(out.lockText).toBe(lock.replace(/"version": "1\.3\.0"/g, '"version": "1.4.0"'));
+    expect(out.lockText).toContain('"version": "9.9.9"'); // dependencies untouched
+  });
+
+  it('gives back identical text when the version is already right', () => {
+    const out = withVersion(pkg, lock, '1.3.0');
+    expect(out.packageText).toBe(pkg);
+    expect(out.lockText).toBe(lock);
+  });
+});
+

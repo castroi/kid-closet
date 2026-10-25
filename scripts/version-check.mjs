@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Checks that a pull request bumps the app version the way its branch type requires.
- * Run by CI on every pull request; same input, same verdict.
+ * Checks, and can set, the app version a branch needs for its type. One set of rules
+ * for both, so the bump and the check can never disagree; same input, same result.
  *
  *   feat/...                    → next minor (1.3.0 → 1.4.0), or next major (→ 2.0.0) for a big change
  *   fix/...                     → next patch (1.3.0 → 1.3.1)
@@ -11,14 +11,18 @@
  *
  * Usage:
  *   node scripts/version-check.mjs --branch <head branch> --base-ref origin/main
- *     A branch, against main's current package.json (CI fetches main first).
+ *     Check a branch against main's current package.json (CI fetches main first).
+ *   node scripts/version-check.mjs --bump [--branch <name>] [--base-ref origin/main]
+ *     Set the version the branch needs (keeps it if it's already right) in package.json
+ *     and both fields of package-lock.json. `npm run version:bump`; the "Update version
+ *     and lockfile" workflow runs it on every push to a branch.
  *   node scripts/version-check.mjs --merge-commit HEAD
  *     On main after a pull request was merged: the merged branch's type comes from the
  *     merge message ("Merge pull request #12 from owner/feat/x"), the base is the
  *     merge's first parent. Catches two PRs that took the same version.
  */
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 const VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
@@ -53,14 +57,37 @@ export function allowedVersions(branch, base) {
   const next = nextVersions(base);
   switch (type) {
     case 'feat':
-      return { type, allowed: [next.minor, next.major], hint: 'npm version minor --no-git-tag-version' };
+      return { type, allowed: [next.minor, next.major] };
     case 'fix':
-      return { type, allowed: [next.patch], hint: 'npm version patch --no-git-tag-version' };
+      return { type, allowed: [next.patch] };
     case 'chore':
     case 'docs':
     case 'test':
-      return { type, allowed: [base, next.patch], hint: `set "version" in package.json back to ${base} (or ${next.patch}) and run npm install --package-lock-only` };
+      return { type, allowed: [base, next.patch] };
   }
+}
+
+const FIX_HINT = 'run npm run version:bump, or just push: the "Update version and lockfile" workflow sets it on the branch';
+
+/**
+ * The version a branch should have: its current one when that's already allowed (e.g. a feat
+ * that chose the next major), otherwise the first allowed one (feat → next minor, fix → next
+ * patch, chore/docs/test → main's). null for a branch without a type prefix.
+ */
+export function targetVersion(branch, base, head) {
+  const rule = allowedVersions(branch, base);
+  if (!rule) return null;
+  return rule.allowed.includes(head) ? head : rule.allowed[0];
+}
+
+/** package.json and package-lock.json text with the version set; formatted the way npm writes them. */
+export function withVersion(packageText, lockText, version) {
+  const pkg = JSON.parse(packageText);
+  const lock = JSON.parse(lockText);
+  pkg.version = version;
+  lock.version = version;
+  if (lock.packages?.['']) lock.packages[''].version = version;
+  return { packageText: `${JSON.stringify(pkg, null, 2)}\n`, lockText: `${JSON.stringify(lock, null, 2)}\n` };
 }
 
 /**
@@ -83,7 +110,7 @@ export function checkVersion({ branch, base, head, lock, rootLock = lock }) {
   if (lock !== head || rootLock !== head) {
     return {
       ok: false,
-      message: `package-lock.json has version ${lock !== head ? lock : rootLock} but package.json has ${head}. Bump with "npm version", which updates both, or push and let the "Update lockfile" workflow fix it.`,
+      message: `package-lock.json has version ${lock !== head ? lock : rootLock} but package.json has ${head}. Fix: ${FIX_HINT}.`,
     };
   }
   const rule = allowedVersions(branch, base);
@@ -100,8 +127,7 @@ export function checkVersion({ branch, base, head, lock, rootLock = lock }) {
     ok: false,
     message:
       `${branch}: a ${rule.type} change needs version ${rule.allowed.join(' or ')} (main has ${base}), but package.json has ${head}. ` +
-      `Fix: ${rule.hint}` +
-      (rule.type === 'feat' || rule.type === 'fix' ? ' (after merging main, if main moved on).' : '.'),
+      `Fix: ${FIX_HINT}.`,
   };
 }
 
@@ -115,7 +141,37 @@ function git(...args) {
   return execFileSync('git', args, { encoding: 'utf8' });
 }
 
+function bump(args) {
+  const branch = readArg(args, '--branch') ?? git('branch', '--show-current').trim();
+  const baseRef = readArg(args, '--base-ref') ?? 'origin/main';
+  let base;
+  try {
+    base = JSON.parse(git('show', `${baseRef}:package.json`)).version;
+  } catch {
+    console.error(`Can't read ${baseRef}:package.json. Fetch main first: git fetch origin main`);
+    return 2;
+  }
+  const packageText = readFileSync('package.json', 'utf8');
+  const lockText = readFileSync('package-lock.json', 'utf8');
+  const head = JSON.parse(packageText).version;
+  const target = targetVersion(branch, base, head);
+  if (!target) {
+    console.log(`Branch "${branch}" has no type prefix (feat/, fix/, chore/, docs/, test/); version left as ${head}.`);
+    return 0;
+  }
+  const next = withVersion(packageText, lockText, target);
+  if (next.packageText === packageText && next.lockText === lockText) {
+    console.log(`${branch}: version ${head} is already right (main has ${base}).`);
+    return 0;
+  }
+  writeFileSync('package.json', next.packageText);
+  writeFileSync('package-lock.json', next.lockText);
+  console.log(`${branch}: version ${head} → ${target} (main has ${base}).`);
+  return 0;
+}
+
 function main(args) {
+  if (args.includes('--bump')) return bump(args);
   let branch = readArg(args, '--branch');
   let baseRef = readArg(args, '--base-ref');
   const mergeCommit = readArg(args, '--merge-commit');
