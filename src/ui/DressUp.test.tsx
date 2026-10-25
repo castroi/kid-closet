@@ -1,6 +1,7 @@
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import { ClosetChangedElsewhereError } from '../storage/repository';
 import { renderWithCloset, sampleCloset } from '../test/fixtures';
 import { DressUp, isColdSeason } from './DressUp';
 
@@ -108,6 +109,22 @@ describe('DressUp', () => {
     expect(onOpenFavorites).toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: 'לשנות משהו' }));
     expect(screen.getByRole('heading', { name: 'לאן הולכים היום?' })).toBeInTheDocument();
+  });
+
+  it('says so when saving a look fails, but not when the "changed in another window" notice explains it', async () => {
+    const user = userEvent.setup();
+    const { repo } = await renderWithCloset(<DressUp today={WARM_DAY} onOpenFavorites={vi.fn()} />, sampleCloset());
+    await user.click(row('חולצה').getByRole('button', { name: 'הבא' }));
+    await user.click(screen.getByRole('button', { name: 'לראות את הלוק' }));
+
+    vi.spyOn(repo, 'update').mockRejectedValueOnce(new Error('disk full'));
+    await user.click(screen.getByRole('button', { name: 'לשמור' }));
+    expect(await screen.findByText('השמירה לא הצליחה. נסי שוב.')).toBeInTheDocument();
+
+    vi.spyOn(repo, 'update').mockRejectedValueOnce(new ClosetChangedElsewhereError());
+    await user.click(screen.getByRole('button', { name: 'לשמור' }));
+    expect(await screen.findByText(/הארון השתנה בחלון אחר/)).toBeInTheDocument();
+    expect(screen.queryByText('השמירה לא הצליחה. נסי שוב.')).not.toBeInTheDocument();
   });
 
   it('opens a saved outfit', async () => {

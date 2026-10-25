@@ -1,6 +1,7 @@
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import { ClosetChangedElsewhereError } from '../storage/repository';
 import { renderWithCloset, sampleCloset } from '../test/fixtures';
 import { Closet } from './Closet';
 
@@ -93,6 +94,59 @@ describe('Closet', () => {
     await user.click(screen.getByRole('button', { name: 'קטן עליי' }));
     expect(repo.getData().items.find((i) => i.id === 'tBlue')?.status).toBe('outgrown');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('shows a failed "outgrown" inside the editor, where she is looking', async () => {
+    const user = userEvent.setup();
+    const { repo } = await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} />, sampleCloset());
+    vi.spyOn(repo, 'update').mockRejectedValueOnce(new Error('disk full'));
+    await user.click(screen.getByRole('button', { name: 'עריכת חולצה כחולה' }));
+    const dialog = within(screen.getByRole('dialog'));
+    await user.click(dialog.getByRole('button', { name: 'קטן עליי' }));
+    expect(await dialog.findByRole('alert')).toHaveTextContent('לא הצלחנו לשמור. נסי שוב.');
+    expect(repo.getData().items.find((i) => i.id === 'tBlue')?.status).toBe('active');
+    // She can try again from the same sheet.
+    expect(dialog.getByRole('button', { name: 'קטן עליי' })).toBeEnabled();
+    await user.click(dialog.getByRole('button', { name: 'קטן עליי' }));
+    expect(repo.getData().items.find((i) => i.id === 'tBlue')?.status).toBe('outgrown');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('shows a failed move next to the move button', async () => {
+    const user = userEvent.setup();
+    const { repo } = await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} />, sampleCloset());
+    vi.spyOn(repo, 'update').mockRejectedValueOnce(new Error('disk full'));
+    await user.click(screen.getByRole('button', { name: 'בחירה' }));
+    await user.click(screen.getByRole('button', { name: 'חולצה כחולה' }));
+    const moveButton = screen.getByRole('button', { name: 'העברה ל"קטן עליי" (1)' });
+    await user.click(moveButton);
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('לא הצלחנו לשמור. נסי שוב.');
+    expect(alert.parentElement).toBe(moveButton.parentElement); // in the action bar, not below the list
+  });
+
+  it('shows a failed undo next to the undo toast', async () => {
+    const user = userEvent.setup();
+    const { repo } = await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} />, sampleCloset());
+    await user.click(screen.getByRole('button', { name: 'עריכת חולצה כחולה' }));
+    await user.click(screen.getByRole('button', { name: 'קטן עליי' }));
+    await screen.findByText('הועבר ל"קטן עליי" (1)');
+    vi.spyOn(repo, 'update').mockRejectedValueOnce(new Error('disk full'));
+    await user.click(screen.getByRole('button', { name: 'ביטול' }));
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('לא הצלחנו לבטל. נסי שוב.');
+    expect(alert.parentElement).toBe(screen.getByText('הועבר ל"קטן עליי" (1)').closest('.action-bar'));
+    expect(repo.getData().items.find((i) => i.id === 'tBlue')?.status).toBe('outgrown');
+  });
+
+  it('adds no second message when the "changed in another window" notice explains it', async () => {
+    const user = userEvent.setup();
+    const { repo } = await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} />, sampleCloset());
+    vi.spyOn(repo, 'update').mockRejectedValueOnce(new ClosetChangedElsewhereError());
+    await user.click(screen.getByRole('button', { name: 'עריכת חולצה כחולה' }));
+    await user.click(screen.getByRole('button', { name: 'קטן עליי' }));
+    expect(await screen.findByText(/הארון השתנה בחלון אחר/)).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('opens the parent area and the settings', async () => {

@@ -22,7 +22,7 @@ import {
   type Outfit,
   type Slot,
 } from '../core/model';
-import { ColorPicker, Garment, Icon, Sheet, Swatch, Toast } from './common';
+import { ColorPicker, Garment, Icon, Sheet, Swatch, Toast, explainedElsewhere } from './common';
 
 /** November to March counts as cold by default (Israel). */
 export function isColdSeason(date: Date): boolean {
@@ -114,8 +114,8 @@ export function DressUp({ initialOutfit = null, today = new Date(), onOpenFavori
     try {
       await addOutfit(outfitInput);
       setJustSaved(true);
-    } catch {
-      setSaveError(true);
+    } catch (err) {
+      setSaveError(!explainedElsewhere(err));
     }
   };
 
