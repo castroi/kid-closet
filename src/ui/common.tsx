@@ -75,13 +75,16 @@ export function ColorPicker({
   colors,
   value,
   onChange,
+  compact = false,
 }: {
   colors: ColorGroup[];
   value: ColorGroup | null;
   onChange: (color: ColorGroup) => void;
+  /** One row that scrolls sideways, for headers where height is short. */
+  compact?: boolean;
 }) {
   return (
-    <div className="colors">
+    <div className={compact ? 'colors compact' : 'colors'}>
       {colors.map((c) => (
         <button key={c} type="button" className="color-btn" aria-pressed={value === c} onClick={() => onChange(c)}>
           <span
@@ -96,7 +99,18 @@ export function ColorPicker({
   );
 }
 
-export function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+export function Sheet({
+  title,
+  onClose,
+  children,
+  className,
+}: {
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+  /** Extra class on the sheet, e.g. "tall" for a near full-screen sheet with its own scrolling area. */
+  className?: string;
+}) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -112,7 +126,7 @@ export function Sheet({ title, onClose, children }: { title: string; onClose: ()
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="sheet" role="dialog" aria-modal="true" aria-label={title}>
+      <div className={className ? `sheet ${className}` : 'sheet'} role="dialog" aria-modal="true" aria-label={title}>
         <div className="sheet-header">
           <h2>{title}</h2>
           <button type="button" className="icon-btn" style={{ background: 'var(--bg)' }} aria-label="סגירה" onClick={onClose}>
@@ -194,6 +208,14 @@ const ICONS: Record<string, ReactNode> = {
     <>
       <rect x="7" y="2.5" width="10" height="19" rx="2.5" />
       <path d="M11 18.5h2" />
+    </>
+  ),
+  grid: (
+    <>
+      <rect x="4" y="4" width="7" height="7" rx="1.5" />
+      <rect x="13" y="4" width="7" height="7" rx="1.5" />
+      <rect x="4" y="13" width="7" height="7" rx="1.5" />
+      <rect x="13" y="13" width="7" height="7" rx="1.5" />
     </>
   ),
 };
