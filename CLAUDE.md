@@ -34,3 +34,4 @@ Outfit picker for one 11-year-old on her iPhone. Static PWA on Vercel; no server
 | Garment photos are never filtered or dimmed in dark mode | She matches real colours |
 | Delete only in the parent area (behind a question); the kid has "outgrown" with undo | Safe from accidental taps |
 | Bump `SCHEMA_VERSION` when `closet.json` changes shape, and keep reading old versions | Saved closets and backups keep working |
+| `/sw.js` is generated at build time (`src/sw/serviceWorkerSource.ts`, wired in `vite.config.ts`): it pre-caches the app shell plus every file of that build in a cache named after the build, deletes older builds' caches, and never calls `skipWaiting`. Never add a hand-written `public/sw.js` | The app works fully offline, including the file worker and the WebP encoder; a running old version never loses files it still needs |

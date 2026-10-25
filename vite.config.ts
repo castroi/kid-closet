@@ -1,9 +1,24 @@
 /// <reference types="vitest/config" />
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
+import { serviceWorkerSource } from './src/sw/serviceWorkerSource';
+
+/** Writes /sw.js for this build, listing every file the build produced so it is all cached for offline use. */
+function serviceWorker(): Plugin {
+  return {
+    name: 'kid-closet-service-worker',
+    apply: 'build',
+    generateBundle(_options, bundle) {
+      const files = Object.keys(bundle)
+        .filter((name) => !name.endsWith('.map') && name !== 'index.html' && name !== 'sw.js')
+        .map((name) => `/${name}`);
+      this.emitFile({ type: 'asset', fileName: 'sw.js', source: serviceWorkerSource(files) });
+    },
+  };
+}
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), serviceWorker()],
   optimizeDeps: {
     // The WebP encoder loads its own .wasm file; pre-bundling breaks that lookup.
     exclude: ['@jsquash/webp'],
