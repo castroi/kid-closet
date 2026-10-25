@@ -46,6 +46,7 @@ export function precacheFilesFromBuild(outputFiles: string[]): string[] {
   const required: [string, (f: string) => boolean][] = [
     ['the file worker', (f) => /opfs\.worker.*\.js$/.test(f)],
     ['the WebP encoder (.wasm)', (f) => f.endsWith('.wasm')],
+    ['the WebP encoder (its .js loader)', (f) => /webp_enc.*\.js$/.test(f)],
   ];
   for (const [what, found] of required) {
     if (!files.some(found)) throw new Error(`The service worker would not cache ${what} for offline use`);
@@ -95,37 +96,51 @@ function navigate(event) {
   event.waitUntil(fromNetwork.then(() => undefined, () => undefined));
   return new Promise((resolve) => {
     let done = false;
+    let timer;
     const finish = (response) => {
       if (!done && response) {
         done = true;
+        clearTimeout(timer);
         resolve(response);
       }
     };
     const showCached = () => caches.match('/index.html').then(finish);
     fromNetwork.then(finish, () => showCached().then(() => finish(Response.error())));
-    setTimeout(showCached, NAVIGATION_TIMEOUT_MS); // weak signal: show the cached page meanwhile
+    timer = setTimeout(showCached, NAVIGATION_TIMEOUT_MS); // weak signal: show the cached page meanwhile
   });
+}
+
+/** Keeps the worker alive, from the moment of the request, until the work and any cache write it starts are done. */
+function keepAlive(event, work) {
+  event.waitUntil(work.then(() => undefined, () => undefined));
+  return work;
 }
 
 function networkFirst(event) {
   const request = event.request;
-  return fetch(request)
-    .then((response) => {
-      if (response.ok) store(event, request, response.clone());
-      return response;
-    })
-    .catch(() => caches.match(request).then((cached) => cached || Response.error()));
+  return keepAlive(
+    event,
+    fetch(request)
+      .then((response) => {
+        if (response.ok) store(event, request, response.clone());
+        return response;
+      })
+      .catch(() => caches.match(request).then((cached) => cached || Response.error())),
+  );
 }
 
 function cacheFirst(event) {
   const request = event.request;
-  return caches.match(request).then(
-    (cached) =>
-      cached ||
-      fetch(request).then((response) => {
-        if (response.ok) store(event, request, response.clone());
-        return response;
-      }),
+  return keepAlive(
+    event,
+    caches.match(request).then(
+      (cached) =>
+        cached ||
+        fetch(request).then((response) => {
+          if (response.ok) store(event, request, response.clone());
+          return response;
+        }),
+    ),
   );
 }
 

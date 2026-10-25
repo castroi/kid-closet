@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { SHELL_FILES, buildId, precacheFilesFromBuild, serviceWorkerSource } from './serviceWorkerSource';
 
 const ORIGIN = 'https://closet.test';
-const BUILD = ['/assets/index-abc.js', '/assets/opfs.worker-def.js', '/assets/webp_enc-123.wasm'];
+const BUILD = ['/assets/index-abc.js', '/assets/opfs.worker-def.js', '/assets/webp_enc-123.wasm', '/assets/webp_enc-456.js'];
 
 type Key = string | { url: string };
 const path = (key: Key) => (typeof key === 'string' ? key : new URL(key.url).pathname);
@@ -198,8 +198,9 @@ describe('generated service worker', () => {
   it('fetches and caches a build file that is not cached yet, keeping the worker alive for the write', async () => {
     const sw = startWorker();
     const { reply, extended, background } = sw.dispatch('/assets/late-chunk.js');
+    expect(extended.length).toBe(1); // kept alive from the moment of the request, not only later
     expect(await (await reply!)!.text()).toBe('network /assets/late-chunk.js');
-    expect(extended.length).toBeGreaterThan(0); // the cache write is tied to the event
+    expect(extended.length).toBeGreaterThan(1); // and the cache write is tied to the event too
     await background();
     sw.goOffline();
     expect(await (await sw.request('/assets/late-chunk.js'))!.text()).toBe('network /assets/late-chunk.js');
@@ -243,15 +244,17 @@ describe('precacheFilesFromBuild', () => {
         'assets/index-abc.js.map',
         'assets/opfs.worker-def.js',
         'assets/webp_enc-123.wasm',
+        'assets/webp_enc-456.js',
         'index.html',
         'sw.js',
       ]),
-    ).toEqual(['/assets/index-abc.js', '/assets/opfs.worker-def.js', '/assets/webp_enc-123.wasm']);
+    ).toEqual(['/assets/index-abc.js', '/assets/opfs.worker-def.js', '/assets/webp_enc-123.wasm', '/assets/webp_enc-456.js']);
   });
 
   it.each([
-    ['the file worker', ['assets/index.js', 'assets/webp_enc.wasm']],
-    ['the WebP encoder', ['assets/index.js', 'assets/opfs.worker-1.js']],
+    ['the file worker', ['assets/index.js', 'assets/webp_enc.wasm', 'assets/webp_enc.js']],
+    ['the WebP encoder (.wasm)', ['assets/index.js', 'assets/opfs.worker-1.js', 'assets/webp_enc.js']],
+    ['the WebP encoder (its .js loader)', ['assets/index.js', 'assets/opfs.worker-1.js', 'assets/webp_enc.wasm']],
   ])('stops the build when %s is missing', (what, files) => {
     expect(() => precacheFilesFromBuild(files)).toThrow(what);
   });
