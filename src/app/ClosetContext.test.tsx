@@ -85,6 +85,39 @@ describe('ClosetProvider', () => {
     expect(await screen.findByText('2 items')).toBeInTheDocument();
   });
 
+  it('explains when the phone refuses access to storage (e.g. private browsing)', async () => {
+    const user = userEvent.setup();
+    const onRetry = vi.fn();
+    const repo = new ClosetRepository(new MemoryFileStore());
+    const refused = new Error('The operation failed for an unknown transient reason (e.g. out of memory).');
+    refused.name = 'UnknownError';
+    repo.load = () => Promise.reject(refused);
+    render(
+      <ClosetProvider repo={repo} renderError={(error, restore) => <RecoveryScreen error={error} onRestore={restore} onRetry={onRetry} />}>
+        <Probe />
+      </ClosetProvider>,
+    );
+    expect(await screen.findByRole('heading', { name: 'אין גישה לאחסון בטלפון' })).toBeInTheDocument();
+    expect(screen.queryByText(/פגומים/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('שחזור מגיבוי')).not.toBeInTheDocument();
+    expect(screen.getByText(/unknown transient reason/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'לנסות שוב' }));
+    expect(onRetry).toHaveBeenCalled();
+  });
+
+  it('reloads the page by default when retrying', async () => {
+    const user = userEvent.setup();
+    const reload = vi.fn();
+    vi.stubGlobal('location', { ...window.location, reload });
+    try {
+      render(<RecoveryScreen error={new Error('denied')} onRestore={vi.fn()} />);
+      await user.click(screen.getByRole('button', { name: 'לנסות שוב' }));
+      expect(reload).toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('throws when used outside the provider', () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     render(
