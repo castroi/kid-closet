@@ -1,6 +1,6 @@
 import { addItem as addItemTo, parseCloset, removeItems } from '../core/closet';
 import { emptyCloset, type ClosetData, type ColorGroup, type Item, type ItemType, type Occasion } from '../core/model';
-import { blobToText, type FileStore } from './fileStore';
+import { blobToBytes, blobToText, type FileStore } from './fileStore';
 
 /**
  * closet.json is written alternately to two files with an increasing
@@ -136,6 +136,23 @@ export class ClosetRepository {
 
   readImage(path: string): Promise<Blob | null> {
     return this.store.read(path);
+  }
+
+  /**
+   * The closet and the bytes of every item's photo, read in the queue so no save
+   * can change them halfway. Bytes, not Blobs: a file Blob from the phone's storage
+   * can become unreadable once the file is deleted.
+   */
+  snapshot(): Promise<{ data: ClosetData; images: Map<string, Uint8Array | null> }> {
+    return this.enqueue(async () => {
+      const data = this.data;
+      const images = new Map<string, Uint8Array | null>();
+      for (const item of data.items) {
+        const blob = await this.store.read(item.image);
+        images.set(item.image, blob ? await blobToBytes(blob) : null);
+      }
+      return { data, images };
+    });
   }
 
   /** Replaces the whole closet (used by restore from backup). */

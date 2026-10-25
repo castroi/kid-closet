@@ -10,11 +10,16 @@ import {
   type StorageStatus,
 } from '../app/device';
 import { COLOR_INFO } from '../core/model';
-import { InvalidBackupError, backupFileName } from '../storage/backup';
-import { blobToBytes } from '../storage/fileStore';
+import { BackupTooLargeError, InvalidBackupError, backupFileName, readBackupFile } from '../storage/backup';
 import { Icon, Sheet, Swatch } from './common';
 
 export const BACKUP_REMINDER_DAYS = 14;
+
+function restoreErrorText(err: unknown): string {
+  if (err instanceof BackupTooLargeError) return 'קובץ הגיבוי גדול מדי לשחזור בטלפון.';
+  if (err instanceof InvalidBackupError) return 'הקובץ הזה אינו גיבוי תקין של הארון.';
+  return 'השחזור נכשל.';
+}
 
 export function randomQuestion(): [number, number] {
   const pick = () => 6 + Math.floor(Math.random() * 4); // 6..9
@@ -108,10 +113,11 @@ function ParentTools({ shareEnv, storage, now }: { shareEnv: ShareEnv; storage?:
 
   const deliver = async (bytes: Uint8Array) => {
     try {
-      const done = await shareOrDownload(bytes, backupFileName(now().toISOString()), shareEnv);
+      const done = await shareOrDownload(bytes, backupFileName(now()), shareEnv);
       setPrepared(null);
       if (done) {
-        await api.markBackedUp();
+        // The backup already exists at this point; failing to record its date only affects the reminder.
+        await api.markBackedUp().catch(() => undefined);
         setMessage({ text: 'הגיבוי נוצר. כדאי לשמור אותו ב־iCloud Drive.', error: false });
       }
     } catch (err) {
@@ -145,10 +151,7 @@ function ParentTools({ shareEnv, storage, now }: { shareEnv: ShareEnv; storage?:
       await api.importBackup(zip);
       setMessage({ text: 'השחזור הושלם.', error: false });
     } catch (err) {
-      setMessage({
-        text: err instanceof InvalidBackupError ? 'הקובץ הזה אינו גיבוי תקין של הארון.' : 'השחזור נכשל.',
-        error: true,
-      });
+      setMessage({ text: restoreErrorText(err), error: true });
     } finally {
       setBusy(null);
     }
@@ -207,7 +210,13 @@ function ParentTools({ shareEnv, storage, now }: { shareEnv: ShareEnv; storage?:
               onChange={async (e) => {
                 const file = e.target.files?.[0];
                 e.target.value = '';
-                if (file) setPendingImport(await blobToBytes(file));
+                if (!file) return;
+                setMessage(null);
+                try {
+                  setPendingImport(await readBackupFile(file));
+                } catch (err) {
+                  setMessage({ text: restoreErrorText(err), error: true });
+                }
               }}
             />
           </label>

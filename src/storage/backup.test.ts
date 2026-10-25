@@ -1,15 +1,19 @@
 // @vitest-environment node
 import { strToU8, zipSync } from 'fflate';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { MAX_ITEMS, MAX_NAME_LENGTH, MAX_OUTFITS } from '../core/closet';
 import { NOW, closetWith, makeItem, makeOutfit, seededStore } from '../test/data';
 import {
   BACKUP_FORMAT,
+  BackupTooLargeError,
   InvalidBackupError,
+  MAX_BACKUP_FILE_BYTES,
   MAX_ENTRY_BYTES,
   backupFileName,
   exportBackup,
   importBackup,
   readBackup,
+  readBackupFile,
 } from './backup';
 import { MemoryFileStore, blobToText } from './fileStore';
 import { ClosetRepository } from './repository';
@@ -50,8 +54,45 @@ describe('backup', () => {
     await expect(exportBackup(repo, NOW)).rejects.toThrow('Photo missing');
   });
 
-  it('names the file by date', () => {
-    expect(backupFileName('2026-10-24T08:00:00.000Z')).toBe('kid-closet-backup-2026-10-24.zip');
+  it('exports a consistent closet while a delete is running', async () => {
+    const store = seededStore(sample());
+    const repo = new ClosetRepository(store, () => NOW);
+    await repo.load();
+    const exporting = exportBackup(repo, NOW); // queued first, so it sees the closet before the delete
+    const deleting = repo.deleteItems(['t']);
+    const zip = await exporting;
+    await deleting;
+    const { closet, images } = readBackup(zip);
+    expect(closet.items.map((i) => i.id)).toEqual(['t', 'b']);
+    expect([...images.keys()].sort()).toEqual(['images/b.jpg', 'images/t.webp']);
+    expect(store.files.has('images/t.webp')).toBe(false);
+  });
+
+  it('names the file by the local date', () => {
+    expect(backupFileName(new Date(2026, 9, 24, 8, 0))).toBe('kid-closet-backup-2026-10-24.zip');
+    // Just after local midnight it is already the new day, whatever the UTC date is.
+    expect(backupFileName(new Date(2026, 0, 5, 0, 30))).toBe('kid-closet-backup-2026-01-05.zip');
+  });
+
+  it('refuses a backup file too large to restore before reading it', async () => {
+    const huge = { size: MAX_BACKUP_FILE_BYTES + 1, arrayBuffer: vi.fn() } as unknown as Blob;
+    await expect(readBackupFile(huge)).rejects.toBeInstanceOf(BackupTooLargeError);
+    expect((huge as unknown as { arrayBuffer: ReturnType<typeof vi.fn> }).arrayBuffer).not.toHaveBeenCalled();
+    expect(await readBackupFile(new Blob([new Uint8Array([1, 2, 3])]))).toEqual(new Uint8Array([1, 2, 3]));
+  });
+
+  it('rejects restore data far larger than any real closet', () => {
+    const many = closetWith([]);
+    const tooMany = { ...many, items: Array.from({ length: MAX_ITEMS + 1 }, (_, i) => makeItem({ id: `i${i}` })) };
+    expect(() => readBackup(manifestZip({ format: BACKUP_FORMAT, closet: tooMany }))).toThrow(`more than ${MAX_ITEMS} items`);
+
+    const longName = closetWith([makeItem({ id: 't', name: 'x'.repeat(MAX_NAME_LENGTH + 1) })]);
+    const zip = manifestZip({ format: BACKUP_FORMAT, closet: longName }, { 'images/t.webp': strToU8('p') });
+    expect(() => readBackup(zip)).toThrow(InvalidBackupError);
+    expect(() => readBackup(zip)).toThrow('name is too long');
+
+    const tooManyOutfits = { ...many, outfits: Array.from({ length: MAX_OUTFITS + 1 }, () => ({})) };
+    expect(() => readBackup(manifestZip({ format: BACKUP_FORMAT, closet: tooManyOutfits }))).toThrow('outfits');
   });
 
   it('ignores unrelated files and rejects oversized entries', () => {
@@ -61,7 +102,7 @@ describe('backup', () => {
     expect([...readBackup(ok).images.keys()]).toEqual(['images/t.webp']);
 
     const huge = zipSync({ 'closet.json': manifest, 'images/t.webp': new Uint8Array(MAX_ENTRY_BYTES + 1) });
-    expect(() => readBackup(huge)).toThrow('too large');
+    expect(() => readBackup(huge)).toThrow(BackupTooLargeError);
   });
 
   it.each([

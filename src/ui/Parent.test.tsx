@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { strToU8, zipSync } from 'fflate';
 import { describe, expect, it, vi } from 'vitest';
 import type { ShareEnv } from '../app/device';
-import { exportBackup } from '../storage/backup';
+import { MAX_BACKUP_FILE_BYTES, exportBackup } from '../storage/backup';
 import { ClosetRepository } from '../storage/repository';
 import { NOW, closetWith, makeItem, renderWithCloset, sampleCloset, seededStore } from '../test/fixtures';
 import { Parent, randomQuestion } from './Parent';
@@ -88,6 +88,43 @@ describe('Parent', () => {
     expect(share).toHaveBeenCalledTimes(2);
     expect(repo.getData().lastBackupAt).toBe(NOW);
     expect(screen.queryByRole('button', { name: 'שיתוף הגיבוי' })).not.toBeInTheDocument();
+  });
+
+  it('still reports the backup as made when only saving its date fails', async () => {
+    const user = userEvent.setup();
+    const shareEnv = env();
+    const { repo } = await renderWithCloset(
+      <Parent onBack={vi.fn()} shareEnv={shareEnv} question={[7, 8]} now={TODAY} />,
+      sampleCloset(),
+    );
+    vi.spyOn(repo, 'update').mockRejectedValue(new Error('disk full'));
+    await openTools(user);
+    await user.click(screen.getByRole('button', { name: 'ייצוא גיבוי' }));
+    expect(await screen.findByText(/הגיבוי נוצר/)).toBeInTheDocument();
+    expect(screen.queryByText('יצירת הגיבוי נכשלה.')).not.toBeInTheDocument();
+    expect(shareEnv.download).toHaveBeenCalled();
+  });
+
+  it('refuses a backup file too large to restore without reading it', async () => {
+    const user = userEvent.setup();
+    await renderWithCloset(<Parent onBack={vi.fn()} shareEnv={env()} question={[7, 8]} now={TODAY} />, sampleCloset());
+    await openTools(user);
+    const file = new File(['x'], 'huge.zip', { type: 'application/zip' });
+    Object.defineProperty(file, 'size', { value: MAX_BACKUP_FILE_BYTES + 1 });
+    await user.upload(screen.getByLabelText('שחזור מגיבוי'), file);
+    expect(await screen.findByText('קובץ הגיבוי גדול מדי לשחזור בטלפון.')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('reports a backup file that cannot be read', async () => {
+    const user = userEvent.setup();
+    await renderWithCloset(<Parent onBack={vi.fn()} shareEnv={env()} question={[7, 8]} now={TODAY} />, sampleCloset());
+    await openTools(user);
+    const file = new File(['x'], 'b.zip', { type: 'application/zip' });
+    Object.defineProperty(file, 'arrayBuffer', { value: () => Promise.reject(new Error('NotReadableError')) });
+    await user.upload(screen.getByLabelText('שחזור מגיבוי'), file);
+    expect(await screen.findByText('השחזור נכשל.')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('reports a failed export', async () => {
