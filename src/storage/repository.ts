@@ -35,15 +35,38 @@ export class ClosetCorruptedError extends Error {
   }
 }
 
+/** Thrown when another open copy of the app saved since this copy loaded the closet. */
+export class ClosetChangedElsewhereError extends Error {
+  constructor() {
+    super('The closet was changed in another window');
+    this.name = 'ClosetChangedElsewhereError';
+  }
+}
+
+export type WriteLock = <T>(fn: () => Promise<T>) => Promise<T>;
+
+/** A WriteLock shared by every tab of this site, or undefined where the phone has no Web Locks. */
+export function webWriteLock(locks: Pick<LockManager, 'request'> | undefined): WriteLock | undefined {
+  if (!locks) return undefined;
+  // request() resolves with what the callback's promise resolves to.
+  return <T>(fn: () => Promise<T>) => locks.request('kid-closet-write', () => fn()) as unknown as Promise<T>;
+}
+
 export class ClosetRepository {
   private data: ClosetData = emptyCloset();
   private generation = 0;
   private queue: Promise<unknown> = Promise.resolve();
 
+  /**
+   * `writeLock` runs the check-then-write of a save exclusively across all open
+   * copies of the app (main.tsx passes one built on the Web Locks API). Without
+   * one, saves are still checked, only the tiny gap between check and write is open.
+   */
   constructor(
     private readonly store: FileStore,
     private readonly clock: () => string = () => new Date().toISOString(),
     private readonly newId: () => string = () => crypto.randomUUID(),
+    private readonly writeLock: WriteLock = (fn) => fn(),
   ) {}
 
   getData(): ClosetData {
@@ -85,14 +108,39 @@ export class ClosetRepository {
     });
   }
 
-  private async persist(next: ClosetData): Promise<ClosetData> {
-    const generation = this.generation + 1;
-    const envelope: Envelope = { generation, savedAt: this.clock(), closet: next };
-    const file = CLOSET_FILES[generation % 2];
-    await this.store.write(file, new Blob([JSON.stringify(envelope)], { type: 'application/json' }));
-    this.generation = generation;
-    this.data = next;
-    return next;
+  /** The highest generation in the closet files on disk, readable or not. */
+  private async highestOnDisk(): Promise<number> {
+    let highest = 0;
+    for (const file of CLOSET_FILES) {
+      const blob = await this.store.read(file);
+      if (!blob) continue;
+      const { generation } = await readEnvelope(blob);
+      highest = Math.max(highest, generation ?? 0);
+    }
+    return highest;
+  }
+
+  /**
+   * Saves `next` above every generation on disk. If another copy of the app (a
+   * second tab) has saved since this one loaded, a normal save is refused rather
+   * than silently overwriting that copy's changes; a restore (`replace`) goes
+   * ahead, since it replaces the whole closet on purpose.
+   */
+  private persist(next: ClosetData, mode: 'change' | 'replace' = 'change'): Promise<ClosetData> {
+    return this.writeLock(async () => {
+      const onDisk = await this.highestOnDisk();
+      if (onDisk > this.generation) {
+        if (mode === 'change') throw new ClosetChangedElsewhereError();
+        this.generation = onDisk;
+      }
+      const generation = this.generation + 1;
+      const envelope: Envelope = { generation, savedAt: this.clock(), closet: next };
+      const file = CLOSET_FILES[generation % 2];
+      await this.store.write(file, new Blob([JSON.stringify(envelope)], { type: 'application/json' }));
+      this.generation = generation;
+      this.data = next;
+      return next;
+    });
   }
 
   /** Applies a pure change to the closet and saves it. */
@@ -168,7 +216,7 @@ export class ClosetRepository {
         if (!blob) throw new Error(`Missing photo ${item.image}`);
         await this.store.write(item.image, blob);
       }
-      const saved = await this.persist(next);
+      const saved = await this.persist(next, 'replace');
       await this.removeOrphanImages();
       return saved;
     });

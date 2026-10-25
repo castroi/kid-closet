@@ -12,7 +12,7 @@ import {
   documentVisibility,
   type DirHandleLike,
 } from './storage/opfsStore';
-import { ClosetRepository } from './storage/repository';
+import { ClosetRepository, webWriteLock } from './storage/repository';
 import { RecoveryScreen } from './ui/RecoveryScreen';
 import './styles.css';
 
@@ -35,7 +35,7 @@ function start() {
     documentVisibility,
   );
   const store = new OpfsFileStore(() => navigator.storage.getDirectory() as unknown as Promise<DirHandleLike>, workerWrite);
-  const repo = new ClosetRepository(store);
+  const repo = new ClosetRepository(store, undefined, undefined, webWriteLock(navigator.locks));
 
   void requestPersistence(navigator.storage);
   registerServiceWorker();

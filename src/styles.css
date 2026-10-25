@@ -603,6 +603,20 @@ button:disabled {
   font-size: 14px;
 }
 
+/* Shown over every screen when another open copy of the app saved first. */
+.changed-elsewhere {
+  position: fixed;
+  top: calc(env(safe-area-inset-top) + 8px);
+  inset-inline: 12px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.changed-elsewhere span {
+  flex: 1;
+}
+
 .error {
   color: var(--danger-text);
   font-size: 14px;

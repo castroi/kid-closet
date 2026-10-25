@@ -31,6 +31,49 @@ function corruptedStore() {
 }
 
 describe('ClosetProvider', () => {
+  it('shows the newer closet when another open copy saved first', async () => {
+    const user = userEvent.setup();
+    const store = seededStore(closetWith([makeItem({ id: 'a' })]));
+    const here = new ClosetRepository(store, () => NOW);
+    const otherCopy = new ClosetRepository(store, () => NOW, () => 'fromOtherCopy');
+    const result: string[] = [];
+    function SaveButton() {
+      const { markBackedUp } = useCloset();
+      return (
+        <button
+          type="button"
+          onClick={() => markBackedUp().then(() => result.push('saved'), (e: Error) => result.push(e.name))}
+        >
+          save
+        </button>
+      );
+    }
+    render(
+      <ClosetProvider repo={here}>
+        <Probe />
+        <SaveButton />
+      </ClosetProvider>,
+    );
+    expect(await screen.findByText('1 items')).toBeInTheDocument();
+
+    await otherCopy.load();
+    await otherCopy.addItem(
+      { name: 'x', type: 'tee', colorGroup: 'blue', occasions: ['school'] },
+      { blob: new Blob(['p']), ext: 'webp' },
+    );
+    await user.click(screen.getByRole('button', { name: 'save' }));
+
+    expect(await screen.findByText(/הארון השתנה בחלון אחר/)).toBeInTheDocument();
+    expect(screen.getByText('2 items')).toBeInTheDocument(); // the other copy's item is shown, not lost
+    expect(result).toEqual(['ClosetChangedElsewhereError']);
+    expect((await new ClosetRepository(store).load()).lastBackupAt).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: 'הבנתי' }));
+    expect(screen.queryByText(/הארון השתנה בחלון אחר/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'save' }));
+    await vi.waitFor(() => expect(result).toEqual(['ClosetChangedElsewhereError', 'saved']));
+  });
+
   it('shows loading, then the children', async () => {
     const repo = new ClosetRepository(seededStore(closetWith([makeItem({ id: 'a' })])), () => NOW);
     render(

@@ -2,7 +2,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import { NOW, closetWith, makeItem, makeOutfit, seededStore } from '../test/data';
 import { MemoryFileStore, blobToText } from './fileStore';
-import { CLOSET_FILES, ClosetCorruptedError, ClosetRepository } from './repository';
+import {
+  CLOSET_FILES,
+  ClosetChangedElsewhereError,
+  ClosetCorruptedError,
+  ClosetRepository,
+  webWriteLock,
+  type WriteLock,
+} from './repository';
 
 const image = { blob: new Blob(['photo'], { type: 'image/webp' }), ext: 'webp' as const };
 const newItem = { name: 'חולצה', type: 'tee' as const, colorGroup: 'blue' as const, occasions: ['school' as const] };
@@ -224,5 +231,97 @@ describe('ClosetRepository', () => {
     const repo = new ClosetRepository(store);
     expect(await repo.readImage('images/a.webp')).not.toBeNull();
     expect(await repo.readImage('images/none.webp')).toBeNull();
+  });
+});
+
+describe('two open copies of the app', () => {
+  async function twoCopies() {
+    const store = seededStore(closetWith([makeItem({ id: 'a' })]));
+    const first = new ClosetRepository(store, () => NOW, () => 'fromFirst');
+    const second = new ClosetRepository(store, () => NOW, () => 'fromSecond');
+    await first.load();
+    await second.load();
+    return { store, first, second };
+  }
+
+  it('refuses a save that would overwrite the other copy, and keeps its change', async () => {
+    const { store, first, second } = await twoCopies();
+    await second.addItem(newItem, image);
+    await expect(first.update((d) => ({ ...d, lastBackupAt: NOW }))).rejects.toBeInstanceOf(ClosetChangedElsewhereError);
+    const onDisk = await new ClosetRepository(store).load();
+    expect(onDisk.items.map((i) => i.id)).toEqual(['a', 'fromSecond']);
+    expect(onDisk.lastBackupAt).toBeNull();
+  });
+
+  it('saves again once it has reloaded the newer closet', async () => {
+    const { store, first, second } = await twoCopies();
+    await second.update((d) => ({ ...d, lastBackupAt: NOW }));
+    await expect(first.update((d) => d)).rejects.toBeInstanceOf(ClosetChangedElsewhereError);
+    await first.load();
+    await first.addItem(newItem, image);
+    const onDisk = await new ClosetRepository(store).load();
+    expect(onDisk.items.map((i) => i.id).sort()).toEqual(['a', 'fromFirst']);
+    expect(onDisk.lastBackupAt).toBe(NOW);
+  });
+
+  it('removes the photo of a refused new item', async () => {
+    const { store, first, second } = await twoCopies();
+    await second.update((d) => d);
+    await expect(first.addItem(newItem, image)).rejects.toBeInstanceOf(ClosetChangedElsewhereError);
+    expect(store.files.has('images/fromFirst.webp')).toBe(false);
+    expect(first.getData().items.map((i) => i.id)).toEqual(['a']);
+  });
+
+  it('keeps the photos of a refused delete', async () => {
+    const { store, first, second } = await twoCopies();
+    await second.update((d) => d);
+    await expect(first.deleteItems(['a'])).rejects.toBeInstanceOf(ClosetChangedElsewhereError);
+    expect(store.files.has('images/a.webp')).toBe(true);
+  });
+
+  it('lets a restore replace the closet, saving above the other copy', async () => {
+    const { store, first, second } = await twoCopies();
+    await second.update((d) => d); // generation 2
+    await second.update((d) => d); // generation 3
+    await first.replaceAll(closetWith([makeItem({ id: 'r' })]), new Map([['images/r.webp', new Blob(['r'])]]));
+    expect(await savedGeneration(store, CLOSET_FILES[0])).toBe(4);
+    expect((await new ClosetRepository(store).load()).items.map((i) => i.id)).toEqual(['r']);
+  });
+
+  it('runs every save inside the shared write lock', async () => {
+    const store = seededStore(closetWith([]));
+    let inside = false;
+    const seen: boolean[] = [];
+    const lock: WriteLock = async (fn) => {
+      inside = true;
+      try {
+        return await fn();
+      } finally {
+        inside = false;
+      }
+    };
+    const write = store.write.bind(store);
+    vi.spyOn(store, 'write').mockImplementation(async (path, data) => {
+      if (path.endsWith('.json')) seen.push(inside);
+      return write(path, data);
+    });
+    const repo = new ClosetRepository(store, () => NOW, () => 'x', lock);
+    await repo.load();
+    await repo.addItem(newItem, image);
+    await repo.update((d) => d);
+    expect(seen).toEqual([true, true]);
+  });
+});
+
+describe('webWriteLock', () => {
+  it('is missing where the phone has no Web Locks', () => {
+    expect(webWriteLock(undefined)).toBeUndefined();
+  });
+
+  it('runs the save under one lock name and returns its result', async () => {
+    const request = vi.fn((_name: string, callback: () => unknown) => Promise.resolve(callback()));
+    const lock = webWriteLock({ request } as unknown as Pick<LockManager, 'request'>)!;
+    await expect(lock(async () => 42)).resolves.toBe(42);
+    expect(request).toHaveBeenCalledWith('kid-closet-write', expect.any(Function));
   });
 });
