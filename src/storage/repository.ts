@@ -56,10 +56,11 @@ export const WRITE_LOCK_WAIT_MS = 15_000;
  */
 export function webWriteLock(
   locks: Pick<LockManager, 'request'> | undefined,
-  timeoutSignal: ((ms: number) => AbortSignal) | undefined = typeof AbortSignal !== 'undefined' &&
+  // null means "wait without a limit"; undefined would fall back to this default.
+  timeoutSignal: ((ms: number) => AbortSignal) | null = typeof AbortSignal !== 'undefined' &&
   typeof AbortSignal.timeout === 'function'
     ? (ms) => AbortSignal.timeout(ms)
-    : undefined,
+    : null,
 ): WriteLock | undefined {
   if (!locks) return undefined;
   return <T>(fn: () => Promise<T>) => {

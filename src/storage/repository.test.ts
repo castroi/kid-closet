@@ -356,7 +356,7 @@ describe('webWriteLock', () => {
 
   it('waits without a limit where the phone has no AbortSignal.timeout', async () => {
     const request = vi.fn((_name: string, _options: LockOptions, callback: () => unknown) => Promise.resolve(callback()));
-    const lock = webWriteLock({ request } as unknown as Pick<LockManager, 'request'>, undefined)!;
+    const lock = webWriteLock({ request } as unknown as Pick<LockManager, 'request'>, null)!;
     await expect(lock(async () => 'ok')).resolves.toBe('ok');
     expect(request).toHaveBeenCalledWith('kid-closet-write', {}, expect.any(Function));
   });
