@@ -421,7 +421,7 @@ describe('documentVisibility', () => {
       onChange();
       doc.visibilityState = 'visible';
       onChange();
-      expect(seen).toEqual([false, true]);
+      expect(seen).toEqual([true, false, true]);
     } finally {
       vi.unstubAllGlobals();
     }

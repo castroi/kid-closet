@@ -202,5 +202,7 @@ export function createWorkerWriter(
 
 /** Reports page visibility changes from the document. */
 export const documentVisibility: VisibilityWatcher = (listener) => {
-  document.addEventListener('visibilitychange', () => listener(document.visibilityState === 'visible'));
+  const report = () => listener(document.visibilityState === 'visible');
+  document.addEventListener('visibilitychange', report);
+  report(); // start from the real state, not an assumed "visible"
 };
