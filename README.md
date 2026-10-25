@@ -78,3 +78,21 @@ every push to `main` and every pull request. The coverage report is uploaded as 
 2. Open the deployed URL in **Safari** on the iPhone, tap Share → **Add to Home Screen**.
 3. Open the app from the home screen and add the clothes **there**. The home-screen app keeps its own
    storage, separate from the Safari tab.
+
+## Versions
+
+The app's version is in `package.json` and is shown in the parent area together with the commit it was built from
+(linked to GitHub). Each pull request sets the version itself, and CI checks it against `main`:
+
+| Branch | Version | Command |
+| --- | --- | --- |
+| `feat/...` | next minor (1.3.0 → 1.4.0), or next major for a big change | `npm version minor --no-git-tag-version` |
+| `fix/...` | next patch (1.3.0 → 1.3.1) | `npm version patch --no-git-tag-version` |
+| `chore/...`, `docs/...`, `test/...` | unchanged, or next patch | — |
+
+If `main` gets a new version while your PR is open, merge `main` into the branch and bump again. CI checks
+the version on every run of the branch against `main` as it is at that moment, and again on `main` after
+each merge. To have GitHub require an up-to-date branch before the merge button works, turn on
+Settings → Branches → the rule for `main` → "Require status checks to pass" and "Require branches to be up to
+date before merging".
+

@@ -1,5 +1,6 @@
 import { useEffect, useId, useState } from 'react';
 import { useCloset } from '../app/ClosetContext';
+import { BUILD_INFO, REPO_URL, commitUrl, shortCommit, type BuildInfo } from '../app/buildInfo';
 import {
   daysSince,
   formatBytes,
@@ -233,6 +234,8 @@ function ParentTools({ shareEnv, storage, now }: { shareEnv: ShareEnv; storage?:
         </div>
       </section>
 
+      <AboutApp />
+
       <section className="panel" aria-labelledby="delete-h">
         <h2 id="delete-h">מחיקת בגדים</h2>
         <p className="muted">מחיקה היא סופית. בגד שקטן עליה עדיף להעביר ל"קטן עליי".</p>
@@ -297,5 +300,33 @@ function ParentTools({ shareEnv, storage, now }: { shareEnv: ShareEnv; storage?:
         </Sheet>
       )}
     </>
+  );
+}
+
+/** Which build is on this phone, linked to its commit on GitHub (the repository is public). */
+export function AboutApp({ info = BUILD_INFO }: { info?: BuildInfo }) {
+  const short = shortCommit(info.commit);
+  const url = commitUrl(info.commit);
+  return (
+    <section className="panel" aria-labelledby="about-h">
+      <h2 id="about-h">על האפליקציה</h2>
+      <div className="kv">
+        <span className="muted">גרסה</span>
+        <span dir="ltr">
+          {info.version}
+          {url && (
+            <>
+              {' · '}
+              <a href={url} target="_blank" rel="noopener noreferrer" aria-label={`השינויים בגרסה ${info.version} ב־GitHub (${short})`}>
+                {short}
+              </a>
+            </>
+          )}
+        </span>
+      </div>
+      <a className="text-link" href={REPO_URL} target="_blank" rel="noopener noreferrer">
+        הקוד של האפליקציה ב־GitHub
+      </a>
+    </section>
   );
 }

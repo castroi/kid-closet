@@ -1,7 +1,8 @@
 /// <reference types="vitest/config" />
-import { defineConfig, type Plugin } from 'vite';
+import { defineConfig, loadEnv, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { precacheFilesFromBuild, serviceWorkerSource } from './src/sw/serviceWorkerSource';
+import pkg from './package.json';
 
 /**
  * Writes /sw.js for this build, listing every file the build produced so it is all
@@ -25,7 +26,21 @@ function serviceWorker(): Plugin {
   };
 }
 
-export default defineConfig({
+/**
+ * The commit being built: Vercel and GitHub Actions both say which one. Only a
+ * plain SHA is used; anything else (e.g. a local build) becomes ''.
+ */
+function buildCommit(env: Record<string, string>): string {
+  const sha = env.VERCEL_GIT_COMMIT_SHA || env.GITHUB_SHA || '';
+  return /^[0-9a-f]{40}$/.test(sha) ? sha : '';
+}
+
+export default defineConfig(({ mode }) => ({
+  // Shown in the parent area (src/app/buildInfo.ts). No dates: the same commit builds the same app.
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+    __APP_COMMIT__: JSON.stringify(buildCommit(loadEnv(mode, '.', ''))),
+  },
   plugins: [react(), serviceWorker()],
   optimizeDeps: {
     // The WebP encoder loads its own .wasm file; pre-bundling breaks that lookup.
@@ -60,4 +75,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));
