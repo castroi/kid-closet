@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useCloset } from '../app/ClosetContext';
 import { OCCASION_LABEL, SLOTS, slotOf, type Item, type ItemStatus, type Slot } from '../core/model';
-import { Garment, Icon, Sheet, Toast } from './common';
+import { Garment, Icon, Sheet, Toast, explainedElsewhere } from './common';
 import { ItemFields, finalName, missingFields, type ItemDraft } from './ItemFields';
 
 type Tab = Slot | 'outgrown';
@@ -38,27 +38,64 @@ export function Closet({ onOpenParent, onOpenSettings }: { onOpenParent: () => v
   const activeCount = data.items.filter((it) => it.status === 'active').length;
   const isOutgrownTab = tab === 'outgrown';
 
+  // An error belongs to the action she just tried; moving on to something else clears it.
   const changeTab = (t: Tab) => {
     setTab(t);
     setSelected(new Set());
+    setError(null);
   };
 
+  const startSelecting = () => {
+    setSelecting(true);
+    setUndo(null);
+    setError(null);
+  };
+
+  const stopSelecting = () => {
+    setSelecting(false);
+    setSelected(new Set());
+    setError(null);
+  };
+
+  /** Moves items between the closet and "קטן עליי". Throws on failure; the caller shows the error where she is looking. */
   const move = async (ids: string[], to: ItemStatus) => {
     setError(null);
+    await setStatus(ids, to);
+    setUndo({
+      text: to === 'outgrown' ? `הועבר ל"קטן עליי" (${ids.length})` : `הוחזר לארון (${ids.length})`,
+      ids,
+      previous: to === 'outgrown' ? 'active' : 'outgrown',
+    });
+    setSelected(new Set());
+    setSelecting(false);
+    setEditing(null);
+  };
+
+  const moveSelected = async () => {
     try {
-      await setStatus(ids, to);
-      setUndo({
-        text: to === 'outgrown' ? `הועבר ל"קטן עליי" (${ids.length})` : `הוחזר לארון (${ids.length})`,
-        ids,
-        previous: to === 'outgrown' ? 'active' : 'outgrown',
-      });
-      setSelected(new Set());
-      setSelecting(false);
-      setEditing(null);
-    } catch {
-      setError('לא הצלחנו לשמור. נסי שוב.');
+      await move([...selected], isOutgrownTab ? 'active' : 'outgrown');
+    } catch (err) {
+      if (!explainedElsewhere(err)) setError('לא הצלחנו לשמור. נסי שוב.');
     }
   };
+
+  const undoMove = async () => {
+    if (!undo) return;
+    setError(null);
+    try {
+      await setStatus(undo.ids, undo.previous);
+      setUndo(null);
+    } catch (err) {
+      if (!explainedElsewhere(err)) setError('לא הצלחנו לבטל. נסי שוב.');
+    }
+  };
+
+  // Shown in the action bar, next to the button or toast she just tapped, never below a long list.
+  const errorLine = error && (
+    <p className="error" role="alert">
+      {error}
+    </p>
+  );
 
   const toggle = (id: string) =>
     setSelected((s) => {
@@ -78,7 +115,7 @@ export function Closet({ onOpenParent, onOpenSettings }: { onOpenParent: () => v
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             {selecting ? (
-              <button type="button" className="small-btn" aria-pressed="true" onClick={() => { setSelecting(false); setSelected(new Set()); }}>
+              <button type="button" className="small-btn" aria-pressed="true" onClick={stopSelecting}>
                 ביטול
               </button>
             ) : (
@@ -90,7 +127,7 @@ export function Closet({ onOpenParent, onOpenSettings }: { onOpenParent: () => v
                 <button type="button" className="icon-btn parent-btn" aria-label="אזור הורים" onClick={onOpenParent}>
                   <Icon name="lock" size={18} />
                 </button>
-                <button type="button" className="small-btn" onClick={() => { setSelecting(true); setUndo(null); }} disabled={visible.length === 0}>
+                <button type="button" className="small-btn" onClick={startSelecting} disabled={visible.length === 0}>
                   בחירה
                 </button>
               </>
@@ -144,34 +181,19 @@ export function Closet({ onOpenParent, onOpenSettings }: { onOpenParent: () => v
             })}
           </div>
         )}
-        {error && <p className="error">{error}</p>}
       </div>
 
       {undo && !selecting && (
         <div className="action-bar">
-          <Toast
-            text={undo.text}
-            actionLabel="ביטול"
-            onAction={async () => {
-              try {
-                await setStatus(undo.ids, undo.previous);
-                setUndo(null);
-              } catch {
-                setError('לא הצלחנו לבטל. נסי שוב.');
-              }
-            }}
-          />
+          {errorLine}
+          <Toast text={undo.text} actionLabel="ביטול" onAction={undoMove} />
         </div>
       )}
 
       {selecting && (
         <div className="action-bar">
-          <button
-            type="button"
-            className="btn btn-dark"
-            disabled={selected.size === 0}
-            onClick={() => move([...selected], isOutgrownTab ? 'active' : 'outgrown')}
-          >
+          {errorLine}
+          <button type="button" className="btn btn-dark" disabled={selected.size === 0} onClick={moveSelected}>
             {isOutgrownTab ? `החזרה לארון (${selected.size})` : `העברה ל"קטן עליי" (${selected.size})`}
           </button>
         </div>
@@ -188,7 +210,7 @@ export function Closet({ onOpenParent, onOpenSettings }: { onOpenParent: () => v
   );
 }
 
-function ItemEditor({ item, onClose, onMove }: { item: Item; onClose: () => void; onMove: () => void }) {
+function ItemEditor({ item, onClose, onMove }: { item: Item; onClose: () => void; onMove: () => Promise<void> }) {
   const { updateItem } = useCloset();
   const [draft, setDraft] = useState<ItemDraft>({
     name: item.name,
@@ -212,8 +234,20 @@ function ItemEditor({ item, onClose, onMove }: { item: Item; onClose: () => void
         occasions: draft.occasions,
       });
       onClose();
-    } catch {
-      setError('לא הצלחנו לשמור. נסי שוב.');
+    } catch (err) {
+      if (!explainedElsewhere(err)) setError('לא הצלחנו לשמור. נסי שוב.');
+      setSaving(false);
+    }
+  };
+
+  // On success the closet screen closes this sheet; on failure the error shows here, where she is looking.
+  const move = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      await onMove();
+    } catch (err) {
+      if (!explainedElsewhere(err)) setError('לא הצלחנו לשמור. נסי שוב.');
       setSaving(false);
     }
   };
@@ -227,9 +261,13 @@ function ItemEditor({ item, onClose, onMove }: { item: Item; onClose: () => void
       </div>
       <ItemFields draft={draft} onChange={setDraft} />
       {missing.length > 0 && <p className="muted">חסר: {missing.join(', ')}</p>}
-      {error && <p className="error">{error}</p>}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
       <div className="btn-row">
-        <button type="button" className="btn" onClick={onMove}>
+        <button type="button" className="btn" onClick={move} disabled={saving}>
           {item.status === 'outgrown' ? 'החזרה לארון' : 'קטן עליי'}
         </button>
         <button type="button" className="btn btn-primary" onClick={save} disabled={missing.length > 0 || saving}>

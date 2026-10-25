@@ -2,6 +2,16 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { useCloset } from '../app/ClosetContext';
 import { COLOR_INFO, type ColorGroup, type Item } from '../core/model';
 import { BackupTooLargeError, InvalidBackupError } from '../storage/backup';
+import { ClosetChangedElsewhereError } from '../storage/repository';
+
+/**
+ * Whether a failed save already has its own message: when another open copy of the
+ * app saved first, the provider shows the "changed in another window" notice, so the
+ * screen shouldn't add a second error for the same tap.
+ */
+export function explainedElsewhere(err: unknown): boolean {
+  return err instanceof ClosetChangedElsewhereError;
+}
 
 /** What to tell the parent when reading or restoring a backup fails. */
 export function restoreErrorText(err: unknown): string {
