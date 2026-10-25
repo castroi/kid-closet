@@ -75,7 +75,9 @@ export class ClosetRepository {
       this.generation = highestSeen;
       if (foundAny && !best) throw new ClosetCorruptedError();
       this.data = best ? best.closet : emptyCloset();
-      await this.removeOrphanImages();
+      // If a newer generation exists that we could not read, its photos are not in
+      // this.data; cleaning up now would delete them for good.
+      if (!best || best.generation === highestSeen) await this.removeOrphanImages();
       return this.data;
     });
   }
@@ -152,9 +154,15 @@ export class ClosetRepository {
     });
   }
 
+  /** Best-effort: a cleanup failure must never fail the load or save that called it. */
   private async removeOrphanImages(): Promise<void> {
     const referenced = new Set(this.data.items.map((it) => it.image));
-    const names = await this.store.list(IMAGES_DIR);
+    let names: string[];
+    try {
+      names = await this.store.list(IMAGES_DIR);
+    } catch {
+      return;
+    }
     for (const name of names) {
       const path = `${IMAGES_DIR}/${name}`;
       if (!referenced.has(path)) await this.store.remove(path).catch(() => undefined);

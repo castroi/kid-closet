@@ -97,6 +97,47 @@ describe('ClosetRepository', () => {
     expect(store.files.has('images/a.webp')).toBe(true);
   });
 
+  it('keeps the photos of a newer generation it cannot read', async () => {
+    const store = seededStore(closetWith([makeItem({ id: 'a' })])); // generation 1 in closet-b
+    // A newer app version wrote generation 2 with a photo this version does not know about.
+    store.files.set('closet-a.json', new Blob([JSON.stringify({ generation: 2, closet: { schemaVersion: 99 } })]));
+    store.files.set('images/b.webp', new Blob(['newer']));
+    const repo = new ClosetRepository(store, () => NOW);
+    const data = await repo.load();
+    expect(data.items.map((i) => i.id)).toEqual(['a']);
+    expect(store.files.has('images/b.webp')).toBe(true);
+    expect(store.files.has('images/a.webp')).toBe(true);
+    // Saving still goes above the generation it could not read.
+    await repo.update((d) => ({ ...d, lastBackupAt: NOW }));
+    expect(await savedGeneration(store, 'closet-b.json')).toBe(3);
+  });
+
+  it('still removes orphans when an older file is the unreadable one', async () => {
+    const store = seededStore(closetWith([makeItem({ id: 'a' })]));
+    store.files.set('closet-b.json', new Blob([JSON.stringify({ generation: 3, savedAt: NOW, closet: closetWith([makeItem({ id: 'a' })]) })]));
+    store.files.set('closet-a.json', new Blob([JSON.stringify({ generation: 2, closet: { schemaVersion: 99 } })]));
+    store.files.set('images/orphan.webp', new Blob(['x']));
+    await new ClosetRepository(store).load();
+    expect(store.files.has('images/orphan.webp')).toBe(false);
+  });
+
+  it('opens the closet even when photo cleanup fails', async () => {
+    const store = seededStore(closetWith([makeItem({ id: 'a' })]));
+    vi.spyOn(store, 'list').mockRejectedValue(new Error('listing failed'));
+    const data = await new ClosetRepository(store).load();
+    expect(data.items.map((i) => i.id)).toEqual(['a']);
+  });
+
+  it('finishes a restore even when photo cleanup fails', async () => {
+    const store = new MemoryFileStore();
+    const repo = new ClosetRepository(store, () => NOW);
+    await repo.load();
+    vi.spyOn(store, 'list').mockRejectedValue(new Error('listing failed'));
+    const saved = await repo.replaceAll(closetWith([makeItem({ id: 'r' })]), new Map([['images/r.webp', new Blob(['r'])]]));
+    expect(saved.items.map((i) => i.id)).toEqual(['r']);
+    expect(store.files.has('images/r.webp')).toBe(true);
+  });
+
   it('cleans up the photo when saving the closet fails', async () => {
     const store = new MemoryFileStore();
     const repo = new ClosetRepository(store, () => NOW, sequentialIds());

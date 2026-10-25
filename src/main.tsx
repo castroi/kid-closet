@@ -23,11 +23,9 @@ function start() {
     return;
   }
 
-  let writer: ReturnType<typeof createWorkerWriter> | null = null;
-  const workerWrite: ReturnType<typeof createWorkerWriter> = (path, bytes) => {
-    writer ??= createWorkerWriter(new Worker(new URL('./storage/opfs.worker.ts', import.meta.url), { type: 'module' }));
-    return writer(path, bytes);
-  };
+  const workerWrite = createWorkerWriter(
+    () => new Worker(new URL('./storage/opfs.worker.ts', import.meta.url), { type: 'module' }),
+  );
   const store = new OpfsFileStore(() => navigator.storage.getDirectory() as unknown as Promise<DirHandleLike>, workerWrite);
   const repo = new ClosetRepository(store);
 

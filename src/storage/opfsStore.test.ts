@@ -118,34 +118,161 @@ describe('createWorkerWriter', () => {
   function fakeWorker() {
     const listeners = new Map<string, (e: MessageEvent) => void>();
     const posted: { id: number; path: string }[] = [];
-    return {
+    const fake = {
       posted,
+      terminated: false,
+      failPost: false,
       reply: (data: unknown) => listeners.get('message')?.({ data } as MessageEvent),
       crash: () => listeners.get('error')?.({} as MessageEvent),
       worker: {
-        postMessage: (msg: { id: number; path: string }) => posted.push(msg),
+        postMessage: (msg: { id: number; path: string }) => {
+          if (fake.failPost) throw new Error('could not post');
+          posted.push(msg);
+        },
         addEventListener: (type: string, fn: (e: MessageEvent) => void) => {
           listeners.set(type, fn);
         },
+        terminate: () => {
+          fake.terminated = true;
+        },
       } as unknown as Worker,
+    };
+    return fake;
+  }
+
+  /** A worker factory that records every worker it starts. */
+  function workerFactory() {
+    const started: ReturnType<typeof fakeWorker>[] = [];
+    return {
+      started,
+      create: () => {
+        const fake = fakeWorker();
+        started.push(fake);
+        return fake.worker;
+      },
     };
   }
 
+  it('starts the worker only on the first write', async () => {
+    const workers = workerFactory();
+    const write = createWorkerWriter(workers.create);
+    expect(workers.started).toHaveLength(0);
+    const p = write('a.json', new Uint8Array([1]));
+    expect(workers.started).toHaveLength(1);
+    workers.started[0].reply({ id: 1, ok: true });
+    await expect(p).resolves.toBeUndefined();
+    const q = write('b.json', new Uint8Array([2]));
+    expect(workers.started).toHaveLength(1);
+    workers.started[0].reply({ id: 2, ok: true });
+    await expect(q).resolves.toBeUndefined();
+  });
+
   it('fails waiting writes when the worker crashes', async () => {
-    const fake = fakeWorker();
-    const write = createWorkerWriter(fake.worker);
+    const workers = workerFactory();
+    const write = createWorkerWriter(workers.create);
     const a = write('a.json', new Uint8Array([1]));
     const b = write('b.json', new Uint8Array([2]));
-    fake.crash();
+    workers.started[0].crash();
     await expect(a).rejects.toThrow('worker stopped');
     await expect(b).rejects.toThrow('worker stopped');
+    expect(workers.started[0].terminated).toBe(true);
+  });
+
+  it('starts a fresh worker for the next write after a crash', async () => {
+    const workers = workerFactory();
+    const write = createWorkerWriter(workers.create);
+    const a = write('a.json', new Uint8Array([1]));
+    workers.started[0].crash();
+    await expect(a).rejects.toThrow('worker stopped');
+
+    const b = write('b.json', new Uint8Array([2]));
+    expect(workers.started).toHaveLength(2);
+    expect(workers.started[1].posted.map((m) => m.path)).toEqual(['b.json']);
+    workers.started[1].reply({ id: 2, ok: true });
+    await expect(b).resolves.toBeUndefined();
+  });
+
+  it('ignores a crash or reply from a worker it already replaced', async () => {
+    const workers = workerFactory();
+    const write = createWorkerWriter(workers.create);
+    const a = write('a.json', new Uint8Array([1]));
+    workers.started[0].crash();
+    await expect(a).rejects.toThrow('worker stopped');
+
+    const b = write('b.json', new Uint8Array([2]));
+    workers.started[0].crash();
+    workers.started[0].reply({ id: 2, ok: false, error: 'stale' });
+    workers.started[1].reply({ id: 2, ok: true });
+    await expect(b).resolves.toBeUndefined();
+    expect(workers.started[1].terminated).toBe(false);
+  });
+
+  it('gives up on a worker that stops answering and starts a fresh one', async () => {
+    vi.useFakeTimers();
+    try {
+      const workers = workerFactory();
+      const write = createWorkerWriter(workers.create, 1000);
+      const a = write('a.json', new Uint8Array([1]));
+      const rejected = expect(a).rejects.toThrow('did not answer');
+      await vi.advanceTimersByTimeAsync(1000);
+      await rejected;
+      expect(workers.started[0].terminated).toBe(true);
+
+      const b = write('b.json', new Uint8Array([2]));
+      expect(workers.started).toHaveLength(2);
+      workers.started[1].reply({ id: 2, ok: true });
+      await expect(b).resolves.toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not time out a write that was answered', async () => {
+    vi.useFakeTimers();
+    try {
+      const workers = workerFactory();
+      const write = createWorkerWriter(workers.create, 1000);
+      const a = write('a.json', new Uint8Array([1]));
+      workers.started[0].reply({ id: 1, ok: true });
+      await expect(a).resolves.toBeUndefined();
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(workers.started[0].terminated).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects instead of hanging when the worker cannot be started', async () => {
+    let attempts = 0;
+    const fake = fakeWorker();
+    const write = createWorkerWriter(() => {
+      attempts += 1;
+      if (attempts === 1) throw new Error('worker script missing');
+      return fake.worker;
+    });
+    await expect(write('a.json', new Uint8Array([1]))).rejects.toThrow('worker script missing');
+    const b = write('b.json', new Uint8Array([2]));
+    fake.reply({ id: fake.posted[0].id, ok: true });
+    await expect(b).resolves.toBeUndefined();
+  });
+
+  it('rejects when posting to the worker throws', async () => {
+    const workers = workerFactory();
+    const write = createWorkerWriter(workers.create);
+    const a = write('a.json', new Uint8Array([1])); // starts the worker
+    workers.started[0].failPost = true;
+    await expect(write('b.json', new Uint8Array([2]))).rejects.toThrow('could not post');
+    // The failed post does not disturb a write that is already waiting.
+    workers.started[0].reply({ id: 1, ok: true });
+    await expect(a).resolves.toBeUndefined();
   });
 
   it('resolves and rejects by request id', async () => {
-    const fake = fakeWorker();
-    const write = createWorkerWriter(fake.worker);
+    const workers = workerFactory();
+    const write = createWorkerWriter(workers.create);
     const first = write('a.json', new Uint8Array([1]));
     const second = write('b.json', new Uint8Array([2]));
+    const fake = workers.started[0];
     expect(fake.posted.map((m) => m.path)).toEqual(['a.json', 'b.json']);
     fake.reply({ id: 2, ok: false, error: 'nope' });
     fake.reply({ id: 1, ok: true });
@@ -155,9 +282,10 @@ describe('createWorkerWriter', () => {
   });
 
   it('uses a default error message', async () => {
-    const fake = fakeWorker();
-    const p = createWorkerWriter(fake.worker)('a.json', new Uint8Array([1]));
-    fake.reply({ id: 1, ok: false });
+    const workers = workerFactory();
+    const p = createWorkerWriter(workers.create)('a.json', new Uint8Array([1]));
+    workers.started[0].reply({ id: 1, ok: false });
     await expect(p).rejects.toThrow('Write failed');
   });
 });
+

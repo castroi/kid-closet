@@ -93,29 +93,74 @@ interface WorkerReply {
   error?: string;
 }
 
-/** Creates a WorkerWriter backed by a dedicated worker. */
-export function createWorkerWriter(worker: Pick<Worker, 'postMessage' | 'addEventListener'>): WorkerWriter {
+export type WorkerLike = Pick<Worker, 'postMessage' | 'addEventListener' | 'terminate'>;
+
+/** How long one write may take before the worker is treated as stuck. */
+export const WORKER_WRITE_TIMEOUT_MS = 30_000;
+
+interface WorkerSession {
+  worker: WorkerLike;
+  pending: Map<number, { resolve: () => void; reject: (e: Error) => void }>;
+}
+
+/**
+ * Creates a WorkerWriter backed by a dedicated worker, started on the first write.
+ * If the worker fails to load, crashes or stops answering, every waiting write
+ * fails and the worker is dropped, so the next write starts a fresh one instead
+ * of hanging forever.
+ */
+export function createWorkerWriter(
+  createWorker: () => WorkerLike,
+  timeoutMs: number = WORKER_WRITE_TIMEOUT_MS,
+): WorkerWriter {
   let nextId = 1;
-  const pending = new Map<number, { resolve: () => void; reject: (e: Error) => void }>();
-  // If the worker fails to load or crashes, fail every waiting save instead of hanging.
-  const failAll = () => {
-    for (const entry of pending.values()) entry.reject(new Error('The file worker stopped'));
-    pending.clear();
+  let current: WorkerSession | null = null;
+
+  const stop = (session: WorkerSession, reason: string) => {
+    if (current === session) current = null;
+    session.worker.terminate();
+    const entries = [...session.pending.values()];
+    session.pending.clear();
+    for (const entry of entries) entry.reject(new Error(reason));
   };
-  worker.addEventListener('error', failAll);
-  worker.addEventListener('messageerror', failAll);
-  worker.addEventListener('message', (event: MessageEvent<WorkerReply>) => {
-    const { id, ok, error } = event.data;
-    const entry = pending.get(id);
-    if (!entry) return;
-    pending.delete(id);
-    if (ok) entry.resolve();
-    else entry.reject(new Error(error ?? 'Write failed'));
-  });
+
+  const start = (): WorkerSession => {
+    const session: WorkerSession = { worker: createWorker(), pending: new Map() };
+    const fail = () => stop(session, 'The file worker stopped');
+    session.worker.addEventListener('error', fail);
+    session.worker.addEventListener('messageerror', fail);
+    session.worker.addEventListener('message', (event: MessageEvent<WorkerReply>) => {
+      const { id, ok, error } = event.data;
+      const entry = session.pending.get(id);
+      if (!entry) return;
+      session.pending.delete(id);
+      if (ok) entry.resolve();
+      else entry.reject(new Error(error ?? 'Write failed'));
+    });
+    return session;
+  };
+
   return (path, bytes) =>
     new Promise<void>((resolve, reject) => {
+      const session = (current ??= start());
       const id = nextId++;
-      pending.set(id, { resolve, reject });
-      worker.postMessage({ id, path, bytes }, [bytes.buffer as ArrayBuffer]);
+      const timer = setTimeout(() => stop(session, 'The file worker did not answer'), timeoutMs);
+      session.pending.set(id, {
+        resolve: () => {
+          clearTimeout(timer);
+          resolve();
+        },
+        reject: (e) => {
+          clearTimeout(timer);
+          reject(e);
+        },
+      });
+      try {
+        session.worker.postMessage({ id, path, bytes }, [bytes.buffer as ArrayBuffer]);
+      } catch (err) {
+        session.pending.delete(id);
+        clearTimeout(timer);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
     });
 }
