@@ -3,6 +3,7 @@ import { strToU8, zipSync } from 'fflate';
 import { describe, expect, it, vi } from 'vitest';
 import { MAX_ITEMS, MAX_NAME_LENGTH, MAX_OUTFITS } from '../core/closet';
 import { NOW, closetWith, makeItem, makeOutfit, seededStore, testPhoto } from '../test/data';
+import { gpsJpeg } from '../test/photos';
 import {
   BACKUP_FORMAT,
   BackupTooLargeError,
@@ -59,6 +60,15 @@ describe('backup', () => {
       .images.get('images/t.webp')!
       .arrayBuffer()
       .then((buf) => expect(new Uint8Array(buf)).toEqual(webp));
+  });
+
+  it('removes the GPS location from a real photo when restoring', async () => {
+    const data = closetWith([makeItem({ id: 'p', image: 'images/p.jpg' })]);
+    const zip = manifestZip({ format: BACKUP_FORMAT, closet: data }, { 'images/p.jpg': gpsJpeg });
+    const restored = await blobToBytes(readBackup(zip).images.get('images/p.jpg')!);
+    expect(String.fromCharCode(...gpsJpeg)).toContain('GPS');
+    expect(String.fromCharCode(...restored)).not.toContain('GPS');
+    expect(String.fromCharCode(...restored)).not.toContain('Exif');
   });
 
   it('rejects a photo that is not the image type its name says', () => {

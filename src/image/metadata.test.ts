@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { testPhoto } from '../test/data';
+import { cleanWebp, gpsJpeg, gpsProgressiveJpeg, gpsWebp } from '../test/photos';
 import { InvalidPhotoError, stripPhotoMetadata } from './metadata';
 
 const SOI = [0xff, 0xd8];
@@ -20,23 +21,28 @@ function chunk(id: string, data: number[]): number[] {
 const VP8L = chunk('VP8L', [0x2f, 0, 0, 0, 0]);
 
 describe('stripPhotoMetadata: JPEG', () => {
-  it('removes EXIF/XMP (APP1), IPTC (APP13) and comments, and keeps everything else', () => {
-    const app0 = segment(0xe0, [0x4a, 0x46]);
-    const iccProfile = segment(0xe2, [7, 7]);
+  it('keeps only the APP segments decoding needs, and drops comments', () => {
+    const app0 = segment(0xe0, [0x4a, 0x46]); // JFIF
+    const iccProfile = segment(0xe2, [7, 7]); // APP2
+    const adobe = segment(0xee, [0x41]); // APP14
     const quantTable = segment(0xdb, [1, 2, 3]);
     const input = new Uint8Array([
       ...SOI,
       ...app0,
       ...segment(0xe1, [0x47, 0x50, 0x53]), // EXIF with GPS
       ...iccProfile,
-      ...segment(0xed, [9]), // IPTC
+      ...segment(0xeb, [1]), // APP11: C2PA content credentials
+      ...segment(0xec, [2]), // APP12: Photoshop comments / copyright
+      ...segment(0xed, [9]), // APP13: IPTC
+      ...segment(0xef, [3]), // APP15: camera-maker data
+      ...adobe,
       ...segment(0xfe, [0x68, 0x69]), // comment
       ...quantTable,
       ...SCAN,
       ...EOI,
     ]);
     expect(stripPhotoMetadata(input, 'jpg')).toEqual(
-      new Uint8Array([...SOI, ...app0, ...iccProfile, ...quantTable, ...SCAN, ...EOI]),
+      new Uint8Array([...SOI, ...app0, ...iccProfile, ...adobe, ...quantTable, ...SCAN, ...EOI]),
     );
   });
 
@@ -44,20 +50,39 @@ describe('stripPhotoMetadata: JPEG', () => {
     expect(stripPhotoMetadata(testPhoto('jpg'), 'jpg')).toEqual(testPhoto('jpg'));
   });
 
-  it('copies everything after the first scan as image data', () => {
-    // A later APP1-looking byte run inside the image data is not a segment and stays.
-    const input = new Uint8Array([...SOI, ...SCAN, 0xff, 0xe1, 0x00, 0x02, ...EOI]);
-    expect(stripPhotoMetadata(input, 'jpg')).toEqual(input);
+  it('keeps scan data, restart markers and escaped bytes, and drops metadata between scans', () => {
+    const scanData = [0x11, 0xff, 0x00, 0x22, 0xff, 0xd0, 0x33]; // FF00 = escaped byte, FFD0 = restart
+    const huffman = segment(0xc4, [5, 5]);
+    const input = new Uint8Array([
+      ...SOI,
+      ...segment(0xda, []),
+      ...scanData,
+      ...segment(0xe1, [0x47, 0x50, 0x53]), // metadata between the scans of a progressive JPEG
+      ...huffman,
+      ...segment(0xda, []),
+      0x44,
+      ...EOI,
+    ]);
+    expect(stripPhotoMetadata(input, 'jpg')).toEqual(
+      new Uint8Array([...SOI, ...segment(0xda, []), ...scanData, ...huffman, ...segment(0xda, []), 0x44, ...EOI]),
+    );
+  });
+
+  it('drops anything after the end marker', () => {
+    const input = new Uint8Array([...SOI, ...SCAN, ...EOI, 0x47, 0x50, 0x53]);
+    expect(stripPhotoMetadata(input, 'jpg')).toEqual(new Uint8Array([...SOI, ...SCAN, ...EOI]));
+  });
+
+  it('accepts an image that is missing its end marker, as browsers do', () => {
+    const noEnd = new Uint8Array([...SOI, ...SCAN]);
+    expect(stripPhotoMetadata(noEnd, 'jpg')).toEqual(noEnd);
+    const tableAfterScan = new Uint8Array([...SOI, ...SCAN, ...segment(0xc4, [1])]);
+    expect(stripPhotoMetadata(tableAfterScan, 'jpg')).toEqual(tableAfterScan);
   });
 
   it('skips fill bytes and keeps markers that have no length', () => {
     const input = new Uint8Array([...SOI, 0xff, 0xff, 0xe1, 0x00, 0x02, 0xff, 0xd0, ...SCAN, ...EOI]);
     expect(stripPhotoMetadata(input, 'jpg')).toEqual(new Uint8Array([...SOI, 0xff, 0xd0, ...SCAN, ...EOI]));
-  });
-
-  it('accepts a file that ends right after its header segments', () => {
-    const input = new Uint8Array([...SOI, ...segment(0xe1, [1]), ...EOI]);
-    expect(stripPhotoMetadata(input, 'jpg')).toEqual(new Uint8Array([...SOI, ...EOI]));
   });
 
   it.each([
@@ -67,6 +92,7 @@ describe('stripPhotoMetadata: JPEG', () => {
     ['a segment longer than the file', [...SOI, 0xff, 0xe0, 0x00, 0x40, 0x00], 'broken JPEG'],
     ['a length below 2', [...SOI, 0xff, 0xe0, 0x00, 0x01, 0x00, ...EOI], 'broken JPEG'],
     ['no image data', [...SOI, ...segment(0xe0, [0])], 'broken JPEG'],
+    ['an end marker before any image data', [...SOI, ...segment(0xe1, [1]), ...EOI], 'broken JPEG'],
     ['only fill bytes at the end', [...SOI, 0xff, 0xff], 'broken JPEG'],
   ])('rejects %s', (_label, bytes, message) => {
     expect(() => stripPhotoMetadata(new Uint8Array(bytes), 'jpg')).toThrow(InvalidPhotoError);
@@ -93,7 +119,12 @@ describe('stripPhotoMetadata: WebP', () => {
 
   it('accepts a lossy or animated image', () => {
     expect(() => stripPhotoMetadata(riff([chunk('VP8 ', [1, 2])]), 'webp')).not.toThrow();
-    expect(() => stripPhotoMetadata(riff([chunk('ANIM', [0, 0, 0, 0, 0, 0])]), 'webp')).not.toThrow();
+    const animation = riff([chunk('ANIM', [0, 0, 0, 0, 0, 0]), chunk('ANMF', [1, 2, 3])]);
+    expect(stripPhotoMetadata(animation, 'webp')).toEqual(animation);
+  });
+
+  it('rejects an animation header with no frames', () => {
+    expect(() => stripPhotoMetadata(riff([chunk('ANIM', [0, 0, 0, 0, 0, 0])]), 'webp')).toThrow('broken WebP');
   });
 
   it('tolerates a missing final padding byte', () => {
@@ -112,5 +143,28 @@ describe('stripPhotoMetadata: WebP', () => {
   ])('rejects %s', (_label, bytes, message) => {
     expect(() => stripPhotoMetadata(bytes, 'webp')).toThrow(InvalidPhotoError);
     expect(() => stripPhotoMetadata(bytes, 'webp')).toThrow(message);
+  });
+});
+
+describe('stripPhotoMetadata: real photo files', () => {
+  /** Byte strings the fixtures' metadata contains and the picture data doesn't. */
+  const SECRETS = ['Exif', 'GPS', 'TestCam', 'COMMENT-ME', 'COPYRIGHT-ME', 'GPSXMP'];
+  const text = (b: Uint8Array) => String.fromCharCode(...b);
+
+  it.each([
+    ['a baseline JPEG with EXIF, a comment and APP12', gpsJpeg, 'jpg'],
+    ['a progressive JPEG with EXIF', gpsProgressiveJpeg, 'jpg'],
+    ['a WebP with EXIF and XMP', gpsWebp, 'webp'],
+  ] as const)('removes all metadata from %s', (_label, photo, ext) => {
+    expect(SECRETS.some((s) => text(photo).includes(s))).toBe(true); // the fixture really has metadata
+    const clean = stripPhotoMetadata(photo, ext);
+    for (const secret of SECRETS) expect(text(clean)).not.toContain(secret);
+    expect(clean.length).toBeLessThan(photo.length);
+    // The result is itself a valid file with nothing left to strip.
+    expect(stripPhotoMetadata(clean, ext)).toEqual(clean);
+  });
+
+  it('keeps a real WebP without metadata byte for byte', () => {
+    expect(stripPhotoMetadata(cleanWebp, 'webp')).toEqual(cleanWebp);
   });
 });
