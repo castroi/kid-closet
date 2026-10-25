@@ -91,14 +91,25 @@ The app's version is in `package.json` and is shown in the parent area together 
 | `chore/...`, `docs/...`, `test/...` | unchanged, or next patch |
 
 **You don't set it by hand.** On every push to a branch, the "Update version and lockfile" workflow sets the
-version against `main` as it is at that moment, updates `package-lock.json`, commits both to the branch and reruns
-CI. It never changes `main`. If it made a commit, pull before you push again. Locally, `npm run version:bump` does
-the same.
+version against `main` as it is at that moment, updates `package-lock.json` if it's out of date, commits to the
+branch and reruns CI. It never changes `main`. If it made a commit, pull before you push again. On a branch's
+first push, CI on your own commit may show red for a minute while the workflow adds the version; the PR follows
+the workflow's commit, which goes green.
 
-CI checks the version on every run of a branch and again on `main` after each merge. If `main` gets a new version
-while your PR is open, push again or press GitHub's "Update branch" button, and the workflow bumps it again. To have
-GitHub require an up-to-date branch before the merge button works, turn on Settings → Branches → the rule for
-`main` → "Require status checks to pass" and "Require branches to be up to date before merging".
+**When `main` moves on while a PR is open,** press GitHub's **"Update branch"** button on the PR (or merge `main`
+into the branch yourself). That merge is a push, so the workflow then sets the next version. Until the branch
+contains the latest `main`, the workflow leaves the version alone, because bumping past a `main` the branch
+hasn't merged would make the version lines conflict.
+
+**If the version lines conflict anyway** (for example a fix at 0.2.1 meets a `main` at 0.3.0): when resolving,
+take `main`'s version in `package.json` and both places in `package-lock.json`, and push. The workflow then sets
+the right one.
+
+**Locally**, `git fetch origin main` first, then `npm run version:bump` does the same as the workflow.
+
+CI checks the version on every run of a branch and again on `main` after each merge. To have GitHub require an
+up-to-date branch before the merge button works, turn on Settings → Branches → the rule for `main` → "Require
+status checks to pass" and "Require branches to be up to date before merging".
 
 The commit shown in the app is set by Vercel's build from the commit it deployed, so it changes on every merge
 without anyone doing anything.
