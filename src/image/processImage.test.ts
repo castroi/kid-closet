@@ -19,14 +19,15 @@ describe('fitSize', () => {
 
 function deps(overrides: Partial<ImageDeps> = {}) {
   const release = vi.fn();
+  const releaseFrame = vi.fn();
   const toJpeg = vi.fn().mockResolvedValue(new Blob(['jpeg'], { type: 'image/jpeg' }));
   const imageData = { width: 600, height: 800 } as ImageData;
   const base: ImageDeps = {
     decode: vi.fn().mockResolvedValue({ width: 3024, height: 4032, release }),
-    draw: vi.fn().mockReturnValue({ imageData, toJpeg }),
+    draw: vi.fn().mockReturnValue({ imageData, toJpeg, release: releaseFrame }),
     encodeWebp: vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3]).buffer),
   };
-  return { release, toJpeg, imageData, deps: { ...base, ...overrides } };
+  return { release, releaseFrame, toJpeg, imageData, deps: { ...base, ...overrides } };
 }
 
 describe('processImage', () => {
@@ -38,6 +39,27 @@ describe('processImage', () => {
     expect(result.ext).toBe('webp');
     expect(result.blob.type).toBe('image/webp');
     expect(result.blob.size).toBe(3);
+    expect(d.release).toHaveBeenCalled();
+    expect(d.releaseFrame).toHaveBeenCalledOnce();
+  });
+
+  it('frees the canvas only after the JPEG fallback has used it', async () => {
+    const order: string[] = [];
+    const d = deps({ encodeWebp: vi.fn().mockRejectedValue(new Error('wasm failed')) });
+    d.toJpeg.mockImplementation(async () => {
+      order.push('jpeg');
+      return new Blob(['jpeg'], { type: 'image/jpeg' });
+    });
+    d.releaseFrame.mockImplementation(() => order.push('release'));
+    await processImage(new Blob(['raw']), d.deps);
+    expect(order).toEqual(['jpeg', 'release']);
+  });
+
+  it('frees the canvas even when the JPEG fallback fails too', async () => {
+    const d = deps({ encodeWebp: vi.fn().mockRejectedValue(new Error('wasm failed')) });
+    d.toJpeg.mockRejectedValue(new Error('JPEG encode failed'));
+    await expect(processImage(new Blob(['raw']), d.deps)).rejects.toThrow('JPEG encode failed');
+    expect(d.releaseFrame).toHaveBeenCalledOnce();
     expect(d.release).toHaveBeenCalled();
   });
 

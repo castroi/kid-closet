@@ -25,11 +25,30 @@ export function closetWith(items: Item[], outfits: Outfit[] = []): ClosetData {
   return { ...emptyCloset(), items, outfits };
 }
 
+/**
+ * The smallest well-formed photo files: correct structure and no metadata, so a
+ * restore keeps them byte for byte. They are not decodable pictures.
+ */
+export function testPhoto(ext: 'webp' | 'jpg'): Uint8Array {
+  if (ext === 'jpg') {
+    // SOI, APP0 (length 4), SOS (length 2), two bytes of image data, EOI
+    return new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x00, 0x00, 0xff, 0xda, 0x00, 0x02, 0x11, 0x22, 0xff, 0xd9]);
+  }
+  // "RIFF", size 18, "WEBP", then a VP8L chunk of 5 bytes plus one padding byte
+  return new Uint8Array([
+    0x52, 0x49, 0x46, 0x46, 18, 0, 0, 0, 0x57, 0x45, 0x42, 0x50,
+    0x56, 0x50, 0x38, 0x4c, 5, 0, 0, 0, 0x2f, 0, 0, 0, 0, 0,
+  ]);
+}
+
 /** A store that already holds a saved closet (generation 1) and a photo per item. */
 export function seededStore(data: ClosetData): MemoryFileStore {
   const store = new MemoryFileStore();
   store.files.set('closet-b.json', new Blob([JSON.stringify({ generation: 1, savedAt: NOW, closet: data })]));
-  for (const item of data.items) store.files.set(item.image, new Blob(['img'], { type: 'image/webp' }));
+  for (const item of data.items) {
+    const jpg = item.image.endsWith('.jpg');
+    store.files.set(item.image, new Blob([testPhoto(jpg ? 'jpg' : 'webp') as BlobPart], { type: jpg ? 'image/jpeg' : 'image/webp' }));
+  }
   return store;
 }
 

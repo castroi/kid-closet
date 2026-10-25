@@ -8,7 +8,7 @@ import { AddItem } from './AddItem';
 function imageDeps(overrides: Partial<ImageDeps> = {}): ImageDeps {
   return {
     decode: vi.fn().mockResolvedValue({ width: 1000, height: 1000, release: vi.fn() }),
-    draw: vi.fn().mockReturnValue({ imageData: {} as ImageData, toJpeg: vi.fn() }),
+    draw: vi.fn().mockReturnValue({ imageData: {} as ImageData, toJpeg: vi.fn(), release: vi.fn() }),
     encodeWebp: vi.fn().mockResolvedValue(new Uint8Array([9, 9]).buffer),
     ...overrides,
   };
@@ -68,6 +68,54 @@ describe('AddItem', () => {
     await renderWithCloset(<AddItem imageDeps={deps} onOpenCloset={vi.fn()} />);
     await user.upload(screen.getByLabelText('בחירת תמונה מהגלריה'), photo());
     expect(await screen.findByText('לא הצלחנו לקרוא את התמונה')).toBeInTheDocument();
+  });
+
+  it('keeps the latest photo when an earlier pick finishes last', async () => {
+    const user = userEvent.setup();
+    let finishFirst: (value: { width: number; height: number; release: () => void }) => void = () => undefined;
+    const decode = vi
+      .fn()
+      .mockReturnValueOnce(new Promise((resolve) => (finishFirst = resolve)))
+      .mockResolvedValue({ width: 1000, height: 1000, release: vi.fn() });
+    const encodeWebp = vi
+      .fn()
+      .mockResolvedValueOnce(new Uint8Array([2, 2, 2]).buffer) // the second pick encodes first
+      .mockResolvedValueOnce(new Uint8Array([1]).buffer);
+    const { repo, store } = await renderWithCloset(
+      <AddItem imageDeps={imageDeps({ decode, encodeWebp })} onOpenCloset={vi.fn()} />,
+    );
+
+    await user.upload(screen.getByLabelText('בחירת תמונה מהגלריה'), photo()); // first pick, slow
+    await user.upload(screen.getByLabelText('בחירת תמונה מהגלריה'), photo()); // second pick, fast
+    await screen.findByAltText('התמונה שנבחרה');
+    finishFirst({ width: 1000, height: 1000, release: vi.fn() });
+    await vi.waitFor(() => expect(encodeWebp).toHaveBeenCalledTimes(2));
+
+    await user.click(screen.getByRole('button', { name: 'סוודר' }));
+    await user.click(screen.getByRole('button', { name: 'בית ספר' }));
+    await user.click(screen.getByRole('button', { name: 'כחול' }));
+    await user.click(screen.getByRole('button', { name: 'שמירה בארון' }));
+    await screen.findByText(/נשמר בארון/);
+    const saved = await store.read(repo.getData().items[0].image);
+    expect(saved?.size).toBe(3); // the second photo, not the stale first one
+  });
+
+  it('makes no preview after the screen closes mid-processing', async () => {
+    const user = userEvent.setup();
+    let finish: (value: { width: number; height: number; release: () => void }) => void = () => undefined;
+    const decode = vi.fn().mockReturnValueOnce(new Promise((resolve) => (finish = resolve)));
+    const { unmount } = await renderWithCloset(<AddItem imageDeps={imageDeps({ decode })} onOpenCloset={vi.fn()} />);
+    await user.upload(screen.getByLabelText('בחירת תמונה מהגלריה'), photo());
+    const createUrl = vi.spyOn(URL, 'createObjectURL');
+    try {
+      unmount();
+      finish({ width: 1000, height: 1000, release: vi.fn() });
+      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((r) => setTimeout(r, 0));
+      expect(createUrl).not.toHaveBeenCalled();
+    } finally {
+      createUrl.mockRestore();
+    }
   });
 
   it('shows an error when saving fails', async () => {

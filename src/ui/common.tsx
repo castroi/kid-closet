@@ -48,7 +48,7 @@ export function Garment({ item, height }: { item: Item; height: number }) {
       />
     );
   }
-  return <img className="garment" src={url} alt={item.name} style={{ height }} draggable={false} />;
+  return <img className="garment" src={url} alt={item.name} style={{ height }} draggable={false} decoding="async" />;
 }
 
 export function Swatch({ color }: { color: ColorGroup }) {

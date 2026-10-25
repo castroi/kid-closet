@@ -2,7 +2,7 @@
 import { strToU8, zipSync } from 'fflate';
 import { describe, expect, it, vi } from 'vitest';
 import { MAX_ITEMS, MAX_NAME_LENGTH, MAX_OUTFITS } from '../core/closet';
-import { NOW, closetWith, makeItem, makeOutfit, seededStore } from '../test/data';
+import { NOW, closetWith, makeItem, makeOutfit, seededStore, testPhoto } from '../test/data';
 import {
   BACKUP_FORMAT,
   BackupTooLargeError,
@@ -15,7 +15,7 @@ import {
   readBackup,
   readBackupFile,
 } from './backup';
-import { MemoryFileStore, blobToText } from './fileStore';
+import { MemoryFileStore, blobToBytes } from './fileStore';
 import { ClosetRepository } from './repository';
 
 function sample() {
@@ -42,8 +42,30 @@ describe('backup', () => {
 
     expect(restored.items.map((i) => i.id)).toEqual(['t', 'b']);
     expect(restored.outfits).toHaveLength(1);
-    expect(await blobToText((await targetStore.read('images/t.webp'))!)).toBe('img');
+    // Photos without metadata come back byte for byte.
+    expect(await blobToBytes((await targetStore.read('images/t.webp'))!)).toEqual(testPhoto('webp'));
+    expect(await blobToBytes((await targetStore.read('images/b.jpg'))!)).toEqual(testPhoto('jpg'));
     expect((await targetStore.read('images/b.jpg'))!.type).toBe('image/jpeg');
+  });
+
+  it('removes location and other metadata from restored photos', () => {
+    const exif = [0x45, 0x58, 0x49, 0x46, 4, 0, 0, 0, 0x47, 0x50, 0x53, 0x21]; // "EXIF" chunk holding "GPS!"
+    const webp = testPhoto('webp');
+    const body = [...webp.subarray(12), ...exif];
+    const tagged = new Uint8Array([...webp.subarray(0, 4), 4 + body.length, 0, 0, 0, ...webp.subarray(8, 12), ...body]);
+    const data = closetWith([makeItem({ id: 't' })]);
+    const zip = manifestZip({ format: BACKUP_FORMAT, closet: data }, { 'images/t.webp': tagged });
+    return readBackup(zip)
+      .images.get('images/t.webp')!
+      .arrayBuffer()
+      .then((buf) => expect(new Uint8Array(buf)).toEqual(webp));
+  });
+
+  it('rejects a photo that is not the image type its name says', () => {
+    const data = closetWith([makeItem({ id: 't' })]);
+    const zip = manifestZip({ format: BACKUP_FORMAT, closet: data }, { 'images/t.webp': testPhoto('jpg') });
+    expect(() => readBackup(zip)).toThrow(InvalidBackupError);
+    expect(() => readBackup(zip)).toThrow('images/t.webp: not a WebP image');
   });
 
   it('fails the export when a photo is missing', async () => {
@@ -100,7 +122,7 @@ describe('backup', () => {
     expect(() => readBackup(manifestZip({ format: BACKUP_FORMAT, closet: tooMany }))).toThrow(`more than ${MAX_ITEMS} items`);
 
     const longName = closetWith([makeItem({ id: 't', name: 'x'.repeat(MAX_NAME_LENGTH + 1) })]);
-    const zip = manifestZip({ format: BACKUP_FORMAT, closet: longName }, { 'images/t.webp': strToU8('p') });
+    const zip = manifestZip({ format: BACKUP_FORMAT, closet: longName }, { 'images/t.webp': testPhoto('webp') });
     expect(() => readBackup(zip)).toThrow(InvalidBackupError);
     expect(() => readBackup(zip)).toThrow('name is too long');
 
@@ -111,7 +133,7 @@ describe('backup', () => {
   it('ignores unrelated files and rejects oversized entries', () => {
     const data = closetWith([makeItem({ id: 't' })]);
     const manifest = strToU8(JSON.stringify({ format: BACKUP_FORMAT, exportedAt: NOW, closet: data }));
-    const ok = zipSync({ 'closet.json': manifest, 'images/t.webp': strToU8('p'), '../evil.sh': strToU8('x') });
+    const ok = zipSync({ 'closet.json': manifest, 'images/t.webp': testPhoto('webp'), '../evil.sh': strToU8('x') });
     expect([...readBackup(ok).images.keys()]).toEqual(['images/t.webp']);
 
     const huge = zipSync({ 'closet.json': manifest, 'images/t.webp': new Uint8Array(MAX_ENTRY_BYTES + 1) });
