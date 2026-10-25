@@ -3,10 +3,10 @@ import userEvent from '@testing-library/user-event';
 import { Component, type ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { MemoryFileStore } from '../storage/fileStore';
-import { ClosetRepository } from '../storage/repository';
+import { ClosetCorruptedError, ClosetRepository } from '../storage/repository';
 import { RecoveryScreen } from '../ui/RecoveryScreen';
 import { NOW, closetWith, makeItem, seededStore } from '../test/data';
-import { exportBackup } from '../storage/backup';
+import { MAX_BACKUP_FILE_BYTES, exportBackup } from '../storage/backup';
 import { ClosetProvider, useCloset } from './ClosetContext';
 
 function Probe() {
@@ -79,7 +79,7 @@ describe('ClosetProvider', () => {
     expect(await screen.findByRole('heading', { name: 'לא הצלחנו לפתוח את הארון' })).toBeInTheDocument();
 
     await user.upload(screen.getByLabelText('שחזור מגיבוי'), new File(['junk'], 'x.zip', { type: 'application/zip' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('הקובץ אינו גיבוי תקין.');
+    expect(await screen.findByRole('alert')).toHaveTextContent('הקובץ הזה אינו גיבוי תקין של הארון.');
 
     await user.upload(screen.getByLabelText('שחזור מגיבוי'), new File([zip as BlobPart], 'b.zip', { type: 'application/zip' }));
     expect(await screen.findByText('2 items')).toBeInTheDocument();
@@ -103,6 +103,51 @@ describe('ClosetProvider', () => {
     expect(screen.getByText(/unknown transient reason/)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'לנסות שוב' }));
     expect(onRetry).toHaveBeenCalled();
+  });
+
+  it('does not blame storage for an unexpected fault', async () => {
+    const user = userEvent.setup();
+    const onRetry = vi.fn();
+    const repo = new ClosetRepository(new MemoryFileStore());
+    repo.load = () => Promise.reject(new TypeError('x is not a function'));
+    render(
+      <ClosetProvider repo={repo} renderError={(error, restore) => <RecoveryScreen error={error} onRestore={restore} onRetry={onRetry} />}>
+        <Probe />
+      </ClosetProvider>,
+    );
+    expect(await screen.findByRole('heading', { name: 'משהו השתבש בפתיחת הארון' })).toBeInTheDocument();
+    expect(screen.queryByText('אין גישה לאחסון בטלפון')).not.toBeInTheDocument();
+    expect(screen.queryByText(/פגומים/)).not.toBeInTheDocument();
+    expect(screen.getByText('x is not a function')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'לנסות שוב' }));
+    expect(onRetry).toHaveBeenCalled();
+  });
+
+  it.each(['SecurityError', 'NotAllowedError', 'InvalidStateError', 'QuotaExceededError'])(
+    'treats %s as the phone refusing storage',
+    (name) => {
+      const refused = Object.assign(new Error('refused'), { name });
+      render(<RecoveryScreen error={refused} onRestore={vi.fn()} onRetry={vi.fn()} />);
+      expect(screen.getByRole('heading', { name: 'אין גישה לאחסון בטלפון' })).toBeInTheDocument();
+    },
+  );
+
+  it('refuses a backup too large to restore on the recovery screen', async () => {
+    const user = userEvent.setup();
+    const onRestore = vi.fn();
+    render(<RecoveryScreen error={new ClosetCorruptedError()} onRestore={onRestore} />);
+    const file = new File(['x'], 'huge.zip', { type: 'application/zip' });
+    Object.defineProperty(file, 'size', { value: MAX_BACKUP_FILE_BYTES + 1 });
+    await user.upload(screen.getByLabelText('שחזור מגיבוי'), file);
+    expect(await screen.findByRole('alert')).toHaveTextContent('קובץ הגיבוי גדול מדי לשחזור בטלפון.');
+    expect(onRestore).not.toHaveBeenCalled();
+  });
+
+  it('reports a restore that fails for another reason', async () => {
+    const user = userEvent.setup();
+    render(<RecoveryScreen error={new ClosetCorruptedError()} onRestore={() => Promise.reject(new Error('disk'))} />);
+    await user.upload(screen.getByLabelText('שחזור מגיבוי'), new File(['x'], 'b.zip', { type: 'application/zip' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('השחזור נכשל.');
   });
 
   it('reloads the page by default when retrying', async () => {

@@ -143,6 +143,33 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
+/**
+ * Sanity limits for a backup being restored, far above real use (the name field
+ * allows 60 characters). They stop a broken or hostile backup from freezing the
+ * phone. They are not applied to the app's own closet files: the app doesn't cap
+ * what it saves, so a limit there could one day lock the parent out of her data.
+ */
+export const MAX_ITEMS = 5000;
+export const MAX_OUTFITS = 5000;
+export const MAX_NAME_LENGTH = 200;
+
+/** Throws InvalidClosetError when restore data is far larger than any real closet. */
+export function assertWithinRestoreLimits(raw: unknown): void {
+  if (!isRecord(raw)) return; // parseCloset reports the shape error
+  const { items, outfits } = raw;
+  if (Array.isArray(items)) {
+    if (items.length > MAX_ITEMS) throw new InvalidClosetError(`more than ${MAX_ITEMS} items`);
+    items.forEach((it, i) => {
+      if (isRecord(it) && isString(it.name) && it.name.length > MAX_NAME_LENGTH) {
+        throw new InvalidClosetError(`items[${i}].name is too long`);
+      }
+    });
+  }
+  if (Array.isArray(outfits) && outfits.length > MAX_OUTFITS) {
+    throw new InvalidClosetError(`more than ${MAX_OUTFITS} outfits`);
+  }
+}
+
 const SAFE_IMAGE_PATH = /^images\/[A-Za-z0-9-]+\.(webp|jpg)$/;
 
 export function isSafeImagePath(path: string): boolean {
