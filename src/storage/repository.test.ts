@@ -110,13 +110,27 @@ describe('ClosetRepository', () => {
     // Saving still goes above the generation it could not read.
     await repo.update((d) => ({ ...d, lastBackupAt: NOW }));
     expect(await savedGeneration(store, 'closet-b.json')).toBe(3);
+    // The unreadable file is still on disk, so the next launch keeps its photo too.
+    await new ClosetRepository(store).load();
+    expect(store.files.has('images/b.webp')).toBe(true);
   });
 
-  it('still removes orphans when an older file is the unreadable one', async () => {
+  it('keeps photos when a closet file cannot even be parsed', async () => {
     const store = seededStore(closetWith([makeItem({ id: 'a' })]));
-    store.files.set('closet-b.json', new Blob([JSON.stringify({ generation: 3, savedAt: NOW, closet: closetWith([makeItem({ id: 'a' })]) })]));
-    store.files.set('closet-a.json', new Blob([JSON.stringify({ generation: 2, closet: { schemaVersion: 99 } })]));
+    store.files.set('closet-a.json', new Blob(['{"generation": 2, "closet": {broken']));
+    store.files.set('images/b.webp', new Blob(['maybe the newer closet']));
+    await new ClosetRepository(store).load();
+    expect(store.files.has('images/b.webp')).toBe(true);
+  });
+
+  it('removes orphans again once saves have replaced the unreadable file', async () => {
+    const store = seededStore(closetWith([makeItem({ id: 'a' })])); // generation 1 in closet-b
+    store.files.set('closet-a.json', new Blob(['garbage']));
     store.files.set('images/orphan.webp', new Blob(['x']));
+    const repo = new ClosetRepository(store, () => NOW);
+    await repo.load();
+    await repo.update((d) => ({ ...d, lastBackupAt: NOW })); // generation 2 -> closet-a
+    expect(store.files.has('images/orphan.webp')).toBe(true);
     await new ClosetRepository(store).load();
     expect(store.files.has('images/orphan.webp')).toBe(false);
   });

@@ -4,6 +4,7 @@ import { blobToBytes, splitPath, type FileStore } from './fileStore';
 export interface WritableLike {
   write(data: Blob): Promise<void>;
   close(): Promise<void>;
+  abort?: () => Promise<void>;
 }
 export interface FileHandleLike {
   getFile(): Promise<Blob>;
@@ -60,8 +61,14 @@ export class OpfsFileStore implements FileStore {
     const handle = await folder.getFileHandle(name, { create: true });
     if (typeof handle.createWritable === 'function') {
       const writable = await handle.createWritable();
-      await writable.write(data);
-      await writable.close();
+      try {
+        await writable.write(data);
+        await writable.close();
+      } catch (err) {
+        // Abort so the half-written temporary file is discarded and the handle released.
+        await writable.abort?.().catch(() => undefined);
+        throw err;
+      }
       return;
     }
     await this.workerWrite(path, await blobToBytes(data));
@@ -95,12 +102,21 @@ interface WorkerReply {
 
 export type WorkerLike = Pick<Worker, 'postMessage' | 'addEventListener' | 'terminate'>;
 
-/** How long one write may take before the worker is treated as stuck. */
+/** How long one write may take, while the app is visible, before the worker is treated as stuck. */
 export const WORKER_WRITE_TIMEOUT_MS = 30_000;
+
+/** Calls `listener` whenever the app becomes visible (true) or hidden (false). */
+export type VisibilityWatcher = (listener: (visible: boolean) => void) => void;
+
+interface PendingWrite {
+  resolve: () => void;
+  reject: (e: Error) => void;
+  timer: ReturnType<typeof setTimeout> | null;
+}
 
 interface WorkerSession {
   worker: WorkerLike;
-  pending: Map<number, { resolve: () => void; reject: (e: Error) => void }>;
+  pending: Map<number, PendingWrite>;
 }
 
 /**
@@ -108,21 +124,47 @@ interface WorkerSession {
  * If the worker fails to load, crashes or stops answering, every waiting write
  * fails and the worker is dropped, so the next write starts a fresh one instead
  * of hanging forever.
+ *
+ * The timeout only counts time while the app is visible: iOS suspends a
+ * backgrounded app, and a timer that fires on resume must not report a write
+ * that actually finished as failed.
  */
 export function createWorkerWriter(
   createWorker: () => WorkerLike,
   timeoutMs: number = WORKER_WRITE_TIMEOUT_MS,
+  watchVisibility?: VisibilityWatcher,
 ): WorkerWriter {
   let nextId = 1;
   let current: WorkerSession | null = null;
+  let visible = true;
+
+  const disarm = (entry: PendingWrite) => {
+    if (entry.timer !== null) clearTimeout(entry.timer);
+    entry.timer = null;
+  };
+
+  const arm = (session: WorkerSession, entry: PendingWrite) => {
+    disarm(entry);
+    if (visible) entry.timer = setTimeout(() => stop(session, 'The file worker did not answer'), timeoutMs);
+  };
 
   const stop = (session: WorkerSession, reason: string) => {
     if (current === session) current = null;
     session.worker.terminate();
     const entries = [...session.pending.values()];
     session.pending.clear();
-    for (const entry of entries) entry.reject(new Error(reason));
+    for (const entry of entries) {
+      disarm(entry);
+      entry.reject(new Error(reason));
+    }
   };
+
+  watchVisibility?.((isVisible) => {
+    visible = isVisible;
+    const session = current;
+    if (!session) return;
+    for (const entry of session.pending.values()) arm(session, entry);
+  });
 
   const start = (): WorkerSession => {
     const session: WorkerSession = { worker: createWorker(), pending: new Map() };
@@ -134,6 +176,7 @@ export function createWorkerWriter(
       const entry = session.pending.get(id);
       if (!entry) return;
       session.pending.delete(id);
+      disarm(entry);
       if (ok) entry.resolve();
       else entry.reject(new Error(error ?? 'Write failed'));
     });
@@ -144,23 +187,20 @@ export function createWorkerWriter(
     new Promise<void>((resolve, reject) => {
       const session = (current ??= start());
       const id = nextId++;
-      const timer = setTimeout(() => stop(session, 'The file worker did not answer'), timeoutMs);
-      session.pending.set(id, {
-        resolve: () => {
-          clearTimeout(timer);
-          resolve();
-        },
-        reject: (e) => {
-          clearTimeout(timer);
-          reject(e);
-        },
-      });
+      const entry: PendingWrite = { resolve, reject, timer: null };
+      session.pending.set(id, entry);
+      arm(session, entry);
       try {
         session.worker.postMessage({ id, path, bytes }, [bytes.buffer as ArrayBuffer]);
       } catch (err) {
         session.pending.delete(id);
-        clearTimeout(timer);
+        disarm(entry);
         reject(err instanceof Error ? err : new Error(String(err)));
       }
     });
 }
+
+/** Reports page visibility changes from the document. */
+export const documentVisibility: VisibilityWatcher = (listener) => {
+  document.addEventListener('visibilitychange', () => listener(document.visibilityState === 'visible'));
+};

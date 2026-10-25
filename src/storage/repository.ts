@@ -62,12 +62,14 @@ export class ClosetRepository {
       let best: Envelope | null = null;
       let foundAny = false;
       let highestSeen = 0;
+      let foundUnreadable = false;
       for (const file of CLOSET_FILES) {
         const blob = await this.store.read(file);
         if (!blob) continue;
         foundAny = true;
         const { envelope, generation } = await readEnvelope(blob);
         highestSeen = Math.max(highestSeen, generation ?? 0);
+        if (!envelope) foundUnreadable = true;
         if (envelope && (!best || envelope.generation > best.generation)) best = envelope;
       }
       // Always save above every generation on disk, even one we could not read
@@ -75,9 +77,10 @@ export class ClosetRepository {
       this.generation = highestSeen;
       if (foundAny && !best) throw new ClosetCorruptedError();
       this.data = best ? best.closet : emptyCloset();
-      // If a newer generation exists that we could not read, its photos are not in
-      // this.data; cleaning up now would delete them for good.
-      if (!best || best.generation === highestSeen) await this.removeOrphanImages();
+      // While any closet file is unreadable (damaged, or from a newer app version),
+      // its photos are not in this.data; cleaning up would delete them for good.
+      // Once saves have overwritten that file, a later load cleans up as usual.
+      if (!foundUnreadable) await this.removeOrphanImages();
       return this.data;
     });
   }
