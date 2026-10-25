@@ -246,11 +246,23 @@ describe('DressUp gallery', () => {
     // A swipe: the finger moves, then the browser still sends a click.
     fireEvent.pointerDown(photo, { clientX: 200, clientY: 100 });
     fireEvent.pointerUp(photo, { clientX: 120, clientY: 100 });
-    fireEvent.click(photo);
+    // A click from a finger has detail 1 (keyboard and VoiceOver clicks have 0).
+    fireEvent.click(photo, { detail: 1 });
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(row('חולצה').getByText('חולצה לבנה')).toBeInTheDocument();
 
     await user.click(row('חולצה').getByRole('button', { name: 'פתיחת הגלריה: חולצה לבנה' }));
+    expect(screen.getByRole('dialog', { name: 'חולצות' })).toBeInTheDocument();
+  });
+
+  it('still opens from the keyboard after a swipe that ended without a click', async () => {
+    await renderWithCloset(<DressUp today={WARM_DAY} onOpenFavorites={vi.fn()} />, sampleCloset());
+    const photo = row('חולצה').getByRole('button', { name: 'פתיחת הגלריה: חולצה כחולה' });
+    // A small sideways move (not enough to change the shirt), then no click from the browser.
+    fireEvent.pointerDown(photo, { clientX: 200, clientY: 100 });
+    fireEvent.pointerUp(photo, { clientX: 180, clientY: 100 });
+    // Enter or a VoiceOver double-tap: a click with detail 0.
+    fireEvent.click(photo, { detail: 0 });
     expect(screen.getByRole('dialog', { name: 'חולצות' })).toBeInTheDocument();
   });
 
