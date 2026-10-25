@@ -22,5 +22,9 @@ Outfit picker for one 11-year-old on her iPhone. Static PWA on Vercel; no server
 | Photos: resize to ≤800 px on the phone, WebP via `@jsquash/webp`, JPEG if that fails | Safari can't encode WebP itself |
 | Backup = one ZIP (`closet.json` + photos); restore validates everything, unpacks only known files, caps sizes | The only copy that survives removing the app |
 | Hebrew, right to left; touch targets ≥ 44 px | It's for the kid |
+| Theme: "כמו בטלפון" (follows the phone, default) / בהיר / כהה, chosen by her in הגדרות (gear next to the lock in the closet screen), saved per device in localStorage (`src/app/theme.ts`), never in the closet or backups | It's her preference and belongs to the device; the dress-up screen keeps its 3 decisions |
+| Colours only through the tokens in `src/styles.css`; text on an `--ink` fill uses `--on-ink`; accent/danger as text use `--accent-text` / `--danger-text` | Both themes keep readable contrast |
+| The inline script in `index.html` applies the theme before paint and must match `applyTheme()` (key, colours) | No flash of the wrong theme |
+| Garment photos are never filtered or dimmed in dark mode | She matches real colours |
 | Delete only in the parent area (behind a question); the kid has "outgrown" with undo | Safe from accidental taps |
 | Bump `SCHEMA_VERSION` when `closet.json` changes shape, and keep reading old versions | Saved closets and backups keep working |

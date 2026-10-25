@@ -3,7 +3,25 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" content="#f4f1fb" />
+    <script>
+      // Apply the saved theme before the first paint (no flash of the wrong colours).
+      // Same logic as applyTheme() in src/app/theme.ts; key and colours must match.
+      (function () {
+        var choice = 'system';
+        try {
+          var saved = localStorage.getItem('kid-closet:theme');
+          if (saved === 'light' || saved === 'dark') choice = saved;
+        } catch (e) {}
+        var dark = choice === 'dark' || (choice === 'system' && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches);
+        var theme = dark ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', theme);
+        document.documentElement.style.colorScheme = theme;
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute('content', dark ? '#17142a' : '#f4f1fb');
+      })();
+    </script>
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="הארון שלי" />

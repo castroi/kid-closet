@@ -7,7 +7,7 @@ import { Closet } from './Closet';
 describe('Closet', () => {
   it('lists items by category and counts active ones', async () => {
     const user = userEvent.setup();
-    await renderWithCloset(<Closet onOpenParent={vi.fn()} />, sampleCloset());
+    await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} />, sampleCloset());
     expect(screen.getByText('9 בגדים בארון')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'חולצות (4)' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: 'עריכת חולצה כחולה' })).toBeInTheDocument();
@@ -19,7 +19,7 @@ describe('Closet', () => {
 
   it('moves selected items to outgrown, with undo', async () => {
     const user = userEvent.setup();
-    const { repo } = await renderWithCloset(<Closet onOpenParent={vi.fn()} />, sampleCloset());
+    const { repo } = await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} />, sampleCloset());
     await user.click(screen.getByRole('button', { name: 'בחירה' }));
     const move = screen.getByRole('button', { name: 'העברה ל"קטן עליי" (0)' });
     expect(move).toBeDisabled();
@@ -37,7 +37,7 @@ describe('Closet', () => {
 
   it('clears the selection when switching tabs', async () => {
     const user = userEvent.setup();
-    await renderWithCloset(<Closet onOpenParent={vi.fn()} />, sampleCloset());
+    await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} />, sampleCloset());
     await user.click(screen.getByRole('button', { name: 'בחירה' }));
     await user.click(screen.getByRole('button', { name: 'חולצה כחולה' }));
     await user.click(screen.getByRole('button', { name: 'מכנסיים (3)' }));
@@ -48,7 +48,7 @@ describe('Closet', () => {
 
   it('brings items back from outgrown', async () => {
     const user = userEvent.setup();
-    const { repo } = await renderWithCloset(<Closet onOpenParent={vi.fn()} />, sampleCloset());
+    const { repo } = await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} />, sampleCloset());
     await user.click(screen.getByRole('button', { name: 'קטן עליי (1)' }));
     await user.click(screen.getByRole('button', { name: 'בחירה' }));
     await user.click(screen.getByRole('button', { name: 'חולצה ישנה' }));
@@ -60,7 +60,7 @@ describe('Closet', () => {
 
   it('edits an item', async () => {
     const user = userEvent.setup();
-    const { repo } = await renderWithCloset(<Closet onOpenParent={vi.fn()} />, sampleCloset());
+    const { repo } = await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} />, sampleCloset());
     await user.click(screen.getByRole('button', { name: 'עריכת חולצה כחולה' }));
     const dialog = within(screen.getByRole('dialog', { name: 'עריכת בגד' }));
     await user.click(dialog.getByRole('button', { name: 'יום רגיל' }));
@@ -78,7 +78,7 @@ describe('Closet', () => {
 
   it('requires at least one occasion when editing', async () => {
     const user = userEvent.setup();
-    await renderWithCloset(<Closet onOpenParent={vi.fn()} />, sampleCloset());
+    await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} />, sampleCloset());
     await user.click(screen.getByRole('button', { name: 'עריכת חולצה כחולה' }));
     const dialog = within(screen.getByRole('dialog', { name: 'עריכת בגד' }));
     await user.click(dialog.getByRole('button', { name: 'בית ספר' }));
@@ -88,23 +88,26 @@ describe('Closet', () => {
 
   it('marks one item as outgrown from the editor', async () => {
     const user = userEvent.setup();
-    const { repo } = await renderWithCloset(<Closet onOpenParent={vi.fn()} />, sampleCloset());
+    const { repo } = await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} />, sampleCloset());
     await user.click(screen.getByRole('button', { name: 'עריכת חולצה כחולה' }));
     await user.click(screen.getByRole('button', { name: 'קטן עליי' }));
     expect(repo.getData().items.find((i) => i.id === 'tBlue')?.status).toBe('outgrown');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  it('opens the parent area from the lock button', async () => {
+  it('opens the parent area and the settings', async () => {
     const user = userEvent.setup();
     const onOpenParent = vi.fn();
-    await renderWithCloset(<Closet onOpenParent={onOpenParent} />, sampleCloset());
+    const onOpenSettings = vi.fn();
+    await renderWithCloset(<Closet onOpenParent={onOpenParent} onOpenSettings={onOpenSettings} />, sampleCloset());
     await user.click(screen.getByRole('button', { name: 'אזור הורים' }));
     expect(onOpenParent).toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'הגדרות' }));
+    expect(onOpenSettings).toHaveBeenCalled();
   });
 
   it('shows an empty state', async () => {
-    await renderWithCloset(<Closet onOpenParent={vi.fn()} />);
+    await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} />);
     expect(screen.getByText(/אין עדיין בגדים כאן/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'בחירה' })).toBeDisabled();
   });

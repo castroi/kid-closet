@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { ImageDeps } from '../image/processImage';
@@ -28,6 +28,29 @@ describe('App', () => {
 
     await user.click(screen.getByRole('button', { name: 'הוספה' }));
     expect(screen.getByRole('heading', { name: 'בגד חדש' })).toBeInTheDocument();
+  });
+
+  it('lets her choose the theme from the closet screen', async () => {
+    const user = userEvent.setup();
+    const root = document.createElement('html');
+    const data = new Map<string, string>();
+    const themeEnv = {
+      storage: { getItem: (k: string) => data.get(k) ?? null, setItem: (k: string, v: string) => void data.set(k, v) },
+      matchMedia: null,
+      root,
+      themeColorMeta: null,
+    };
+    await renderWithCloset(<App imageDeps={deps} shareEnv={{ download: vi.fn() }} today={WARM} themeEnv={themeEnv} />, sampleCloset());
+    await user.click(screen.getByRole('button', { name: 'הארון שלי' }));
+    await user.click(screen.getByRole('button', { name: 'הגדרות' }));
+    const dialog = screen.getByRole('dialog', { name: 'הגדרות' });
+    expect(within(dialog).getByRole('button', { name: 'כמו בטלפון' })).toHaveAttribute('aria-pressed', 'true');
+    await user.click(within(dialog).getByRole('button', { name: 'כהה' }));
+    expect(root.dataset.theme).toBe('dark');
+    expect(data.get('kid-closet:theme')).toBe('dark');
+    expect(within(dialog).getByRole('button', { name: 'כהה' })).toHaveAttribute('aria-pressed', 'true');
+    await user.click(within(dialog).getByRole('button', { name: 'סיום' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('opens a favourite in the dress-up screen', async () => {

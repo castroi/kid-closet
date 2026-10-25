@@ -8,14 +8,69 @@
   --line-2: #e2ddf0;
   --tag: #ece8f6;
   --accent: #c23a55;
+  /* Accent/danger used as text or icons (fills keep --accent / --danger with white text). */
+  --accent-text: #c23a55;
   --danger: #b42318;
+  --danger-text: #b42318;
+  /* Text on an --ink fill (selected chips, dark buttons, toast). */
+  --on-ink: #ffffff;
+  --focus: #6a4bc4;
+  --photo-border: transparent;
+  --swatch-border: #8c86a3;
+  --backdrop: rgba(36, 32, 58, 0.45);
   --warn-bg: #fff4e5;
   --warn-ink: #7a4100;
   --radius: 22px;
+  color-scheme: light;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
   color: var(--ink);
   background: var(--bg);
   -webkit-text-size-adjust: 100%;
+}
+
+/* Dark palette. data-theme is set before paint by the script in index.html; the
+   media query covers the case where that script could not run.
+   KEEP THE TWO DARK BLOCKS BELOW IDENTICAL. */
+:root[data-theme='dark'] {
+  --bg: #17142a;
+  --surface: #221e38;
+  --surface-2: #2a2544;
+  --ink: #f1eefb;
+  --ink-2: #b9b2d6;
+  --line: #6f679a;
+  --line-2: #3a3458;
+  --tag: #332d52;
+  --accent-text: #ef7d95;
+  --danger-text: #ff8a7a;
+  --on-ink: #17142a;
+  --focus: #a58cf0;
+  --photo-border: rgba(255, 255, 255, 0.08);
+  --backdrop: rgba(0, 0, 0, 0.6);
+  --warn-bg: #3a2a12;
+  --warn-ink: #ffc77a;
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --bg: #17142a;
+    --surface: #221e38;
+    --surface-2: #2a2544;
+    --ink: #f1eefb;
+    --ink-2: #b9b2d6;
+    --line: #6f679a;
+    --line-2: #3a3458;
+    --tag: #332d52;
+    --accent-text: #ef7d95;
+    --danger-text: #ff8a7a;
+    --on-ink: #17142a;
+    --focus: #a58cf0;
+    --photo-border: rgba(255, 255, 255, 0.08);
+  --backdrop: rgba(0, 0, 0, 0.6);
+    --warn-bg: #3a2a12;
+    --warn-ink: #ffc77a;
+    color-scheme: dark;
+  }
 }
 
 * {
@@ -47,7 +102,7 @@ button:disabled {
 }
 
 :focus-visible {
-  outline: 3px solid #6a4bc4;
+  outline: 3px solid var(--focus);
   outline-offset: 2px;
 }
 
@@ -123,7 +178,7 @@ button:disabled {
 .btn-dark {
   background: var(--ink);
   border-color: var(--ink);
-  color: #fff;
+  color: var(--on-ink);
 }
 
 .btn-danger {
@@ -167,7 +222,7 @@ button:disabled {
 .chip[aria-pressed='true'] {
   background: var(--ink);
   border-color: var(--ink);
-  color: #fff;
+  color: var(--on-ink);
 }
 
 .chips {
@@ -220,7 +275,7 @@ button:disabled {
 
 .switch button[aria-pressed='true'] {
   background: var(--ink);
-  color: #fff;
+  color: var(--on-ink);
 }
 
 /* Dress-up rows */
@@ -286,7 +341,7 @@ button:disabled {
 
 .small-btn[aria-pressed='true'] {
   background: var(--ink);
-  color: #fff;
+  color: var(--on-ink);
 }
 
 .carousel {
@@ -431,7 +486,7 @@ button:disabled {
   padding: 3px 9px;
   border-radius: 10px;
   background: var(--tag);
-  color: #3f3a57;
+  color: var(--ink-2);
 }
 
 .check {
@@ -446,7 +501,7 @@ button:disabled {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  color: var(--on-ink);
 }
 
 .check.on {
@@ -475,7 +530,7 @@ button:disabled {
   width: 44px;
   height: 44px;
   border-radius: 22px;
-  border: 1.5px solid #8c86a3;
+  border: 1.5px solid var(--swatch-border);
 }
 
 .color-btn[aria-pressed='true'] {
@@ -484,7 +539,7 @@ button:disabled {
 
 .color-btn[aria-pressed='true'] .dot {
   border: 3px solid var(--ink);
-  box-shadow: inset 0 0 0 3px #fff;
+  box-shadow: inset 0 0 0 3px var(--surface);
 }
 
 .dot.multi,
@@ -496,7 +551,7 @@ button:disabled {
   width: 14px;
   height: 14px;
   border-radius: 7px;
-  border: 1px solid #8c86a3;
+  border: 1px solid var(--swatch-border);
   flex: none;
 }
 
@@ -549,7 +604,7 @@ button:disabled {
 }
 
 .error {
-  color: var(--danger);
+  color: var(--danger-text);
   font-size: 14px;
   margin: 0;
 }
@@ -617,7 +672,7 @@ button:disabled {
 .backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(36, 32, 58, 0.45);
+  background: var(--backdrop);
   display: flex;
   align-items: flex-end;
   justify-content: center;
@@ -651,7 +706,7 @@ button:disabled {
 
 .toast {
   background: var(--ink);
-  color: #fff;
+  color: var(--on-ink);
   border-radius: 16px;
   padding: 6px 6px 6px 14px;
   padding-inline-start: 14px;
@@ -668,7 +723,7 @@ button:disabled {
   padding: 0 14px;
   border-radius: 20px;
   border: none;
-  background: #fff;
+  background: var(--bg);
   color: var(--ink);
   font-weight: 700;
 }
@@ -705,7 +760,7 @@ button:disabled {
 }
 
 .tabbar button[aria-current='page'] {
-  color: var(--accent);
+  color: var(--accent-text);
   font-weight: 700;
 }
 
@@ -716,4 +771,42 @@ button:disabled {
   overflow: hidden;
   clip: rect(0 0 0 0);
   white-space: nowrap;
+}
+
+/* Garment photos are shown as-is (she matches colours); a faint edge separates them on dark. */
+.card .thumb img,
+.photo-pick .thumb img {
+  border-radius: 16px;
+  outline: 1px solid var(--photo-border);
+}
+
+/* Settings: a labelled gear (hers) next to a smaller outlined lock (parents'). */
+.labeled-icon-btn {
+  min-width: 52px;
+  min-height: 52px;
+  border: none;
+  border-radius: 16px;
+  background: var(--surface);
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  font-size: 11px;
+  padding: 4px 6px;
+}
+
+.parent-btn {
+  background: transparent;
+  border: 1.5px solid var(--line);
+}
+
+.theme-options .chip {
+  min-height: 72px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: normal;
 }
