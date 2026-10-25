@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { strToU8, zipSync } from 'fflate';
 import { describe, expect, it, vi } from 'vitest';
@@ -6,7 +6,7 @@ import type { ShareEnv } from '../app/device';
 import { MAX_BACKUP_FILE_BYTES, backupFileName, exportBackup } from '../storage/backup';
 import { ClosetRepository } from '../storage/repository';
 import { NOW, closetWith, makeItem, renderWithCloset, sampleCloset, seededStore } from '../test/fixtures';
-import { Parent, randomQuestion } from './Parent';
+import { AboutApp, Parent, randomQuestion } from './Parent';
 
 const TODAY = () => new Date('2026-10-24T08:00:00Z');
 
@@ -218,5 +218,27 @@ describe('Parent', () => {
     expect(screen.getByText('אין בגדים.')).toBeInTheDocument();
     expect(screen.queryByText(/עוד לא נעשה גיבוי/)).not.toBeInTheDocument();
     expect(screen.getAllByText('לא ידוע')).toHaveLength(2);
+  });
+});
+
+describe('AboutApp', () => {
+  const SHA = 'd8d5480aa1b2c3d4e5f60718293a4b5c6d7e8f90';
+
+  it('shows the version and links the commit and the code on GitHub', () => {
+    render(<AboutApp info={{ version: '1.4.0', commit: SHA }} />);
+    expect(screen.getByText(/1\.4\.0/)).toBeInTheDocument();
+    const commit = screen.getByRole('link', { name: 'השינויים בגרסה 1.4.0 ב־GitHub (d8d5480)' });
+    expect(commit).toHaveAttribute('href', `https://github.com/castroi/kid-closet/commit/${SHA}`);
+    expect(commit).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(screen.getByRole('link', { name: 'הקוד של האפליקציה ב־GitHub' })).toHaveAttribute(
+      'href',
+      'https://github.com/castroi/kid-closet',
+    );
+  });
+
+  it('shows just the version when the build has no commit', () => {
+    render(<AboutApp info={{ version: 'dev', commit: '' }} />);
+    expect(screen.getByText('dev')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /השינויים בגרסה/ })).not.toBeInTheDocument();
   });
 });

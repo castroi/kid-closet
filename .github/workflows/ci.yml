@@ -22,6 +22,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # Two commits deep: in a pull request, HEAD is a merge commit whose first parent is main,
+          # which the version check compares against.
+          fetch-depth: 2
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -30,6 +33,14 @@ jobs:
       # Installs exactly what package-lock.json lists; no install scripts run (.npmrc).
       - name: Install
         run: npm ci --no-audit --no-fund
+
+      # feat/ → next minor, fix/ → next patch, chore/docs/test → unchanged or next patch (scripts/version-check.mjs).
+      # The branch name comes from the PR, so it's passed through an environment variable, never pasted into the script.
+      - name: Version bump
+        if: github.event_name == 'pull_request'
+        env:
+          BRANCH: ${{ github.head_ref }}
+        run: node scripts/version-check.mjs --branch "$BRANCH" --base-ref HEAD^1
 
       - name: Lint
         run: npm run lint
