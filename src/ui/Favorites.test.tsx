@@ -107,19 +107,23 @@ describe('Favorites', () => {
 
   it('keeps every heart disabled while its own removal is saving', async () => {
     const user = userEvent.setup();
-    const { repo } = await renderWithCloset(<Favorites onOpen={vi.fn()} />, closetWithTwoLooks());
-    let finish: () => void = () => undefined;
-    const update = repo.update.bind(repo);
-    vi.spyOn(repo, 'update').mockImplementationOnce(async (change) => {
-      await new Promise<void>((r) => (finish = r));
-      return update(change);
+    const { repo, store } = await renderWithCloset(<Favorites onOpen={vi.fn()} />, closetWithTwoLooks());
+    // Hold the first save's file write, inside the repository's queue, so the second
+    // removal really has to wait behind it (holding repo.update would let it run first).
+    const held: { release?: () => void } = {};
+    const write = store.write.bind(store);
+    vi.spyOn(store, 'write').mockImplementationOnce(async (path, blob) => {
+      await new Promise<void>((r) => (held.release = r));
+      return write(path, blob);
     });
     const [first, second] = screen.getAllByRole('button', { name: /^הסרה מהמועדפים/ });
-    await user.click(first); // held
+    await user.click(first);
+    await vi.waitFor(() => expect(held.release).toBeDefined()); // its save is now held mid-write
     await user.click(second); // waits behind it in the save queue
     expect(first).toBeDisabled();
     expect(second).toBeDisabled();
-    finish();
+    expect(repo.getData().outfits).toHaveLength(2); // neither save has finished
+    held.release!();
     expect(await screen.findByText(/עוד אין לוקים שמורים/)).toBeInTheDocument();
     expect(repo.getData().outfits).toEqual([]);
   });
