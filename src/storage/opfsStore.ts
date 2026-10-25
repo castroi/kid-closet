@@ -4,6 +4,7 @@ import { blobToBytes, splitPath, type FileStore } from './fileStore';
 export interface WritableLike {
   write(data: Blob): Promise<void>;
   close(): Promise<void>;
+  abort?: () => Promise<void>;
 }
 export interface FileHandleLike {
   getFile(): Promise<Blob>;
@@ -60,8 +61,14 @@ export class OpfsFileStore implements FileStore {
     const handle = await folder.getFileHandle(name, { create: true });
     if (typeof handle.createWritable === 'function') {
       const writable = await handle.createWritable();
-      await writable.write(data);
-      await writable.close();
+      try {
+        await writable.write(data);
+        await writable.close();
+      } catch (err) {
+        // Abort so the half-written temporary file is discarded and the handle released.
+        await writable.abort?.().catch(() => undefined);
+        throw err;
+      }
       return;
     }
     await this.workerWrite(path, await blobToBytes(data));
@@ -93,29 +100,109 @@ interface WorkerReply {
   error?: string;
 }
 
-/** Creates a WorkerWriter backed by a dedicated worker. */
-export function createWorkerWriter(worker: Pick<Worker, 'postMessage' | 'addEventListener'>): WorkerWriter {
+export type WorkerLike = Pick<Worker, 'postMessage' | 'addEventListener' | 'terminate'>;
+
+/** How long one write may take, while the app is visible, before the worker is treated as stuck. */
+export const WORKER_WRITE_TIMEOUT_MS = 30_000;
+
+/** Calls `listener` whenever the app becomes visible (true) or hidden (false). */
+export type VisibilityWatcher = (listener: (visible: boolean) => void) => void;
+
+interface PendingWrite {
+  resolve: () => void;
+  reject: (e: Error) => void;
+  timer: ReturnType<typeof setTimeout> | null;
+}
+
+interface WorkerSession {
+  worker: WorkerLike;
+  pending: Map<number, PendingWrite>;
+}
+
+/**
+ * Creates a WorkerWriter backed by a dedicated worker, started on the first write.
+ * If the worker fails to load, crashes or stops answering, every waiting write
+ * fails and the worker is dropped, so the next write starts a fresh one instead
+ * of hanging forever.
+ *
+ * The timeout only counts time while the app is visible: iOS suspends a
+ * backgrounded app, and a timer that fires on resume must not report a write
+ * that actually finished as failed.
+ */
+export function createWorkerWriter(
+  createWorker: () => WorkerLike,
+  timeoutMs: number = WORKER_WRITE_TIMEOUT_MS,
+  watchVisibility?: VisibilityWatcher,
+): WorkerWriter {
   let nextId = 1;
-  const pending = new Map<number, { resolve: () => void; reject: (e: Error) => void }>();
-  // If the worker fails to load or crashes, fail every waiting save instead of hanging.
-  const failAll = () => {
-    for (const entry of pending.values()) entry.reject(new Error('The file worker stopped'));
-    pending.clear();
+  let current: WorkerSession | null = null;
+  let visible = true;
+
+  const disarm = (entry: PendingWrite) => {
+    if (entry.timer !== null) clearTimeout(entry.timer);
+    entry.timer = null;
   };
-  worker.addEventListener('error', failAll);
-  worker.addEventListener('messageerror', failAll);
-  worker.addEventListener('message', (event: MessageEvent<WorkerReply>) => {
-    const { id, ok, error } = event.data;
-    const entry = pending.get(id);
-    if (!entry) return;
-    pending.delete(id);
-    if (ok) entry.resolve();
-    else entry.reject(new Error(error ?? 'Write failed'));
+
+  const arm = (session: WorkerSession, entry: PendingWrite) => {
+    disarm(entry);
+    if (visible) entry.timer = setTimeout(() => stop(session, 'The file worker did not answer'), timeoutMs);
+  };
+
+  const stop = (session: WorkerSession, reason: string) => {
+    if (current === session) current = null;
+    session.worker.terminate();
+    const entries = [...session.pending.values()];
+    session.pending.clear();
+    for (const entry of entries) {
+      disarm(entry);
+      entry.reject(new Error(reason));
+    }
+  };
+
+  watchVisibility?.((isVisible) => {
+    visible = isVisible;
+    const session = current;
+    if (!session) return;
+    for (const entry of session.pending.values()) arm(session, entry);
   });
+
+  const start = (): WorkerSession => {
+    const session: WorkerSession = { worker: createWorker(), pending: new Map() };
+    const fail = () => stop(session, 'The file worker stopped');
+    session.worker.addEventListener('error', fail);
+    session.worker.addEventListener('messageerror', fail);
+    session.worker.addEventListener('message', (event: MessageEvent<WorkerReply>) => {
+      const { id, ok, error } = event.data;
+      const entry = session.pending.get(id);
+      if (!entry) return;
+      session.pending.delete(id);
+      disarm(entry);
+      if (ok) entry.resolve();
+      else entry.reject(new Error(error ?? 'Write failed'));
+    });
+    return session;
+  };
+
   return (path, bytes) =>
     new Promise<void>((resolve, reject) => {
+      const session = (current ??= start());
       const id = nextId++;
-      pending.set(id, { resolve, reject });
-      worker.postMessage({ id, path, bytes }, [bytes.buffer as ArrayBuffer]);
+      const entry: PendingWrite = { resolve, reject, timer: null };
+      session.pending.set(id, entry);
+      arm(session, entry);
+      try {
+        session.worker.postMessage({ id, path, bytes }, [bytes.buffer as ArrayBuffer]);
+      } catch (err) {
+        session.pending.delete(id);
+        disarm(entry);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
     });
 }
+
+/** Reports page visibility changes from the document. */
+export const documentVisibility: VisibilityWatcher = (listener) => {
+  const report = () => listener(document.visibilityState === 'visible');
+  document.addEventListener('visibilitychange', report);
+  report(); // start from the real state, not an assumed "visible"
+};

@@ -62,12 +62,14 @@ export class ClosetRepository {
       let best: Envelope | null = null;
       let foundAny = false;
       let highestSeen = 0;
+      let foundUnreadable = false;
       for (const file of CLOSET_FILES) {
         const blob = await this.store.read(file);
         if (!blob) continue;
         foundAny = true;
         const { envelope, generation } = await readEnvelope(blob);
         highestSeen = Math.max(highestSeen, generation ?? 0);
+        if (!envelope) foundUnreadable = true;
         if (envelope && (!best || envelope.generation > best.generation)) best = envelope;
       }
       // Always save above every generation on disk, even one we could not read
@@ -75,7 +77,10 @@ export class ClosetRepository {
       this.generation = highestSeen;
       if (foundAny && !best) throw new ClosetCorruptedError();
       this.data = best ? best.closet : emptyCloset();
-      await this.removeOrphanImages();
+      // While any closet file is unreadable (damaged, or from a newer app version),
+      // its photos are not in this.data; cleaning up would delete them for good.
+      // Once saves have overwritten that file, a later load cleans up as usual.
+      if (!foundUnreadable) await this.removeOrphanImages();
       return this.data;
     });
   }
@@ -152,9 +157,15 @@ export class ClosetRepository {
     });
   }
 
+  /** Best-effort: a cleanup failure must never fail the load or save that called it. */
   private async removeOrphanImages(): Promise<void> {
     const referenced = new Set(this.data.items.map((it) => it.image));
-    const names = await this.store.list(IMAGES_DIR);
+    let names: string[];
+    try {
+      names = await this.store.list(IMAGES_DIR);
+    } catch {
+      return;
+    }
     for (const name of names) {
       const path = `${IMAGES_DIR}/${name}`;
       if (!referenced.has(path)) await this.store.remove(path).catch(() => undefined);

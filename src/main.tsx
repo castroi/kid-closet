@@ -5,7 +5,13 @@ import { ClosetProvider } from './app/ClosetContext';
 import { browserShareEnv, requestPersistence } from './app/device';
 import { browserImageDeps } from './image/browserImage';
 import { registerServiceWorker } from './pwa';
-import { OpfsFileStore, createWorkerWriter, type DirHandleLike } from './storage/opfsStore';
+import {
+  OpfsFileStore,
+  WORKER_WRITE_TIMEOUT_MS,
+  createWorkerWriter,
+  documentVisibility,
+  type DirHandleLike,
+} from './storage/opfsStore';
 import { ClosetRepository } from './storage/repository';
 import { RecoveryScreen } from './ui/RecoveryScreen';
 import './styles.css';
@@ -23,11 +29,11 @@ function start() {
     return;
   }
 
-  let writer: ReturnType<typeof createWorkerWriter> | null = null;
-  const workerWrite: ReturnType<typeof createWorkerWriter> = (path, bytes) => {
-    writer ??= createWorkerWriter(new Worker(new URL('./storage/opfs.worker.ts', import.meta.url), { type: 'module' }));
-    return writer(path, bytes);
-  };
+  const workerWrite = createWorkerWriter(
+    () => new Worker(new URL('./storage/opfs.worker.ts', import.meta.url), { type: 'module' }),
+    WORKER_WRITE_TIMEOUT_MS,
+    documentVisibility,
+  );
   const store = new OpfsFileStore(() => navigator.storage.getDirectory() as unknown as Promise<DirHandleLike>, workerWrite);
   const repo = new ClosetRepository(store);
 
