@@ -90,5 +90,9 @@ The app's version is in `package.json` and is shown in the parent area together 
 | `fix/...` | next patch (1.3.0 → 1.3.1) | `npm version patch --no-git-tag-version` |
 | `chore/...`, `docs/...`, `test/...` | unchanged, or next patch | — |
 
-If `main` gets a new version while your PR is open, merge `main` into the branch and bump again.
+If `main` gets a new version while your PR is open, merge `main` into the branch and bump again. CI checks
+the version on every run of the branch against `main` as it is at that moment, and again on `main` after
+each merge. To have GitHub require an up-to-date branch before the merge button works, turn on
+Settings → Branches → the rule for `main` → "Require status checks to pass" and "Require branches to be up to
+date before merging".
 

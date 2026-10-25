@@ -22,8 +22,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          # Two commits deep: in a pull request, HEAD is a merge commit whose first parent is main,
-          # which the version check compares against.
+          # Two commits deep, so on main the version check can compare a merge with the commit before it.
           fetch-depth: 2
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -35,12 +34,22 @@ jobs:
         run: npm ci --no-audit --no-fund
 
       # feat/ → next minor, fix/ → next patch, chore/docs/test → unchanged or next patch (scripts/version-check.mjs).
+      # Runs on every branch run, including the one "Update lockfile" starts after its commit, and always against
+      # main as it is now (fetched here), not the main a re-run's merge commit was made from.
       # The branch name comes from the PR, so it's passed through an environment variable, never pasted into the script.
       - name: Version bump
-        if: github.event_name == 'pull_request'
+        if: github.ref != 'refs/heads/main'
         env:
-          BRANCH: ${{ github.head_ref }}
-        run: node scripts/version-check.mjs --branch "$BRANCH" --base-ref HEAD^1
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main
+          node scripts/version-check.mjs --branch "$BRANCH" --base-ref origin/main
+
+      # On main, after a merge: the merged branch's bump must still be right against the main it landed on.
+      # Fails if two open PRs took the same version and were both merged.
+      - name: Version went up on main
+        if: github.ref == 'refs/heads/main'
+        run: node scripts/version-check.mjs --merge-commit HEAD
 
       - name: Lint
         run: npm run lint
