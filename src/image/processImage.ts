@@ -16,6 +16,8 @@ export interface DecodedImage extends Size {
 export interface DrawnFrame {
   imageData: ImageData;
   toJpeg(quality: number): Promise<Blob>;
+  /** Frees the canvas memory now; iOS caps total canvas memory and frees it late on its own. */
+  release(): void;
 }
 
 export interface ImageDeps {
@@ -45,6 +47,8 @@ export async function processImage(file: Blob, deps: ImageDeps): Promise<StoredI
       return { blob: new Blob([buffer], { type: 'image/webp' }), ext: 'webp' };
     } catch {
       return { blob: await frame.toJpeg(JPEG_QUALITY), ext: 'jpg' };
+    } finally {
+      frame.release();
     }
   } finally {
     image.release();

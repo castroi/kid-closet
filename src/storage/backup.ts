@@ -1,6 +1,7 @@
 import { strFromU8, strToU8, unzipSync, zipSync, type Zippable } from 'fflate';
 import { InvalidClosetError, assertWithinRestoreLimits, isSafeImagePath, parseCloset } from '../core/closet';
 import type { ClosetData } from '../core/model';
+import { InvalidPhotoError, stripPhotoMetadata } from '../image/metadata';
 import { blobToBytes } from './fileStore';
 import type { ClosetRepository } from './repository';
 
@@ -102,8 +103,16 @@ export function readBackup(zip: Uint8Array): { closet: ClosetData; images: Map<s
   for (const item of closet.items) {
     const bytes = entries[item.image];
     if (!bytes) throw new InvalidBackupError(`Photo ${item.image} is missing from the backup`);
-    const type = item.image.endsWith('.webp') ? 'image/webp' : 'image/jpeg';
-    images.set(item.image, new Blob([bytes as BlobPart], { type }));
+    const ext = item.image.endsWith('.webp') ? 'webp' : 'jpg';
+    let clean: Uint8Array;
+    try {
+      // A backup can come from anywhere: check the photo is what its name says, and drop location and other metadata.
+      clean = stripPhotoMetadata(bytes, ext);
+    } catch (err) {
+      if (err instanceof InvalidPhotoError) throw new InvalidBackupError(`Photo ${item.image}: ${err.message}`);
+      throw err;
+    }
+    images.set(item.image, new Blob([clean as BlobPart], { type: ext === 'webp' ? 'image/webp' : 'image/jpeg' }));
   }
   return { closet, images };
 }

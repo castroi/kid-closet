@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useCloset } from '../app/ClosetContext';
 import { processImage, type ImageDeps } from '../image/processImage';
 import type { StoredImage } from '../storage/repository';
@@ -28,14 +28,29 @@ export function AddItem({ imageDeps, onOpenCloset }: { imageDeps: ImageDeps; onO
     };
   }, [photoUrl]);
 
+  // Only the latest pick may show its result, and nothing is shown after the screen closes.
+  // Results are dropped before a preview URL is made, so a stale photo can't leak one.
+  const latestPick = useRef(0);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
   const onFile = async (file: File | undefined) => {
     if (!file) return;
+    const pick = ++latestPick.current;
+    const isCurrent = () => mounted.current && pick === latestPick.current;
     setSavedName(null);
     setPhoto({ kind: 'working' });
     try {
       const image = await processImage(file, imageDeps);
+      if (!isCurrent()) return;
       setPhoto({ kind: 'ready', image, url: URL.createObjectURL(image.blob) });
     } catch {
+      if (!isCurrent()) return;
       setPhoto({ kind: 'error' });
     }
   };

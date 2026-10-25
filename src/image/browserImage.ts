@@ -38,6 +38,11 @@ function draw(image: DecodedImage, size: Size): DrawnFrame {
       new Promise((resolve, reject) =>
         canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('JPEG encode failed'))), 'image/jpeg', quality),
       ),
+    release: () => {
+      // A zero-size canvas lets Safari free its backing memory right away.
+      canvas.width = 0;
+      canvas.height = 0;
+    },
   };
 }
 
