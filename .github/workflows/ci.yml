@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-  workflow_dispatch: # started by "Update lockfile" after it commits a new lockfile
+  workflow_dispatch: # started by "Update version and lockfile" after it commits
 
 permissions:
   contents: read
@@ -34,7 +34,7 @@ jobs:
         run: npm ci --no-audit --no-fund
 
       # feat/ → next minor, fix/ → next patch, chore/docs/test → unchanged or next patch (scripts/version-check.mjs).
-      # Runs on every branch run, including the one "Update lockfile" starts after its commit, and always against
+      # Runs on every branch run, including the one "Update version and lockfile" starts after its commit, and always against
       # main as it is now (fetched here), not the main a re-run's merge commit was made from.
       # The branch name comes from the PR, so it's passed through an environment variable, never pasted into the script.
       - name: Version bump
