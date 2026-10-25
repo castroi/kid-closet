@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { allowedVersions, checkVersion, nextVersions, parseVersion } from './version-check.mjs';
+import { allowedVersions, branchFromMergeMessage, checkVersion, nextVersions, parseVersion } from './version-check.mjs';
 
 const ok = (branch, base, head) => checkVersion({ branch, base, head, lock: head });
 
@@ -52,18 +52,45 @@ describe('checkVersion', () => {
   it('asks for a typed branch name', () => {
     const r = ok('patch-1', '1.3.0', '1.3.1');
     expect(r.ok).toBe(false);
-    expect(r.message).toContain('feat/, fix/, chore/, docs/ or test/');
+    expect(r.message).toContain('feat/..., fix/..., chore/..., docs/... or test/...');
     expect(allowedVersions('main', '1.0.0')).toBeNull();
+    // A type alone, or a type without the slash, isn't a typed branch name.
+    expect(allowedVersions('feat', '1.0.0')).toBeNull();
+    expect(allowedVersions('feat/', '1.0.0')).toBeNull();
+    expect(allowedVersions('feature/x', '1.0.0')).toBeNull();
   });
 
-  it('requires package-lock.json to match', () => {
+  it('tells chore, docs and test branches how to undo a wrong bump', () => {
+    const r = ok('docs/readme', '1.3.0', '1.4.0');
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain('set "version" in package.json back to 1.3.0 (or 1.3.1)');
+  });
+
+  it('requires both versions in package-lock.json to match', () => {
     const r = checkVersion({ branch: 'feat/x', base: '1.3.0', head: '1.4.0', lock: '1.3.0' });
     expect(r.ok).toBe(false);
     expect(r.message).toContain('package-lock.json has version 1.3.0');
+    const root = checkVersion({ branch: 'feat/x', base: '1.3.0', head: '1.4.0', lock: '1.4.0', rootLock: '1.3.0' });
+    expect(root.ok).toBe(false);
+    expect(root.message).toContain('package-lock.json has version 1.3.0');
+    expect(checkVersion({ branch: 'feat/x', base: '1.3.0', head: '1.4.0', lock: '1.4.0', rootLock: '1.4.0' }).ok).toBe(true);
   });
 
   it('rejects malformed versions', () => {
     expect(ok('feat/x', '1.3', '1.4.0').message).toContain('is not a version');
     expect(ok('feat/x', '1.3.0', 'v1.4.0').message).toContain('is not a version');
+  });
+});
+
+describe('branchFromMergeMessage', () => {
+  it('reads the branch of a GitHub pull request merge', () => {
+    expect(branchFromMergeMessage('Merge pull request #40 from castroi/feat/gallery')).toBe('feat/gallery');
+    expect(branchFromMergeMessage('Merge pull request #7 from someone/fix/a-b')).toBe('fix/a-b');
+  });
+
+  it('ignores other commits', () => {
+    expect(branchFromMergeMessage('Add the gallery (#40)')).toBeNull();
+    expect(branchFromMergeMessage('Initial commit')).toBeNull();
+    expect(branchFromMergeMessage('')).toBeNull();
   });
 });

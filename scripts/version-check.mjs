@@ -7,11 +7,15 @@
  *   fix/...                     → next patch (1.3.0 → 1.3.1)
  *   chore/... docs/... test/... → unchanged, or next patch
  *
- * The version in package-lock.json must match package.json.
+ * The version in package-lock.json (both of its fields) must match package.json.
  *
- * Usage: node scripts/version-check.mjs --branch <head branch> [--base-ref HEAD^1]
- *   --base-ref is the git commit holding main's package.json; in a pull request
- *   checkout (a merge commit) its first parent is main.
+ * Usage:
+ *   node scripts/version-check.mjs --branch <head branch> --base-ref origin/main
+ *     A branch, against main's current package.json (CI fetches main first).
+ *   node scripts/version-check.mjs --merge-commit HEAD
+ *     On main after a pull request was merged: the merged branch's type comes from the
+ *     merge message ("Merge pull request #12 from owner/feat/x"), the base is the
+ *     merge's first parent. Catches two PRs that took the same version.
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -39,9 +43,13 @@ export function nextVersions(base) {
   };
 }
 
-/** The versions a branch may have, given main's version. */
+const TYPED_BRANCH = /^(feat|fix|chore|docs|test)\/./;
+
+/** The versions a branch may have, given main's version; null if the branch has no type prefix. */
 export function allowedVersions(branch, base) {
-  const type = String(branch).split('/')[0];
+  const m = TYPED_BRANCH.exec(String(branch));
+  if (!m) return null;
+  const type = m[1];
   const next = nextVersions(base);
   switch (type) {
     case 'feat':
@@ -51,31 +59,39 @@ export function allowedVersions(branch, base) {
     case 'chore':
     case 'docs':
     case 'test':
-      return { type, allowed: [base, next.patch], hint: 'no change needed' };
-    default:
-      return null;
+      return { type, allowed: [base, next.patch], hint: `set "version" in package.json back to ${base} (or ${next.patch}) and run npm install --package-lock-only` };
   }
 }
 
 /** Returns { ok, message }. */
-export function checkVersion({ branch, base, head, lock }) {
+/**
+ * The branch a GitHub merge commit came from, e.g. "Merge pull request #12 from castroi/feat/x" → "feat/x";
+ * null for any other commit message (a squash merge, a direct commit).
+ */
+export function branchFromMergeMessage(message) {
+  const m = /^Merge pull request #\d+ from [^/\s]+\/(\S+)/.exec(String(message));
+  return m ? m[1] : null;
+}
+
+/** lock is package-lock.json's top-level version, rootLock its packages[""].version. */
+export function checkVersion({ branch, base, head, lock, rootLock = lock }) {
   try {
     parseVersion(base);
     parseVersion(head);
   } catch (err) {
     return { ok: false, message: err.message };
   }
-  if (lock !== head) {
+  if (lock !== head || rootLock !== head) {
     return {
       ok: false,
-      message: `package-lock.json has version ${lock} but package.json has ${head}. Bump with "npm version", which updates both, or push and let the "Update lockfile" workflow fix it.`,
+      message: `package-lock.json has version ${lock !== head ? lock : rootLock} but package.json has ${head}. Bump with "npm version", which updates both, or push and let the "Update lockfile" workflow fix it.`,
     };
   }
   const rule = allowedVersions(branch, base);
   if (!rule) {
     return {
       ok: false,
-      message: `Branch "${branch}" doesn't start with feat/, fix/, chore/, docs/ or test/, so its version bump can't be checked. Rename the branch (see CLAUDE.md).`,
+      message: `Branch "${branch}" isn't named feat/..., fix/..., chore/..., docs/... or test/..., so its version bump can't be checked. Rename the branch (see CLAUDE.md).`,
     };
   }
   if (rule.allowed.includes(head)) {
@@ -85,7 +101,7 @@ export function checkVersion({ branch, base, head, lock }) {
     ok: false,
     message:
       `${branch}: a ${rule.type} change needs version ${rule.allowed.join(' or ')} (main has ${base}), but package.json has ${head}. ` +
-      `Run: ${rule.hint}` +
+      `Fix: ${rule.hint}` +
       (rule.type === 'feat' || rule.type === 'fix' ? ' (after merging main, if main moved on).' : '.'),
   };
 }
@@ -95,18 +111,31 @@ function readArg(args, name) {
   return i >= 0 ? args[i + 1] : undefined;
 }
 
+// execFileSync without a shell: refs and names are passed as single arguments, never interpreted.
+function git(...args) {
+  return execFileSync('git', args, { encoding: 'utf8' });
+}
+
 function main(args) {
-  const branch = readArg(args, '--branch');
-  const baseRef = readArg(args, '--base-ref') ?? 'HEAD^1';
-  if (!branch) {
-    console.error('Missing --branch <name>');
+  let branch = readArg(args, '--branch');
+  let baseRef = readArg(args, '--base-ref');
+  const mergeCommit = readArg(args, '--merge-commit');
+  if (mergeCommit) {
+    branch = branchFromMergeMessage(git('log', '-1', '--format=%s', mergeCommit));
+    if (!branch) {
+      console.log(`${mergeCommit} is not a pull request merge; nothing to check.`);
+      return 0;
+    }
+    baseRef = `${mergeCommit}^1`;
+  }
+  if (!branch || !baseRef) {
+    console.error('Usage: --branch <name> --base-ref <ref>, or --merge-commit <ref>');
     return 2;
   }
-  // execFileSync without a shell: the ref is passed as one argument, never interpreted.
-  const base = JSON.parse(execFileSync('git', ['show', `${baseRef}:package.json`], { encoding: 'utf8' })).version;
+  const base = JSON.parse(git('show', `${baseRef}:package.json`)).version;
   const head = JSON.parse(readFileSync('package.json', 'utf8')).version;
-  const lock = JSON.parse(readFileSync('package-lock.json', 'utf8')).version;
-  const result = checkVersion({ branch, base, head, lock });
+  const lockFile = JSON.parse(readFileSync('package-lock.json', 'utf8'));
+  const result = checkVersion({ branch, base, head, lock: lockFile.version, rootLock: lockFile.packages?.['']?.version });
   (result.ok ? console.log : console.error)(result.message);
   return result.ok ? 0 : 1;
 }
