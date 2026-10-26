@@ -213,7 +213,7 @@ Each PR follows `CLAUDE.md`: branch from `main`, draft PR, review agent, fixes a
 | 5 | `feat/ai-looks-parent` | "לוקים לתיקון" screen with regenerate/keep/delete, delete-all with confirmation, delete-old-looks question on doll change | 4 |
 | 6 | `feat/backup-ai-looks` | AI looks in backup export/restore, validation, size caps | 4 |
 
-Until PR 6, backups leave AI looks out (export writes `aiLooks: []`, restore ignores any), and a restore removes the phone's looks: they can be made again. The look pictures (~100–200 KB each, 100 a month) would soon pass the 150 MB restore cap, so PR 6 has to decide how they fit.
+Until PR 6, backups leave AI looks out (export writes `aiLooks: []`, restore ignores any), and a restore removes the phone's looks: they can be made again. The look pictures (~100–200 KB each, 100 a month; a few may be larger, kept as the provider sent them when the phone couldn't decode them) would soon pass the 150 MB restore cap, so PR 6 has to decide how they fit.
 
 ## 10. Tests
 

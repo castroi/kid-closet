@@ -21,7 +21,7 @@ export interface LookOutfit {
 
 export type LookJob =
   /** `detached`: she pressed "ביטול"; the request goes on, only the waiting screen is gone. */
-  | { kind: 'waiting'; detached: boolean }
+  | { kind: 'waiting'; detached: boolean; counted?: boolean }
   | { kind: 'failed'; error: unknown };
 
 /** Why start() didn't send anything. */
@@ -123,7 +123,11 @@ export function AiLookProvider({ deviceStorage, imageDeps, children, now = defau
     setJobs(next);
   }, []);
 
-  const running = useCallback(() => Object.values(jobsRef.current).filter((j) => j.kind === 'waiting').length, []);
+  // Requests not yet counted in this month's use; one whose answer arrived is counted there instead.
+  const running = useCallback(
+    () => Object.values(jobsRef.current).filter((j) => j.kind === 'waiting' && !j.counted).length,
+    [],
+  );
 
   const monthlyUse = useCallback(() => readMonthlyUse(deviceStorage, now()) + running(), [deviceStorage, now, running]);
 
@@ -181,14 +185,15 @@ export function AiLookProvider({ deviceStorage, imageDeps, children, now = defau
             throw err;
           }
           count();
+          const current = jobsRef.current[key];
+          if (current?.kind === 'waiting') setJob(key, { ...current, counted: true });
           const stored = await storedPicture(result, imageDeps);
           // A garment deleted while the AI worked: its look would be dropped on the next load anyway.
           const latest = dataRef.current;
-          if (latest.items.some((it) => it.id === parts.upperId) && latest.items.some((it) => it.id === parts.bottomId)) {
-            await addLook({ ...parts, provider, model: result.model, promptHash: promptHash(result.prompt) }, stored);
-          }
+          const kept = latest.items.some((it) => it.id === parts.upperId) && latest.items.some((it) => it.id === parts.bottomId);
+          if (kept) await addLook({ ...parts, provider, model: result.model, promptHash: promptHash(result.prompt) }, stored);
           setJob(key, null);
-          if (visibleKey.current !== key) setFinished({ key, outfit });
+          if (kept && visibleKey.current !== key) setFinished({ key, outfit });
         } catch (error) {
           setJob(key, { kind: 'failed', error });
         }
@@ -207,7 +212,8 @@ export function AiLookProvider({ deviceStorage, imageDeps, children, now = defau
       jobs,
       start,
       detach: (key) => {
-        if (jobsRef.current[key]?.kind === 'waiting') setJob(key, { kind: 'waiting', detached: true });
+        const job = jobsRef.current[key];
+        if (job?.kind === 'waiting') setJob(key, { ...job, detached: true });
       },
       setVisibleKey: (key) => {
         visibleKey.current = key;
