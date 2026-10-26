@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import {
   aiReady,
   isValidApiKey,
@@ -51,8 +51,8 @@ export function AiPanel({ deviceStorage, now, onOpen }: { deviceStorage: DeviceS
         role="progressbar"
         aria-label="השימוש החודש"
         aria-valuemin={0}
-        aria-valuemax={monthlyCap}
-        aria-valuenow={Math.min(used, monthlyCap)}
+        aria-valuemax={Math.max(1, monthlyCap)}
+        aria-valuenow={Math.min(used, Math.max(1, monthlyCap))}
       >
         <span style={{ width: `${percent}%` }} />
       </div>
@@ -69,6 +69,11 @@ export function AiSettingsScreen({ deviceStorage, imageDeps }: { deviceStorage: 
   const { data, setAiSettings } = useCloset();
   const { provider } = data.ai;
   const [message, setMessage] = useState<Message>(null);
+  // The screen is long: bring a confirmation or error into view where it is shown.
+  const messageRef = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (message) messageRef.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [message]);
 
   const save = async (patch: Parameters<typeof setAiSettings>[0], done: string): Promise<boolean> => {
     setMessage(null);
@@ -89,7 +94,7 @@ export function AiSettingsScreen({ deviceStorage, imageDeps }: { deviceStorage: 
         ובלי מיקום. שום דבר לא נשלח עד שתגדירי ספק ומפתח.
       </p>
       {message && (
-        <p role="status" className={message.error ? 'error' : 'muted'}>
+        <p ref={messageRef} role="status" className={message.error ? 'error' : 'muted'}>
           {message.text}
         </p>
       )}
@@ -253,7 +258,8 @@ function UsagePanel({
   const modelId = useId();
   const capId = useId();
   const capNumber = Number(cap);
-  const capValid = cap.trim() !== '' && Number.isInteger(capNumber) && capNumber >= 0 && capNumber <= MAX_MONTHLY_CAP;
+  // Plain digits only: Number() would also take "1e2", "0x10" or padded spaces.
+  const capValid = /^\d{1,4}$/.test(cap) && capNumber <= MAX_MONTHLY_CAP;
   const changed = model.trim() !== data.ai.model || (capValid && capNumber !== data.ai.monthlyCap);
 
   return (
@@ -324,7 +330,7 @@ function PromptPanel({ save }: { save: (patch: { prompt?: string | null }, done:
         <summary>מתקדם: ההנחיה ל־AI</summary>
         <div className="field">
           <label className="label" htmlFor={id}>
-            ההנחיה <small>(באנגלית עובד הכי טוב)</small>
+            ההנחיה <small>(באנגלית זה עובד הכי טוב)</small>
           </label>
           <textarea
             id={id}

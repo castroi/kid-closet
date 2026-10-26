@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useCloset } from '../app/ClosetContext';
 import { BUILD_INFO, REPO_URL, commitUrl, shortCommit, type BuildInfo } from '../app/buildInfo';
 import {
@@ -48,8 +48,13 @@ export function Parent({
   const [view, setView] = useState<'main' | 'ai'>('main');
   const [deviceStorage] = useState<DeviceStorage>(() => (givenStorage === undefined ? browserDeviceStorage() : givenStorage));
   const inAi = unlocked && view === 'ai';
+  // Each view starts at its top, not at the scroll position of the one before.
+  const screenRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (screenRef.current) screenRef.current.scrollTop = 0;
+  }, [inAi]);
   return (
-    <div className="screen">
+    <div className="screen" ref={screenRef}>
       <div className="screen-header" style={{ justifyContent: 'flex-start' }}>
         <button
           type="button"

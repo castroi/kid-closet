@@ -746,8 +746,28 @@ button:disabled {
   min-height: 44px;
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   font-weight: 700;
   cursor: pointer;
+  list-style: none;
+}
+.advanced > summary::-webkit-details-marker {
+  display: none;
+}
+/* Our own open/closed mark, since display: flex hides the native one. */
+.advanced > summary::after {
+  content: '';
+  width: 9px;
+  height: 9px;
+  border-inline-end: 2px solid var(--ink-2);
+  border-block-end: 2px solid var(--ink-2);
+  transform: rotate(45deg);
+  margin-block-end: 4px;
+}
+.advanced[open] > summary::after {
+  transform: rotate(-135deg);
+  margin-block: 4px 0;
 }
 .advanced[open] > summary {
   margin-bottom: 8px;

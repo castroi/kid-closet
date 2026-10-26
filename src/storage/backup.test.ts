@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
+import { strToU8, zipSync } from 'fflate';
 import { describe, expect, it, vi } from 'vitest';
 import { MAX_ITEMS, MAX_NAME_LENGTH, MAX_OUTFITS } from '../core/closet';
 import { NOW, asVersion1, closetWith, makeItem, makeOutfit, seededStore, testPhoto, withDoll } from '../test/data';
@@ -63,13 +63,11 @@ describe('backup', () => {
     expect(await blobToBytes((await targetStore.read('images/doll-d1.jpg'))!)).toEqual(testPhoto('jpg'));
   });
 
-  it('keeps the AI settings in the backup, but never an API key', async () => {
+  it('keeps the AI settings in the backup', async () => {
     const ai = { provider: 'venice' as const, model: 'm', prompt: 'p', monthlyCap: 7 };
     const repo = new ClosetRepository(seededStore({ ...sample(), ai }), () => NOW);
     await repo.load();
-    const zip = await exportBackup(repo, NOW);
-    expect(readBackup(zip).closet.ai).toEqual(ai);
-    expect(strFromU8(unzipSync(zip)['closet.json'])).not.toMatch(/key/i);
+    expect(readBackup(await exportBackup(repo, NOW)).closet.ai).toEqual(ai);
   });
 
   it('restores a version 1 backup with the bundled doll', () => {

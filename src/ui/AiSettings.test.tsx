@@ -1,10 +1,12 @@
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { strFromU8, unzipSync } from 'fflate';
 import { describe, expect, it, vi } from 'vitest';
 import { AI_KEY_PREFIX, AI_USAGE_KEY } from '../app/aiDevice';
 import { DEFAULT_PROMPT } from '../ai/prompt';
 import { emptyCloset, type AiSettings, type ClosetData } from '../core/model';
-import { fakeImageDeps, memoryStorage, renderWithCloset } from '../test/fixtures';
+import { exportBackup } from '../storage/backup';
+import { NOW, fakeImageDeps, memoryStorage, renderWithCloset } from '../test/fixtures';
 import { AiPanel, AiSettingsScreen } from './AiSettings';
 
 const OCT = new Date(2026, 9, 26, 12);
@@ -43,9 +45,10 @@ describe('AiPanel', () => {
     expect(onOpen).toHaveBeenCalled();
   });
 
-  it('shows a full bar when the cap is 0', async () => {
+  it('shows a full bar when the cap is 0, with a valid range for screen readers', async () => {
     await renderWithCloset(<AiPanel deviceStorage={memoryStorage()} now={OCT} onOpen={vi.fn()} />, closetWithAi({ monthlyCap: 0 }));
     expect(screen.getByText('0 מתוך 0 · מתאפס ב־1.11')).toBeInTheDocument();
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuemax', '1');
   });
 });
 
@@ -75,6 +78,8 @@ describe('AiSettingsScreen', () => {
 
     expect(storage.data.get(`${AI_KEY_PREFIX}venice`)).toBe('sk-secret-1234');
     expect(JSON.stringify(repo.getData())).not.toContain('sk-secret');
+    const backup = unzipSync(await exportBackup(repo, NOW));
+    expect(Object.values(backup).some((bytes) => strFromU8(bytes).includes('sk-secret'))).toBe(false);
     expect(screen.getByText('••••1234')).toBeInTheDocument();
     expect(screen.queryByDisplayValue('sk-secret-1234')).not.toBeInTheDocument();
 
@@ -126,10 +131,12 @@ describe('AiSettingsScreen', () => {
     expect(form.getByRole('button', { name: 'שמירה' })).toBeDisabled();
 
     const cap = form.getByLabelText(/מקסימום תמונות בחודש/);
-    await user.clear(cap);
-    await user.type(cap, '5000');
-    expect(form.getByText('מספר שלם בין 0 ל־1000')).toBeInTheDocument();
-    expect(form.getByRole('button', { name: 'שמירה' })).toBeDisabled();
+    for (const bad of ['5000', '1e2', '0x10', ' 50']) {
+      await user.clear(cap);
+      await user.type(cap, bad);
+      expect(form.getByText('מספר שלם בין 0 ל־1000')).toBeInTheDocument();
+      expect(form.getByRole('button', { name: 'שמירה' })).toBeDisabled();
+    }
 
     await user.clear(cap);
     await user.type(cap, '30');
