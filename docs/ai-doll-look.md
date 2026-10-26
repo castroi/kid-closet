@@ -39,14 +39,17 @@ In the outfit preview ("לראות את הלוק"), she can press one button and
 
 - **CSP** (`vercel.json`): `connect-src 'self' https://api.venice.ai https://openrouter.ai`. Nothing else. `securityHeaders.test.ts` checks the exact list.
 - **Adding a provider** = one adapter file + one host in the CSP + its test. That is intentional: a hacked dependency still can't send photos to an arbitrary site.
-- **API key storage**: device only (`localStorage`, like the theme), never in `closet.json` or the backup. Shown masked (last 4 characters).
+- **What the CSP does and doesn't guarantee:** both provider origins are open all the time, whichever one the parent picked. The app's code sends only to the picked provider with her key; a compromised dependency could still send to the other provider's origin (with its own key, so to its own account). Accepted risk; PR 3 narrows `connect-src` to the exact endpoint paths where the providers allow it.
+- **API key storage**: device only (`localStorage`, like the theme), never in `closet.json` or the backup. Shown masked (last 4 characters, nothing for keys under 12). Entered in a text field drawn as dots, so Safari doesn't offer to save it to iCloud Keychain. Checked on entry: 8–512 printable characters, no spaces.
 - **Sent data**: only the three images and the prompt. No names, colours or occasions.
 - **Recommendation for the parent**: set a spending limit on the provider key itself where the provider supports it (OpenRouter does; Venice unverified).
 - **Docs**: README "How data is stored" and the `CLAUDE.md` platform table get the new rules.
 
-## 5. Data model (`SCHEMA_VERSION` 1 → 2)
+## 5. Data model
 
-Old `closet.json` files and backups (v1) must keep loading; they read as v2 with the defaults below.
+`SCHEMA_VERSION` grows one step per PR that changes `closet.json`: **2** added `doll` (PR 1), **3** added `ai` (PR 2), **4** adds `aiLooks` (PR 4). Every older version keeps loading; each part is read for every version that has it and defaulted for older ones.
+
+Older files and backups keep loading with the defaults below.
 
 ```ts
 interface Doll {
