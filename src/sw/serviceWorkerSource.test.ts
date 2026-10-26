@@ -245,16 +245,27 @@ describe('precacheFilesFromBuild', () => {
         'assets/opfs.worker-def.js',
         'assets/webp_enc-123.wasm',
         'assets/webp_enc-456.js',
+        'assets/doll-default-789.webp',
         'index.html',
         'sw.js',
       ]),
-    ).toEqual(['/assets/index-abc.js', '/assets/opfs.worker-def.js', '/assets/webp_enc-123.wasm', '/assets/webp_enc-456.js']);
+    ).toEqual([
+      '/assets/index-abc.js',
+      '/assets/opfs.worker-def.js',
+      '/assets/webp_enc-123.wasm',
+      '/assets/webp_enc-456.js',
+      '/assets/doll-default-789.webp',
+    ]);
   });
 
   it.each([
-    ['the file worker', ['assets/index.js', 'assets/webp_enc.wasm', 'assets/webp_enc.js']],
-    ['the WebP encoder (.wasm)', ['assets/index.js', 'assets/opfs.worker-1.js', 'assets/webp_enc.js']],
-    ['the WebP encoder (its .js loader)', ['assets/index.js', 'assets/opfs.worker-1.js', 'assets/webp_enc.wasm']],
+    ['the file worker', ['assets/index.js', 'assets/webp_enc.wasm', 'assets/webp_enc.js', 'assets/doll-default.webp']],
+    ['the WebP encoder (.wasm)', ['assets/index.js', 'assets/opfs.worker-1.js', 'assets/webp_enc.js', 'assets/doll-default.webp']],
+    [
+      'the WebP encoder (its .js loader)',
+      ['assets/index.js', 'assets/opfs.worker-1.js', 'assets/webp_enc.wasm', 'assets/doll-default.webp'],
+    ],
+    ['the default doll picture', ['assets/index.js', 'assets/opfs.worker-1.js', 'assets/webp_enc.wasm', 'assets/webp_enc.js']],
   ])('stops the build when %s is missing', (what, files) => {
     expect(() => precacheFilesFromBuild(files)).toThrow(what);
   });

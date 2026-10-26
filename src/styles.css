@@ -683,6 +683,11 @@ button:disabled {
   max-height: 100%;
 }
 
+/* The doll is a 3:4 full-body picture. */
+.photo-pick .thumb.doll-thumb {
+  height: 160px;
+}
+
 .file-btn {
   position: relative;
   overflow: hidden;

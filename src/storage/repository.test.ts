@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
-import { NOW, closetWith, makeItem, makeOutfit, seededStore } from '../test/data';
+import { NOW, asVersion1, closetWith, makeItem, makeOutfit, seededStore, withDoll } from '../test/data';
 import { MemoryFileStore, blobToText } from './fileStore';
 import {
   CLOSET_FILES,
@@ -174,6 +174,63 @@ describe('ClosetRepository', () => {
     expect(repo.getData().items).toEqual([]);
   });
 
+  it("replaces the doll: writes the new picture, saves, then deletes the old one", async () => {
+    const store = seededStore(withDoll(closetWith([makeItem({ id: 'a' })]), 'old'));
+    const repo = new ClosetRepository(store, () => NOW, () => 'new');
+    await repo.load();
+    const data = await repo.setDoll({ blob: new Blob(['doll'], { type: 'image/jpeg' }), ext: 'jpg' });
+    expect(data.doll).toEqual({ id: 'new', image: 'images/doll-new.jpg' });
+    expect(store.files.has('images/doll-new.jpg')).toBe(true);
+    expect(store.files.has('images/doll-old.webp')).toBe(false);
+    expect(store.files.has('images/a.webp')).toBe(true);
+    expect((await new ClosetRepository(store).load()).doll.id).toBe('new');
+  });
+
+  it('goes back to the bundled doll and deletes the parent picture', async () => {
+    const store = seededStore(withDoll(closetWith([])));
+    const repo = new ClosetRepository(store, () => NOW);
+    await repo.load();
+    const data = await repo.resetDoll();
+    expect(data.doll).toEqual({ id: 'default', image: null });
+    expect(store.files.has('images/doll-d1.webp')).toBe(false);
+  });
+
+  it('keeps the doll picture when cleaning up orphan photos', async () => {
+    const store = seededStore(withDoll(closetWith([])));
+    store.files.set('images/orphan.webp', new Blob(['x']));
+    await new ClosetRepository(store, () => NOW).load();
+    expect(store.files.has('images/doll-d1.webp')).toBe(true);
+    expect(store.files.has('images/orphan.webp')).toBe(false);
+  });
+
+  it('keeps the old doll and removes the new picture when saving fails', async () => {
+    const store = seededStore(withDoll(closetWith([]), 'old'));
+    const repo = new ClosetRepository(store, () => NOW, () => 'new');
+    await repo.load();
+    const write = store.write.bind(store);
+    vi.spyOn(store, 'write').mockImplementation(async (path, data) => {
+      if (path.endsWith('.json')) throw new Error('disk full');
+      return write(path, data);
+    });
+    await expect(repo.setDoll(image)).rejects.toThrow('disk full');
+    expect(store.files.has('images/doll-new.webp')).toBe(false);
+    expect(store.files.has('images/doll-old.webp')).toBe(true);
+    expect(repo.getData().doll.id).toBe('old');
+  });
+
+  it('saves a version 1 closet as the current version, keeping everything', async () => {
+    const v1 = asVersion1(closetWith([makeItem({ id: 'a' })]));
+    const store = new MemoryFileStore();
+    store.files.set('closet-b.json', new Blob([JSON.stringify({ generation: 1, savedAt: NOW, closet: v1 })]));
+    store.files.set('images/a.webp', new Blob(['a']));
+    const repo = new ClosetRepository(store, () => NOW);
+    await repo.load();
+    await repo.update((d) => d);
+    const saved = JSON.parse(await blobToText(store.files.get('closet-a.json')!)) as { closet: { schemaVersion: number } };
+    expect(saved.closet.schemaVersion).toBe(2);
+    expect(store.files.has('images/a.webp')).toBe(true);
+  });
+
   it('keeps working after a failed operation', async () => {
     const repo = new ClosetRepository(new MemoryFileStore(), () => NOW, sequentialIds());
     await repo.load();
@@ -314,6 +371,8 @@ describe('two open copies of the app', () => {
     await repo.update((d) => d);
     await repo.snapshot();
     await repo.deleteItems(['a']); // closet write, then photo removal
+    await repo.setDoll(image); // picture write, closet write
+    await repo.resetDoll(); // closet write, then picture removal
     await repo.replaceAll(closetWith([makeItem({ id: 'r' })]), new Map([['images/r.webp', new Blob(['r'])]]));
     expect(outside).toEqual([]);
   });
@@ -334,6 +393,8 @@ describe('two open copies of the app', () => {
     await repo.load();
     await repo.addItem(newItem, image);
     await repo.deleteItems(['a']);
+    await repo.setDoll(image);
+    await repo.resetDoll();
     await repo.replaceAll(closetWith([]), new Map());
     expect(deepest).toBe(1);
   });

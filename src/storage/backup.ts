@@ -1,5 +1,5 @@
 import { strFromU8, strToU8, unzipSync, zipSync, type Zippable } from 'fflate';
-import { InvalidClosetError, assertWithinRestoreLimits, isSafeImagePath, parseCloset } from '../core/closet';
+import { InvalidClosetError, assertWithinRestoreLimits, closetImagePaths, isSafeImagePath, parseCloset } from '../core/closet';
 import type { ClosetData } from '../core/model';
 import { InvalidPhotoError, stripPhotoMetadata } from '../image/metadata';
 import { blobToBytes } from './fileStore';
@@ -43,7 +43,7 @@ export async function readBackupFile(file: Blob): Promise<Uint8Array> {
   return blobToBytes(file);
 }
 
-/** Builds one ZIP file holding closet.json and every photo. */
+/** Builds one ZIP file holding closet.json and every photo (items and the parent's doll). */
 export async function exportBackup(repo: ClosetRepository, exportedAt: string): Promise<Uint8Array> {
   // Read the list and the photos together, so a save running at the same time can't change them halfway.
   const { data: closet, images } = await repo.snapshot();
@@ -54,6 +54,11 @@ export async function exportBackup(repo: ClosetRepository, exportedAt: string): 
     if (!bytes) throw new Error(`Photo missing for ${item.name}`);
     // Photos are already compressed; storing them avoids wasting time on the phone.
     files[item.image] = [bytes, { level: 0 }];
+  }
+  if (closet.doll.image) {
+    const bytes = images.get(closet.doll.image);
+    if (!bytes) throw new Error('The doll picture is missing');
+    files[closet.doll.image] = [bytes, { level: 0 }];
   }
   return zipSync(files);
 }
@@ -100,19 +105,19 @@ export function readBackup(zip: Uint8Array): { closet: ClosetData; images: Map<s
     throw err;
   }
   const images = new Map<string, Blob>();
-  for (const item of closet.items) {
-    const bytes = entries[item.image];
-    if (!bytes) throw new InvalidBackupError(`Photo ${item.image} is missing from the backup`);
-    const ext = item.image.endsWith('.webp') ? 'webp' : 'jpg';
+  for (const path of closetImagePaths(closet)) {
+    const bytes = entries[path];
+    if (!bytes) throw new InvalidBackupError(`Photo ${path} is missing from the backup`);
+    const ext = path.endsWith('.webp') ? 'webp' : 'jpg';
     let clean: Uint8Array;
     try {
       // A backup can come from anywhere: check the photo is what its name says, and drop location and other metadata.
       clean = stripPhotoMetadata(bytes, ext);
     } catch (err) {
-      if (err instanceof InvalidPhotoError) throw new InvalidBackupError(`Photo ${item.image}: ${err.message}`);
+      if (err instanceof InvalidPhotoError) throw new InvalidBackupError(`Photo ${path}: ${err.message}`);
       throw err;
     }
-    images.set(item.image, new Blob([clean as BlobPart], { type: ext === 'webp' ? 'image/webp' : 'image/jpeg' }));
+    images.set(path, new Blob([clean as BlobPart], { type: ext === 'webp' ? 'image/webp' : 'image/jpeg' }));
   }
   return { closet, images };
 }

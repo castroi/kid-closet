@@ -55,7 +55,7 @@ export function App({ imageDeps, shareEnv, storage, today, themeEnv }: AppProps)
         {tab === 'favorites' && <Favorites onOpen={openOutfit} />}
         {tab === 'closet' && <Closet onOpenParent={() => setTab('parent')} onOpenSettings={() => setSettingsOpen(true)} />}
         {tab === 'add' && <AddItem imageDeps={imageDeps} onOpenCloset={() => setTab('closet')} />}
-        {tab === 'parent' && <Parent onBack={() => setTab('closet')} shareEnv={shareEnv} storage={storage} />}
+        {tab === 'parent' && <Parent onBack={() => setTab('closet')} imageDeps={imageDeps} shareEnv={shareEnv} storage={storage} />}
       </main>
       <nav className="tabbar" aria-label="ניווט ראשי">
         {NAV.map((n) => (

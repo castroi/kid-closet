@@ -11,8 +11,10 @@ import {
   type StorageStatus,
 } from '../app/device';
 import { COLOR_INFO } from '../core/model';
+import type { ImageDeps } from '../image/processImage';
 import { backupFileName, readBackupFile } from '../storage/backup';
 import { Icon, Sheet, Swatch, restoreErrorText } from './common';
+import { DollPanel } from './DollPanel';
 
 export const BACKUP_REMINDER_DAYS = 14;
 
@@ -23,13 +25,14 @@ export function randomQuestion(): [number, number] {
 
 interface Props {
   onBack: () => void;
+  imageDeps: ImageDeps;
   shareEnv: ShareEnv;
   storage?: StorageLike;
   question?: [number, number];
   now?: () => Date;
 }
 
-export function Parent({ onBack, shareEnv, storage, question, now = () => new Date() }: Props) {
+export function Parent({ onBack, imageDeps, shareEnv, storage, question, now = () => new Date() }: Props) {
   const [unlocked, setUnlocked] = useState(false);
   return (
     <div className="screen">
@@ -40,7 +43,7 @@ export function Parent({ onBack, shareEnv, storage, question, now = () => new Da
         <h1>אזור הורים</h1>
       </div>
       {unlocked ? (
-        <ParentTools shareEnv={shareEnv} storage={storage} now={now} />
+        <ParentTools imageDeps={imageDeps} shareEnv={shareEnv} storage={storage} now={now} />
       ) : (
         <Gate question={question} onUnlock={() => setUnlocked(true)} />
       )}
@@ -83,7 +86,17 @@ function Gate({ question, onUnlock }: { question?: [number, number]; onUnlock: (
   );
 }
 
-function ParentTools({ shareEnv, storage, now }: { shareEnv: ShareEnv; storage?: StorageLike; now: () => Date }) {
+function ParentTools({
+  imageDeps,
+  shareEnv,
+  storage,
+  now,
+}: {
+  imageDeps: ImageDeps;
+  shareEnv: ShareEnv;
+  storage?: StorageLike;
+  now: () => Date;
+}) {
   const api = useCloset();
   const { data } = api;
   const [status, setStatus] = useState<StorageStatus | null>(null);
@@ -184,7 +197,7 @@ function ParentTools({ shareEnv, storage, now }: { shareEnv: ShareEnv; storage?:
           </div>
         )}
         <p className="muted">
-          הגיבוי הוא קובץ אחד עם כל התמונות והפרטים. אם האפליקציה תימחק מהמסך הראשי, אפשר לשחזר ממנו הכל.
+          הגיבוי הוא קובץ אחד עם כל התמונות והפרטים, כולל הבובה. אם האפליקציה תימחק מהמסך הראשי, אפשר לשחזר ממנו הכל.
         </p>
         {prepared && (
           <button type="button" className="btn btn-primary" onClick={() => deliver(prepared)}>
@@ -217,6 +230,8 @@ function ParentTools({ shareEnv, storage, now }: { shareEnv: ShareEnv; storage?:
           </label>
         </div>
       </section>
+
+      <DollPanel imageDeps={imageDeps} />
 
       <section className="panel" aria-labelledby="storage-h">
         <h2 id="storage-h">אחסון בטלפון</h2>
