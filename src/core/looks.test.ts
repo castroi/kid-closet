@@ -12,7 +12,7 @@ import {
   setLookFlagged,
   storedImagePaths,
 } from './closet';
-import { dollsLeftText } from './gallery';
+import { aiPicturesText, deletedPicturesText, dollsLeftText } from './gallery';
 import { lookImagePath, type AiLook } from './model';
 
 const items = [
@@ -96,9 +96,17 @@ describe('reading looks from closet.json', () => {
     expect(parseCloset(raw).aiLooks.map((l) => l.id)).toEqual(['l1']);
   });
 
-  it('keeps only the later of two looks for the same parts', () => {
-    const raw = JSON.parse(JSON.stringify({ ...valid, aiLooks: [look({ id: 'old' }), look({ id: 'new' })] }));
-    expect(parseCloset(raw).aiLooks.map((l) => l.id)).toEqual(['new']);
+  it('keeps only the later of two looks for the same parts, in order', () => {
+    const aiLooks = [look({ id: 'old' }), look({ id: 'other', upperId: 'shirt2' }), look({ id: 'new' })];
+    const raw = JSON.parse(JSON.stringify({ ...valid, aiLooks }));
+    expect(parseCloset(raw).aiLooks.map((l) => l.id)).toEqual(['other', 'new']);
+  });
+
+  it('says one picture in the singular', () => {
+    expect(aiPicturesText(1)).toBe('תמונת AI אחת');
+    expect(aiPicturesText(3)).toBe('3 תמונות AI');
+    expect(deletedPicturesText(1)).toBe('נמחקה תמונה אחת.');
+    expect(deletedPicturesText(3)).toBe('נמחקו 3 תמונות.');
   });
 
   it('loads a version 3 file with no looks', () => {

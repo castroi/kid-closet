@@ -20,21 +20,31 @@ const REFUSAL_TEXT: Record<StartRefusal, string> = {
  */
 export function LooksToFix() {
   const { data } = useCloset();
-  const flagged = data.aiLooks.filter((l) => l.flagged);
-  if (flagged.length === 0) {
+  // Looks made again on this screen stay listed (unmarked), so the parent sees the new picture.
+  const [remade, setRemade] = useState<ReadonlySet<string>>(new Set());
+  const shown = data.aiLooks.filter((l) => l.flagged || remade.has(lookKey(l)));
+  const setRemadeKey = (key: string, on: boolean) =>
+    setRemade((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  if (shown.length === 0) {
     return <p className="muted center-message">אין לוקים לתיקון. כשהיא לוחצת "לא דומה?" על תמונה, היא תופיע כאן.</p>;
   }
   return (
     <>
       <p className="muted">היא סימנה "לא דומה?". כל יצירה מחדש נספרת בשימוש החודשי.</p>
-      {flagged.map((look) => (
-        <LookToFix key={look.id} look={look} />
+      {shown.map((look) => (
+        // Keyed by its parts: a new picture for the same clothes is the same row.
+        <LookToFix key={lookKey(look)} look={look} onRemade={(on) => setRemadeKey(lookKey(look), on)} />
       ))}
     </>
   );
 }
 
-function LookToFix({ look }: { look: AiLook }) {
+function LookToFix({ look, onRemade }: { look: AiLook; onRemade: (on: boolean) => void }) {
   const { data, setLookFlagged, deleteLooks } = useCloset();
   const ai = useAiLooks();
   const url = useImageUrl(look.image);
@@ -52,6 +62,7 @@ function LookToFix({ look }: { look: AiLook }) {
     setMessage(null);
     try {
       await action();
+      onRemade(false);
     } catch (err) {
       if (!explainedElsewhere(err)) setMessage({ text: 'השמירה לא הצליחה. נסי שוב.', error: true });
     } finally {
@@ -73,6 +84,7 @@ function LookToFix({ look }: { look: AiLook }) {
       { redo: true, quiet: true },
     );
     if (refusal) setMessage({ text: REFUSAL_TEXT[refusal], error: true });
+    else onRemade(true);
   };
 
   return (
@@ -101,6 +113,11 @@ function LookToFix({ look }: { look: AiLook }) {
       {message && (
         <p role="status" className={message.error ? 'error' : 'muted'}>
           {message.text}
+        </p>
+      )}
+      {!look.flagged && !remaking && job?.kind !== 'failed' && (
+        <p className="muted" role="status">
+          התמונה נוצרה מחדש. אפשר להשאיר אותה, ליצור שוב או למחוק.
         </p>
       )}
       {!sameDoll && <p className="muted">התמונה נוצרה עם בובה קודמת, אז אפשר רק להשאיר או למחוק.</p>}

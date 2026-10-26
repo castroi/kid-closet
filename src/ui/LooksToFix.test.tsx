@@ -53,7 +53,7 @@ describe('LooksToFix', () => {
     expect(row.getByText('נוצר ב־20 באוקטובר')).toBeInTheDocument();
   });
 
-  it('makes the look again: replaces the picture, clears the flag, counts the use, and shows her no toast', async () => {
+  it('makes the look again: replaces the picture, clears the flag, keeps it on screen, counts the use, and shows her no toast', async () => {
     const user = userEvent.setup();
     const storage = readyStorage();
     const fetchFn = provider();
@@ -72,8 +72,14 @@ describe('LooksToFix', () => {
     expect(repo.getData().aiLooks).toHaveLength(1);
     expect(look).toMatchObject({ upperId: 'tBlue', bottomId: 'bJeans', flagged: false });
     expect(JSON.parse(storage.data.get(AI_USAGE_KEY)!).count).toBe(1);
-    expect(await screen.findByText(/אין לוקים לתיקון/)).toBeInTheDocument();
+    expect(await screen.findByText(/התמונה נוצרה מחדש/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'ליצור מחדש' })).toBeEnabled();
     expect(screen.queryByText('הבובה מוכנה')).not.toBeInTheDocument();
+
+    // Keeping the new picture takes it off the list.
+    await user.click(screen.getByRole('button', { name: 'להשאיר' }));
+    expect(await screen.findByText(/אין לוקים לתיקון/)).toBeInTheDocument();
+    expect(repo.getData().aiLooks).toEqual([look]);
   });
 
   it('makes a look with a layer again with the layer, not a shirt', async () => {

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useCloset } from '../app/ClosetContext';
 import { DEFAULT_DOLL_URL } from '../app/doll';
+import { aiPicturesText } from '../core/gallery';
 import { DOLL_MAX_SIDE, processImage, type ImageDeps } from '../image/processImage';
 import type { StoredImage } from '../storage/repository';
 import { Sheet, explainedElsewhere, useImageUrl } from './common';
@@ -15,7 +16,8 @@ type Pending = { image: StoredImage; url: string };
 export function DollPanel({ imageDeps }: { imageDeps: ImageDeps }) {
   const { data, setDoll, resetDoll, readImage, deleteLooks } = useCloset();
   // After the doll changes, its AI looks no longer match; the parent decides whether to keep them (plan §8).
-  const [oldLooks, setOldLooks] = useState<string[] | null>(null);
+  // `canReturn`: the replaced doll was the bundled one, so going back to it shows them again.
+  const [oldLooks, setOldLooks] = useState<{ ids: string[]; canReturn: boolean } | null>(null);
   const custom = data.doll.image;
   const storedUrl = useImageUrl(custom);
   const shownUrl = custom ? storedUrl : DEFAULT_DOLL_URL;
@@ -79,11 +81,12 @@ export function DollPanel({ imageDeps }: { imageDeps: ImageDeps }) {
     setWorking(true);
     setMessage(null);
     const previous = data.doll.id;
+    const canReturn = data.doll.image === null;
     const looks = data.aiLooks.filter((l) => l.dollId === previous).map((l) => l.id);
     try {
       await save();
       setMessage({ text: done, error: false });
-      if (dollChange && looks.length > 0) setOldLooks(looks);
+      if (dollChange && looks.length > 0) setOldLooks({ ids: looks, canReturn });
     } catch (err) {
       if (!explainedElsewhere(err)) setMessage({ text: 'השמירה לא הצליחה. נסי שוב.', error: true });
     } finally {
@@ -175,13 +178,17 @@ export function DollPanel({ imageDeps }: { imageDeps: ImageDeps }) {
       )}
 
       {oldLooks && (
-        <Sheet title={`למחוק ${oldLooks.length} תמונות AI של הבובה הקודמת?`} onClose={() => setOldLooks(null)}>
-          <p className="muted">הן נוצרו עם הבובה הקודמת, אז הן כבר לא יוצגו. אם תחזרי אליה, הן יחזרו.</p>
+        <Sheet title={`למחוק ${aiPicturesText(oldLooks.ids.length)} של הבובה הקודמת?`} onClose={() => setOldLooks(null)}>
+          <p className="muted">
+            {oldLooks.canReturn
+              ? 'הן נוצרו עם הבובה הרגילה, אז עכשיו הן לא יוצגו. אם תחזרי לבובה הרגילה, הן יחזרו.'
+              : 'הן נוצרו עם הבובה הקודמת, שכבר נמחקה, אז הן לא יוצגו יותר. הן רק תופסות מקום.'}
+          </p>
           <button
             type="button"
             className="btn btn-danger"
             onClick={async () => {
-              const ids = oldLooks;
+              const { ids } = oldLooks;
               setOldLooks(null);
               await run(() => deleteLooks(ids), 'התמונות הישנות נמחקו.');
             }}

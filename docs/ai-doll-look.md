@@ -194,7 +194,8 @@ Reviewed by the UI/UX agent twice (plan and mockup, 2026-10-26). Mockup: the "AI
 - Each marked look next to its real garment photos (the ones that were sent) and the day it was made, with "ליצור מחדש" / "להשאיר" / "למחוק את התמונה".
 - "ליצור מחדש" sends the same three pictures again, replaces the picture and clears the mark; it counts toward the monthly cap and is refused at the cap. It shows no "הבובה מוכנה" toast (the parent is watching it here). A failure is explained with the provider's reason.
 - A look made with an earlier doll can't be made again with that doll, so it offers only "להשאיר" / "למחוק את התמונה".
-- After a doll change the question "למחוק N תמונות AI של הבובה הקודמת?" appears only when that doll has looks. Kept looks come back if the parent returns to that doll (only possible with the bundled one).
+- After a doll change the question "למחוק N תמונות AI של הבובה הקודמת?" appears only when that doll has looks. The text says whether they can come back: only looks made with the bundled doll do, when the parent returns to it; a replaced picture of her own is deleted. A look still being made when the doll changes is saved afterwards without the question; "מחיקת כל תמונות ה־AI" removes it.
+- After "ליצור מחדש" the row stays with "התמונה נוצרה מחדש" and the same three buttons, so the parent sees the new picture before leaving the screen.
 - When reading `closet.json`, two looks for the same doll + upper + bottom keep only the later one (a leftover from an interrupted replace).
 
 **New colour tokens** (light and dark values in `src/styles.css`)

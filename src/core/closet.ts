@@ -386,7 +386,16 @@ export function parseCloset(raw: unknown): ClosetData {
     if (doll.image) used.add(doll.image);
     aiLooks = raw.aiLooks.map(parseLook).filter((l) => itemIds.has(l.upperId) && itemIds.has(l.bottomId));
     // One look per parts: a file with two (e.g. from an interrupted redo) keeps the later one; the other's picture is cleaned up.
-    aiLooks = aiLooks.filter((l, i) => !aiLooks.slice(i + 1).some((later) => sameParts(later, l)));
+    const seen = new Set<string>();
+    aiLooks = aiLooks
+      .reverse()
+      .filter((l) => {
+        const key = `${l.dollId}|${l.upperId}|${l.bottomId}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .reverse();
     for (const l of aiLooks) {
       if (used.has(l.image)) throw new InvalidClosetError(`duplicate picture ${l.image}`);
       used.add(l.image);

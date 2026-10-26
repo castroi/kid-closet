@@ -21,6 +21,7 @@ import { MAX_MODEL_LENGTH, MAX_PROMPT_LENGTH } from '../core/closet';
 import { AI_PROVIDER_IDS, MAX_MONTHLY_CAP, type AiProviderId } from '../core/model';
 import type { ImageDeps } from '../image/processImage';
 import { formatBytes } from '../app/device';
+import { aiPicturesText, deletedPicturesText } from '../core/gallery';
 import { Icon, Sheet, explainedElsewhere } from './common';
 import { aiErrorDetail, aiErrorText } from './aiErrors';
 import { DollPanel } from './DollPanel';
@@ -473,7 +474,7 @@ function DeleteAllLooks() {
     const count = looks.length;
     try {
       await deleteLooks(looks.map((l) => l.id));
-      setMessage({ text: `נמחקו ${count} תמונות.`, error: false });
+      setMessage({ text: deletedPicturesText(count), error: false });
     } catch (err) {
       if (!explainedElsewhere(err)) setMessage({ text: 'המחיקה נכשלה.', error: true });
     } finally {
@@ -501,7 +502,7 @@ function DeleteAllLooks() {
         מחיקת כל תמונות ה־AI
       </button>
       {confirm && (
-        <Sheet title={`למחוק ${looks.length} תמונות AI?`} onClose={() => setConfirm(false)}>
+        <Sheet title={`למחוק ${aiPicturesText(looks.length)}?`} onClose={() => setConfirm(false)}>
           <p className="muted">
             אי אפשר להחזיר אותן, והשימוש החודשי לא חוזר. היא תוכל ליצור אותן שוב, וכל יצירה תיספר מחדש.
           </p>

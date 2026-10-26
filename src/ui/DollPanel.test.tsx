@@ -44,7 +44,8 @@ describe('DollPanel', () => {
     await user.upload(screen.getByLabelText('בחירת תמונת בובה'), picture());
     await user.click(await screen.findByRole('button', { name: 'כן, להחליף' }));
 
-    expect(await screen.findByRole('heading', { name: 'למחוק 1 תמונות AI של הבובה הקודמת?' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'למחוק תמונת AI אחת של הבובה הקודמת?' })).toBeInTheDocument();
+    expect(screen.getByText(/אם תחזרי לבובה הרגילה, הן יחזרו/)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'כן, למחוק' }));
     expect(await screen.findByText('התמונות הישנות נמחקו.')).toBeInTheDocument();
     expect(repo.getData().aiLooks.map((l) => l.id)).toEqual(['b']);
@@ -57,7 +58,9 @@ describe('DollPanel', () => {
     const { repo } = await renderWithCloset(<DollPanel imageDeps={fakeImageDeps()} />, data);
     await user.click(await screen.findByRole('button', { name: 'לבובה הרגילה' }));
     await user.click(screen.getByRole('button', { name: 'כן, לחזור' }));
-    await user.click(await screen.findByRole('button', { name: 'להשאיר' }));
+    // Her own doll is deleted, so its looks can't come back.
+    expect(await screen.findByText(/שכבר נמחקה/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'להשאיר' }));
 
     expect(screen.queryByRole('heading', { name: /של הבובה הקודמת/ })).not.toBeInTheDocument();
     expect(repo.getData().aiLooks.map((l) => l.id)).toEqual(['a']);
