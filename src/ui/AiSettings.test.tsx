@@ -49,6 +49,7 @@ describe('AiPanel', () => {
     await renderWithCloset(<AiPanel deviceStorage={memoryStorage()} now={OCT} onOpen={vi.fn()} />, closetWithAi({ monthlyCap: 0 }));
     expect(screen.getByText('0 מתוך 0 · מתאפס ב־1.11')).toBeInTheDocument();
     expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuemax', '1');
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '1');
   });
 });
 
@@ -111,9 +112,13 @@ describe('AiSettingsScreen', () => {
     const input = screen.getByLabelText('מפתח חדש');
     expect(input).toHaveAttribute('type', 'text');
     expect(input).toHaveAttribute('autocomplete', 'off');
+    await user.type(input, 'sk-or');
+    expect(screen.queryByText(/מפתח לא תקין/)).not.toBeInTheDocument(); // still typing
+    expect(screen.getByRole('button', { name: 'שמירת המפתח' })).toBeDisabled();
     for (const bad of ['sk-or v1-abcdef', 'short']) {
       await user.clear(input);
       await user.type(input, bad);
+      await user.tab();
       expect(screen.getByText(/מפתח לא תקין/)).toBeInTheDocument();
       expect(input).toHaveAttribute('aria-invalid', 'true');
       expect(screen.getByRole('button', { name: 'שמירת המפתח' })).toBeDisabled();

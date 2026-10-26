@@ -52,7 +52,7 @@ export function AiPanel({ deviceStorage, now, onOpen }: { deviceStorage: DeviceS
         aria-label="השימוש החודש"
         aria-valuemin={0}
         aria-valuemax={Math.max(1, monthlyCap)}
-        aria-valuenow={Math.min(used, Math.max(1, monthlyCap))}
+        aria-valuenow={monthlyCap === 0 ? 1 : Math.min(used, monthlyCap)}
       >
         <span style={{ width: `${percent}%` }} />
       </div>
@@ -150,8 +150,11 @@ function KeyPanel({
   const id = useId();
   const label = AI_PROVIDERS[provider].label;
 
+  const [left, setLeft] = useState(false);
   const key = draft.trim();
   const invalid = key !== '' && !isValidApiKey(key);
+  // While she is still typing, "too short" isn't a mistake yet; a space or odd character is.
+  const showInvalid = invalid && (left || key.length >= 8 || /[^\x21-\x7e]/.test(key));
   const store = () => {
     if (!key || invalid) return;
     if (!saveApiKey(deviceStorage, provider, key)) {
@@ -218,10 +221,11 @@ function KeyPanel({
             data-1p-ignore=""
             data-lpignore="true"
             value={draft}
-            aria-invalid={invalid}
+            aria-invalid={showInvalid}
             onChange={(e) => setDraft(e.target.value)}
+            onBlur={() => setLeft(true)}
           />
-          {invalid && <p className="error">מפתח לא תקין: בלי רווחים, לפחות 8 תווים. כדאי להעתיק אותו שוב מהאתר של הספק.</p>}
+          {showInvalid && <p className="error">מפתח לא תקין: בלי רווחים, לפחות 8 תווים. כדאי להעתיק אותו שוב מהאתר של הספק.</p>}
           <div className="btn-row">
             <button type="submit" className="btn btn-dark" disabled={!key || invalid}>
               שמירת המפתח

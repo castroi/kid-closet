@@ -765,9 +765,9 @@ button:disabled {
   transform: rotate(45deg);
   margin-block-end: 4px;
 }
+/* Logical borders put the corner at the inline end, so closed points that way (left in Hebrew); open points down. */
 .advanced[open] > summary::after {
-  transform: rotate(-135deg);
-  margin-block: 4px 0;
+  transform: rotate(-45deg);
 }
 .advanced[open] > summary {
   margin-bottom: 8px;
