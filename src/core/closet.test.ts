@@ -229,6 +229,16 @@ describe('parseCloset', () => {
     expect(parsed.ai).toEqual(defaultAiSettings());
   });
 
+  it('reads a version 3 file as written, so a later version keeps its AI settings', () => {
+    const ai = { provider: 'venice', model: 'm', prompt: null, monthlyCap: 12 };
+    const raw = { ...JSON.parse(JSON.stringify(valid)), schemaVersion: 3, ai };
+    expect(parseCloset(raw).ai).toEqual(ai);
+  });
+
+  it.each([0, 2.5, '3', null])('rejects schemaVersion %s', (schemaVersion) => {
+    expect(() => parseCloset({ ...valid, schemaVersion })).toThrow('schemaVersion');
+  });
+
   it('keeps the AI settings', () => {
     const ai = { provider: 'openrouter', model: 'meta/muse-image', prompt: 'Dress the doll.', monthlyCap: 0 };
     expect(parseCloset({ ...valid, ai }).ai).toEqual(ai);

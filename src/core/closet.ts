@@ -282,9 +282,10 @@ export function closetImagePaths(data: ClosetData): string[] {
 /** Validates data read from closet.json or a backup. Throws InvalidClosetError. */
 export function parseCloset(raw: unknown): ClosetData {
   if (!isRecord(raw)) throw new InvalidClosetError('closet is not an object');
-  // Version 1 had no doll and versions 1–2 no AI settings; they load with the defaults.
-  if (raw.schemaVersion !== 1 && raw.schemaVersion !== 2 && raw.schemaVersion !== SCHEMA_VERSION) {
-    throw new InvalidClosetError(`unsupported schemaVersion ${String(raw.schemaVersion)}`);
+  // Every version up to this one loads; parts a version didn't have yet get their defaults.
+  const version = raw.schemaVersion;
+  if (typeof version !== 'number' || !Number.isInteger(version) || version < 1 || version > SCHEMA_VERSION) {
+    throw new InvalidClosetError(`unsupported schemaVersion ${String(version)}`);
   }
   if (!Array.isArray(raw.items)) throw new InvalidClosetError('items is not a list');
   if (!Array.isArray(raw.outfits)) throw new InvalidClosetError('outfits is not a list');
@@ -298,10 +299,10 @@ export function parseCloset(raw: unknown): ClosetData {
     ids.add(it.id);
   }
   const outfits = raw.outfits.map(parseOutfit).filter((o) => outfitIsValid(o, items));
-  const doll = raw.schemaVersion === 1 ? defaultDoll() : parseDoll(raw.doll);
+  const doll = version >= 2 ? parseDoll(raw.doll) : defaultDoll();
   if (doll.image && items.some((it) => it.image === doll.image)) {
     throw new InvalidClosetError('doll.image is used by an item');
   }
-  const ai = raw.schemaVersion === SCHEMA_VERSION ? parseAi(raw.ai) : defaultAiSettings();
+  const ai = version >= 3 ? parseAi(raw.ai) : defaultAiSettings();
   return { schemaVersion: SCHEMA_VERSION, items, outfits, lastBackupAt: raw.lastBackupAt, doll, ai };
 }
