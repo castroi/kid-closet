@@ -243,3 +243,32 @@ describe('AboutApp', () => {
     expect(screen.queryByRole('link', { name: /השינויים בגרסה/ })).not.toBeInTheDocument();
   });
 });
+
+describe('Parent: AI looks and backups', () => {
+  it('says AI looks are not in the backup yet, and warns before a restore removes them', async () => {
+    const user = userEvent.setup();
+    const data = sampleCloset();
+    data.aiLooks = [
+      {
+        id: 'l1',
+        dollId: 'default',
+        upperId: 'tBlue',
+        upperSlot: 'top',
+        bottomId: 'bJeans',
+        image: 'images/look-l1.webp',
+        provider: 'venice',
+        model: 'm',
+        promptHash: 'h',
+        flagged: false,
+        createdAt: NOW,
+      },
+    ];
+    await renderWithCloset(<Parent imageDeps={fakeImageDeps()} onBack={vi.fn()} shareEnv={env()} question={[7, 8]} now={TODAY} />, data);
+    await openTools(user);
+    expect(screen.getByText(/עוד לא נשמרות בגיבוי/)).toBeInTheDocument();
+    const zip = zipSync({ 'closet.json': strToU8('{}') });
+    await user.upload(screen.getByLabelText('שחזור מגיבוי'), new File([zip as BlobPart], 'b.zip', { type: 'application/zip' }));
+    const sheet = await screen.findByRole('dialog', { name: 'לשחזר מהגיבוי?' });
+    expect(within(sheet).getByText(/ושחזור ימחק אותן/)).toBeInTheDocument();
+  });
+});
