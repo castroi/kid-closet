@@ -9,7 +9,9 @@ import {
   defaultAiSettings,
   defaultDoll,
   dollImagePath,
+  lookImagePath,
   slotOf,
+  type AiLook,
   type AiProviderId,
   type AiSettings,
   type ClosetData,
@@ -103,7 +105,7 @@ export function setStatus(data: ClosetData, ids: string[], status: ItemStatus, n
   };
 }
 
-/** Removes items and every saved outfit that used one of them. */
+/** Removes items, every saved outfit that used one of them, and their AI looks. */
 export function removeItems(data: ClosetData, ids: string[]): ClosetData {
   const set = new Set(ids);
   return {
@@ -112,7 +114,51 @@ export function removeItems(data: ClosetData, ids: string[]): ClosetData {
     outfits: data.outfits.filter(
       (o) => !set.has(o.topId) && !set.has(o.bottomId) && (o.layerId === null || !set.has(o.layerId)),
     ),
+    aiLooks: data.aiLooks.filter((l) => !set.has(l.upperId) && !set.has(l.bottomId)),
   };
+}
+
+/** What a look is made from: exactly what was sent to the AI. */
+export interface LookParts {
+  dollId: string;
+  upperId: string;
+  upperSlot: 'top' | 'layer';
+  bottomId: string;
+}
+
+/** The upper garment that goes to the AI: the layer when the outfit has one, otherwise the shirt. */
+export function lookPartsFor(dollId: string, outfit: { layerId: string | null; topId: string; bottomId: string }): LookParts {
+  return outfit.layerId
+    ? { dollId, upperId: outfit.layerId, upperSlot: 'layer', bottomId: outfit.bottomId }
+    : { dollId, upperId: outfit.topId, upperSlot: 'top', bottomId: outfit.bottomId };
+}
+
+function sameParts(look: LookParts, parts: LookParts): boolean {
+  return look.dollId === parts.dollId && look.upperId === parts.upperId && look.bottomId === parts.bottomId;
+}
+
+/** The saved look for these parts, if the AI already made one. */
+export function findLook(data: ClosetData, parts: LookParts): AiLook | undefined {
+  return data.aiLooks.find((l) => sameParts(l, parts));
+}
+
+/** Adds a look, replacing an older one for the same parts (a redo by the parent). */
+export function putLook(data: ClosetData, look: AiLook): ClosetData {
+  return { ...data, aiLooks: [...data.aiLooks.filter((l) => !sameParts(l, look) && l.id !== look.id), look] };
+}
+
+export function setLookFlagged(data: ClosetData, id: string, flagged: boolean): ClosetData {
+  return { ...data, aiLooks: data.aiLooks.map((l) => (l.id === id ? { ...l, flagged } : l)) };
+}
+
+/** A short, stable id for a prompt (FNV-1a), recorded with each look. */
+export function promptHash(prompt: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < prompt.length; i++) {
+    hash ^= prompt.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(36);
 }
 
 export function sameOutfit(a: Omit<Outfit, 'id' | 'createdAt'>, b: Omit<Outfit, 'id' | 'createdAt'>): boolean {
@@ -272,11 +318,34 @@ function parseAi(raw: unknown): AiSettings {
   return { provider: provider as AiProviderId | null, model, prompt, monthlyCap };
 }
 
-/** Every photo file the closet uses: one per item, plus the parent's doll picture. */
+function parseLook(raw: unknown, index: number): AiLook {
+  const fail = (field: string) => new InvalidClosetError(`aiLooks[${index}].${field} is invalid`);
+  if (!isRecord(raw)) throw fail('(look)');
+  const { id, dollId, upperId, upperSlot, bottomId, image, provider, model, promptHash: hash, flagged, createdAt } = raw;
+  if (!isString(id) || !DOLL_ID.test(id)) throw fail('id');
+  if (!isString(dollId) || !DOLL_ID.test(dollId)) throw fail('dollId');
+  if (!isString(upperId)) throw fail('upperId');
+  if (upperSlot !== 'top' && upperSlot !== 'layer') throw fail('upperSlot');
+  if (!isString(bottomId)) throw fail('bottomId');
+  if (!isString(image) || (image !== lookImagePath(id, 'webp') && image !== lookImagePath(id, 'jpg'))) throw fail('image');
+  if (!AI_PROVIDER_IDS.includes(provider as AiProviderId)) throw fail('provider');
+  if (!isString(model) || model.length > MAX_MODEL_LENGTH) throw fail('model');
+  if (!isString(hash) || hash.length > 20) throw fail('promptHash');
+  if (typeof flagged !== 'boolean') throw fail('flagged');
+  if (!isString(createdAt)) throw fail('createdAt');
+  return { id, dollId, upperId, upperSlot, bottomId, image, provider: provider as AiProviderId, model, promptHash: hash, flagged, createdAt };
+}
+
+/** Every photo file the closet keeps in backups: one per item, plus the parent's doll picture. */
 export function closetImagePaths(data: ClosetData): string[] {
   const paths = data.items.map((it) => it.image);
   if (data.doll.image) paths.push(data.doll.image);
   return paths;
+}
+
+/** Every picture file on the phone the closet uses: the backed-up photos plus the AI looks (not yet in backups). */
+export function storedImagePaths(data: ClosetData): string[] {
+  return [...closetImagePaths(data), ...data.aiLooks.map((l) => l.image)];
 }
 
 /** Validates data read from closet.json or a backup. Throws InvalidClosetError. */
@@ -304,5 +373,17 @@ export function parseCloset(raw: unknown): ClosetData {
     throw new InvalidClosetError('doll.image is used by an item');
   }
   const ai = version >= 3 ? parseAi(raw.ai) : defaultAiSettings();
-  return { schemaVersion: SCHEMA_VERSION, items, outfits, lastBackupAt: raw.lastBackupAt, doll, ai };
+  let aiLooks: AiLook[] = [];
+  if (version >= 4) {
+    if (!Array.isArray(raw.aiLooks)) throw new InvalidClosetError('aiLooks is not a list');
+    const itemIds = new Set(items.map((it) => it.id));
+    const used = new Set(items.map((it) => it.image));
+    if (doll.image) used.add(doll.image);
+    aiLooks = raw.aiLooks.map(parseLook).filter((l) => itemIds.has(l.upperId) && itemIds.has(l.bottomId));
+    for (const l of aiLooks) {
+      if (used.has(l.image)) throw new InvalidClosetError(`duplicate picture ${l.image}`);
+      used.add(l.image);
+    }
+  }
+  return { schemaVersion: SCHEMA_VERSION, items, outfits, lastBackupAt: raw.lastBackupAt, doll, ai, aiLooks };
 }

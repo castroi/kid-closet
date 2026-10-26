@@ -110,3 +110,13 @@ export function readMonthlyUse(storage: DeviceStorage, now: Date): number {
     return 0;
   }
 }
+
+/** Counts one AI picture against this month on this phone (plan §8: anything that may cost money). */
+export function recordUse(storage: DeviceStorage, now: Date): void {
+  const count = readMonthlyUse(storage, now) + 1;
+  try {
+    storage?.setItem(AI_USAGE_KEY, JSON.stringify({ month: monthOf(now), count }));
+  } catch {
+    // the cap can't be kept without storage; the provider's own limit still applies
+  }
+}

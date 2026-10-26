@@ -19,6 +19,9 @@ import { Icon, Sheet, Swatch, restoreErrorText } from './common';
 
 export const BACKUP_REMINDER_DAYS = 14;
 
+/** Until AI looks are in backups (PR 6 of docs/ai-doll-look.md), say so where it matters: each one was paid for. */
+const LOOKS_NOT_IN_BACKUP = 'תמונות הבובה מה־AI עוד לא נשמרות בגיבוי, ושחזור ימחק אותן מהטלפון. אפשר ליצור אותן שוב.';
+
 export function randomQuestion(): [number, number] {
   const pick = () => 6 + Math.floor(Math.random() * 4); // 6..9
   return [pick(), pick()];
@@ -233,6 +236,7 @@ function ParentTools({
         <p className="muted">
           הגיבוי הוא קובץ אחד עם כל התמונות והפרטים, כולל הבובה. אם האפליקציה תימחק מהמסך הראשי, אפשר לשחזר ממנו הכל.
         </p>
+        {data.aiLooks.length > 0 && <p className="muted">{LOOKS_NOT_IN_BACKUP}</p>}
         {prepared && (
           <button type="button" className="btn btn-primary" onClick={() => deliver(prepared)}>
             שיתוף הגיבוי
@@ -340,6 +344,7 @@ function ParentTools({
       {pendingImport && (
         <Sheet title="לשחזר מהגיבוי?" onClose={() => setPendingImport(null)}>
           <p className="muted">השחזור מחליף את כל הארון הנוכחי בתוכן הגיבוי.</p>
+          {data.aiLooks.length > 0 && <p className="warn">{LOOKS_NOT_IN_BACKUP}</p>}
           <button type="button" className="btn btn-danger" onClick={() => doImport(pendingImport)}>
             כן, לשחזר
           </button>

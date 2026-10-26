@@ -210,6 +210,12 @@ const ICONS: Record<string, ReactNode> = {
       <path d="M11 18.5h2" />
     </>
   ),
+  sparkle: (
+    <>
+      <path d="M12 3l1.8 4.7 4.7 1.8-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z" />
+      <path d="M19 15l.8 2.2 2.2.8-2.2.8L19 21l-.8-2.2-2.2-.8 2.2-.8z" />
+    </>
+  ),
   grid: (
     <>
       <rect x="4" y="4" width="7" height="7" rx="1.5" />

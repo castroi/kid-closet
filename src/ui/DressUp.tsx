@@ -23,6 +23,7 @@ import {
   type Slot,
 } from '../core/model';
 import { ColorPicker, Garment, Icon, Sheet, Swatch, Toast, explainedElsewhere } from './common';
+import { AiLookPreview } from './AiLook';
 import { Gallery } from './Gallery';
 
 /** November to March counts as cold by default (Israel). */
@@ -41,11 +42,13 @@ type Selection = Record<Slot, string | null>;
 
 interface Props {
   initialOutfit?: Outfit | null;
+  /** Open straight on the look's preview (from "הבובה מוכנה · לראות"). */
+  initialPreview?: boolean;
   today?: Date;
   onOpenFavorites: () => void;
 }
 
-export function DressUp({ initialOutfit = null, today = new Date(), onOpenFavorites }: Props) {
+export function DressUp({ initialOutfit = null, initialPreview = false, today = new Date(), onOpenFavorites }: Props) {
   const { data, addOutfit } = useCloset();
   const [occasion, setOccasion] = useState<Occasion>(initialOutfit?.occasion ?? 'school');
   const [cold, setCold] = useState<boolean>(initialOutfit ? initialOutfit.layerId !== null : isColdSeason(today));
@@ -62,7 +65,7 @@ export function DressUp({ initialOutfit = null, today = new Date(), onOpenFavori
   });
   const [sheet, setSheet] = useState<Slot | null>(null);
   const [gallery, setGallery] = useState<Slot | null>(null);
-  const [preview, setPreview] = useState(false);
+  const [preview, setPreview] = useState(initialPreview && initialOutfit !== null);
   const [justSaved, setJustSaved] = useState(false);
   const [saveError, setSaveError] = useState(false);
 
@@ -134,32 +137,42 @@ export function DressUp({ initialOutfit = null, today = new Date(), onOpenFavori
   };
 
   if (preview && canPreview) {
+    const photos = (
+      <div className="preview">
+        <span className="badge">{OCCASION_LABEL[occasion]}</span>
+        <div className="preview-top">
+          {layer && (
+            <div style={{ width: '38%' }}>
+              <Garment item={layer} height={130} />
+            </div>
+          )}
+          <div style={{ width: layer ? '55%' : '70%' }}>
+            <Garment item={top} height={180} />
+          </div>
+        </div>
+        <div style={{ width: '60%' }}>
+          <Garment item={bottom} height={220} />
+        </div>
+        <ul className="muted" style={{ listStyle: 'none', padding: 0, margin: 0, textAlign: 'center' }}>
+          {layer && <li>{layer.name}</li>}
+          <li>{top.name}</li>
+          <li>{bottom.name}</li>
+        </ul>
+      </div>
+    );
     return (
       <div className="screen">
         <div className="screen-header">
           <h1>הלוק של היום</h1>
         </div>
-        <div className="preview">
-          <span className="badge">{OCCASION_LABEL[occasion]}</span>
-          <div className="preview-top">
-            {layer && (
-              <div style={{ width: '38%' }}>
-                <Garment item={layer} height={130} />
-              </div>
-            )}
-            <div style={{ width: layer ? '55%' : '70%' }}>
-              <Garment item={top} height={180} />
-            </div>
-          </div>
-          <div style={{ width: '60%' }}>
-            <Garment item={bottom} height={220} />
-          </div>
-          <ul className="muted" style={{ listStyle: 'none', padding: 0, margin: 0, textAlign: 'center' }}>
-            {layer && <li>{layer.name}</li>}
-            <li>{top.name}</li>
-            <li>{bottom.name}</li>
-          </ul>
-        </div>
+        <AiLookPreview
+          outfit={{ occasion, layerId: layer?.id ?? null, topId: top.id, bottomId: bottom.id }}
+          layer={layer}
+          top={top}
+          bottom={bottom}
+          now={today}
+          photos={photos}
+        />
         {justSaved && <Toast text="נשמר במועדפים" actionLabel="למועדפים" onAction={onOpenFavorites} />}
         {saveError && <p className="error">השמירה לא הצליחה. נסי שוב.</p>}
         <div className="btn-row">

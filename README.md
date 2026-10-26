@@ -12,7 +12,7 @@ the doll and the two garments of a look are sent to that provider, and nowhere e
 
 | Screen | What it does |
 | --- | --- |
-| להתלבש (Dress up) | Occasion, cold/warm switch, rows for outer layer / shirt / trousers with arrows and swipe, per-row type & colour filter, preview of the look, save to favourites. |
+| להתלבש (Dress up) | Occasion, cold/warm switch, rows for outer layer / shirt / trousers with arrows and swipe, per-row type & colour filter, preview of the look (with "להלביש את הבובה" once a parent set up AI), save to favourites. |
 | מועדפים (Favourites) | Saved looks, filter by occasion, tap to open, remove. |
 | הארון שלי (My closet) | Items by category, tap to edit, select several to move to / from "outgrown" with undo. |
 | הוספה (Add) | Take or choose a photo, pick type, occasions and colour. The name is optional. |
@@ -28,6 +28,7 @@ closet-a.json   ┐ the closet list, written alternately with an increasing
 closet-b.json   ┘ generation number, so an interrupted save never loses data
 images/<id>.webp  one photo per item (JPEG if WebP encoding fails)
 images/doll-<id>.webp  the parent's doll picture, if she replaced the bundled one
+images/look-<id>.webp  a picture of the doll wearing a look, made by the AI
 ```
 
 - Photos are resized on the phone to at most 800 px and encoded to WebP with a WebAssembly

@@ -3,11 +3,12 @@ import {
   addOutfit as addOutfitTo,
   removeOutfit as removeOutfitFrom,
   setAiSettings as setAiSettingsOf,
+  setLookFlagged as setLookFlaggedIn,
   setStatus as setStatusOf,
   updateItem as updateItemIn,
   type ItemPatch,
 } from '../core/closet';
-import type { AiSettings, ClosetData, Item, ItemStatus, Outfit } from '../core/model';
+import type { AiLook, AiSettings, ClosetData, Item, ItemStatus, Outfit } from '../core/model';
 import { exportBackup, importBackup } from '../storage/backup';
 import { ClosetChangedElsewhereError, type ClosetRepository, type NewItem, type StoredImage } from '../storage/repository';
 
@@ -28,6 +29,8 @@ export interface ClosetApi {
   setDoll(image: StoredImage): Promise<void>;
   resetDoll(): Promise<void>;
   setAiSettings(patch: Partial<AiSettings>): Promise<void>;
+  addLook(input: Omit<AiLook, 'id' | 'image' | 'createdAt' | 'flagged'>, image: StoredImage): Promise<AiLook>;
+  setLookFlagged(id: string, flagged: boolean): Promise<void>;
 }
 
 const ClosetContext = createContext<ClosetApi | null>(null);
@@ -152,6 +155,13 @@ export function ClosetProvider({ repo, children, now = defaultNow, newId = defau
           setState({ kind: 'ready', data: await repo.resetDoll() });
         }),
       setAiSettings: (patch) => commit((d) => setAiSettingsOf(d, patch)),
+      addLook: (input, image) =>
+        guard(async () => {
+          const look = await repo.addLook(input, image);
+          setState({ kind: 'ready', data: repo.getData() });
+          return look;
+        }),
+      setLookFlagged: (id, flagged) => commit((d) => setLookFlaggedIn(d, id, flagged)),
     };
   }, [data, repo, commit, guard, restore, readImage, now, newId]);
 

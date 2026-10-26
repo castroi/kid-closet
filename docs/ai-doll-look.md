@@ -1,6 +1,6 @@
 # AI doll look — decisions and implementation plan
 
-Feature for `castroi/kid-closet`. Status: **in progress**. PRs 1–2 merged; PR 3 `feat/ai-providers`. Date: 2026-10-26.
+Feature for `castroi/kid-closet`. Status: **in progress**. PRs 1–3 merged; PR 4 `feat/ai-look`. Date: 2026-10-26.
 
 ## 1. Goal
 
@@ -212,6 +212,8 @@ Each PR follows `CLAUDE.md`: branch from `main`, draft PR, review agent, fixes a
 | 4 | `feat/ai-look` | `--ai`/`--ok` tokens, countdown helper, `AiLook` model, request in shared state, button and waiting state, save as WebP, show saved look, toggle, tag, "לא דומה?", one-try rule, monthly cap, cascade delete with garments, favourites card | 3 |
 | 5 | `feat/ai-looks-parent` | "לוקים לתיקון" screen with regenerate/keep/delete, delete-all with confirmation, delete-old-looks question on doll change | 4 |
 | 6 | `feat/backup-ai-looks` | AI looks in backup export/restore, validation, size caps | 4 |
+
+Until PR 6, backups leave AI looks out (export writes `aiLooks: []`, restore ignores any), and a restore removes the phone's looks: they can be made again. The look pictures (~100–200 KB each, 100 a month; a few may be larger, kept as the provider sent them when the phone couldn't decode them) would soon pass the 150 MB restore cap, so PR 6 has to decide how they fit.
 
 ## 10. Tests
 

@@ -55,6 +55,7 @@ describe('model helpers', () => {
       lastBackupAt: null,
       doll: { id: DEFAULT_DOLL_ID, image: null },
       ai: { provider: null, model: '', prompt: null, monthlyCap: DEFAULT_MONTHLY_CAP },
+      aiLooks: [],
     });
     expect(dollImagePath('d1', 'webp')).toBe('images/doll-d1.webp');
   });

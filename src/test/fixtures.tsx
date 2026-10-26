@@ -1,11 +1,14 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { expect, vi } from 'vitest';
+import type { DeviceStorage } from '../app/aiDevice';
+import { AiLookProvider } from '../app/AiLooks';
 import { ClosetProvider } from '../app/ClosetContext';
+import type { FetchLike } from '../ai/providers';
 import { emptyCloset, type ClosetData } from '../core/model';
 import type { ImageDeps } from '../image/processImage';
 import { ClosetRepository } from '../storage/repository';
-import { NOW, closetWith, makeItem, makeOutfit, seededStore, testIds } from './data';
+import { NOW, closetWith, makeItem, makeOutfit, memoryStorage, seededStore, testIds } from './data';
 
 export * from './data';
 
@@ -19,16 +22,29 @@ export function fakeImageDeps(overrides: Partial<ImageDeps> = {}): ImageDeps {
   };
 }
 
-export async function renderWithCloset(ui: ReactElement, data: ClosetData = emptyCloset()) {
+export interface RenderOptions {
+  /** The phone's own storage (API keys, monthly use); a fresh in-memory one by default. */
+  deviceStorage?: DeviceStorage;
+  /** Answers provider calls and the bundled doll; by default every call fails as if offline. */
+  fetchFn?: FetchLike;
+  imageDeps?: ImageDeps;
+  now?: () => Date;
+}
+
+export async function renderWithCloset(ui: ReactElement, data: ClosetData = emptyCloset(), options: RenderOptions = {}) {
   const store = seededStore(data);
   const repo = new ClosetRepository(store, () => NOW, testIds());
+  const deviceStorage = options.deviceStorage === undefined ? memoryStorage() : options.deviceStorage;
+  const fetchFn = options.fetchFn ?? vi.fn<FetchLike>().mockRejectedValue(new TypeError('offline in tests'));
   const result = render(
     <ClosetProvider repo={repo} now={() => NOW} newId={testIds()}>
-      {ui}
+      <AiLookProvider deviceStorage={deviceStorage} imageDeps={options.imageDeps ?? fakeImageDeps()} fetchFn={fetchFn} now={options.now}>
+        {ui}
+      </AiLookProvider>
     </ClosetProvider>,
   );
   await waitFor(() => expect(screen.queryByText('טוען את הארון…')).not.toBeInTheDocument());
-  return { ...result, repo, store };
+  return { ...result, repo, store, deviceStorage, fetchFn };
 }
 
 /** Standard sample closet used by screen tests. */

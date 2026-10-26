@@ -1,8 +1,26 @@
 import { useState } from 'react';
 import { useCloset } from '../app/ClosetContext';
-import { findItem } from '../core/closet';
-import { OCCASIONS, OCCASION_LABEL, type Occasion, type Outfit } from '../core/model';
-import { Garment, Icon, Toast, explainedElsewhere } from './common';
+import { findItem, findLook, lookPartsFor } from '../core/closet';
+import { OCCASIONS, OCCASION_LABEL, type AiLook, type Item, type Occasion, type Outfit } from '../core/model';
+import { Garment, Icon, Toast, explainedElsewhere, useImageUrl } from './common';
+
+/** The AI picture of a saved look; with a layer, the shirt under it too (the picture is the same for any shirt). */
+function LookThumb({ look, shirt }: { look: AiLook; shirt: Item | null }) {
+  const url = useImageUrl(look.image);
+  return (
+    <>
+      {url ? <img className="fav-ai-img" src={url} alt="" /> : <span className="fav-ai-img" />}
+      <span className="fav-ai-mark" aria-hidden="true">
+        <Icon name="sparkle" size={16} />
+      </span>
+      {shirt && (
+        <span className="fav-ai-shirt">
+          <Garment item={shirt} height={44} />
+        </span>
+      )}
+    </>
+  );
+}
 
 export function Favorites({ onOpen }: { onOpen: (outfit: Outfit) => void }) {
   const { data, removeOutfit, addOutfit } = useCloset();
@@ -75,20 +93,27 @@ export function Favorites({ onOpen }: { onOpen: (outfit: Outfit) => void }) {
               const bottom = findItem(data, o.bottomId);
               if (!top || !bottom) return null;
               const description = [layer?.name, top.name, bottom.name].filter(Boolean).join(', ');
+              const look = findLook(data, lookPartsFor(data.doll.id, o));
               return (
                 <li key={o.id} className="card">
                   <button
                     type="button"
-                    className="thumb"
+                    className="thumb fav-thumb"
                     style={{ height: 'auto', minHeight: 170, flexDirection: 'column', border: 'none', padding: 8, gap: 2 }}
                     aria-label={`פתיחת הלוק: ${description}`}
                     onClick={() => onOpen(o)}
                   >
-                    <span style={{ display: 'flex', alignItems: 'flex-end', gap: 2 }}>
-                      {layer && <Garment item={layer} height={50} />}
-                      <Garment item={top} height={70} />
-                    </span>
-                    <Garment item={bottom} height={86} />
+                    {look ? (
+                      <LookThumb look={look} shirt={layer ? top : null} />
+                    ) : (
+                      <>
+                        <span style={{ display: 'flex', alignItems: 'flex-end', gap: 2 }}>
+                          {layer && <Garment item={layer} height={50} />}
+                          <Garment item={top} height={70} />
+                        </span>
+                        <Garment item={bottom} height={86} />
+                      </>
+                    )}
                   </button>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span className="tag">{OCCASION_LABEL[o.occasion]}</span>

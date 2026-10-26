@@ -263,6 +263,61 @@ describe('ClosetRepository', () => {
     expect(store.files.has('images/a.webp')).toBe(true);
   });
 
+  it('saves an AI look: picture first, then the closet; a redo replaces the old picture', async () => {
+    const store = seededStore(closetWith([makeItem({ id: 'shirt' }), makeItem({ id: 'jeans', type: 'pants' })]));
+    let n = 0;
+    const repo = new ClosetRepository(store, () => NOW, () => `look${++n}`);
+    await repo.load();
+    const input = {
+      dollId: 'default',
+      upperId: 'shirt',
+      upperSlot: 'top' as const,
+      bottomId: 'jeans',
+      provider: 'venice' as const,
+      model: 'm',
+      promptHash: 'h',
+    };
+    const first = await repo.addLook(input, image);
+    expect(first).toMatchObject({ id: 'look1', image: 'images/look-look1.webp', flagged: false, createdAt: NOW });
+    expect(store.files.has('images/look-look1.webp')).toBe(true);
+    expect((await new ClosetRepository(store, () => NOW).load()).aiLooks.map((l) => l.id)).toEqual(['look1']);
+
+    await repo.addLook(input, image);
+    expect(repo.getData().aiLooks.map((l) => l.id)).toEqual(['look2']);
+    expect(store.files.has('images/look-look1.webp')).toBe(false);
+    expect(store.files.has('images/look-look2.webp')).toBe(true);
+  });
+
+  it("deletes a garment's AI looks and their pictures with it, and keeps look pictures in cleanup", async () => {
+    const data = closetWith([makeItem({ id: 'shirt' }), makeItem({ id: 'jeans', type: 'pants' })]);
+    const store = seededStore(data);
+    const repo = new ClosetRepository(store, () => NOW, () => 'l1');
+    await repo.load();
+    await repo.addLook(
+      { dollId: 'default', upperId: 'shirt', upperSlot: 'top', bottomId: 'jeans', provider: 'venice', model: 'm', promptHash: 'h' },
+      image,
+    );
+    await new ClosetRepository(store, () => NOW).load(); // orphan cleanup
+    expect(store.files.has('images/look-l1.webp')).toBe(true);
+    await repo.deleteItems(['shirt']);
+    expect(repo.getData().aiLooks).toEqual([]);
+    expect(store.files.has('images/look-l1.webp')).toBe(false);
+    expect(store.files.has('images/jeans.webp')).toBe(true);
+  });
+
+  it('removes a new look picture only when nothing was written', async () => {
+    const data = closetWith([makeItem({ id: 'shirt' }), makeItem({ id: 'jeans', type: 'pants' })]);
+    const store = seededStore(data);
+    const first = new ClosetRepository(store, () => NOW, () => 'mine');
+    const second = new ClosetRepository(store, () => NOW);
+    await first.load();
+    await second.load();
+    await second.update((d) => d);
+    const input = { dollId: 'default', upperId: 'shirt', upperSlot: 'top' as const, bottomId: 'jeans', provider: 'venice' as const, model: 'm', promptHash: 'h' };
+    await expect(first.addLook(input, image)).rejects.toBeInstanceOf(ClosetChangedElsewhereError);
+    expect(store.files.has('images/look-mine.webp')).toBe(false);
+  });
+
   it('keeps working after a failed operation', async () => {
     const repo = new ClosetRepository(new MemoryFileStore(), () => NOW, sequentialIds());
     await repo.load();
@@ -405,6 +460,10 @@ describe('two open copies of the app', () => {
     await repo.deleteItems(['a']); // closet write, then photo removal
     await repo.setDoll(image); // picture write, closet write
     await repo.resetDoll(); // closet write, then picture removal
+    await repo.addLook(
+      { dollId: 'default', upperId: 'x', upperSlot: 'top', bottomId: 'x', provider: 'venice', model: 'm', promptHash: 'h' },
+      image,
+    );
     await repo.replaceAll(closetWith([makeItem({ id: 'r' })]), new Map([['images/r.webp', new Blob(['r'])]]));
     expect(outside).toEqual([]);
   });
