@@ -147,6 +147,11 @@ export function putLook(data: ClosetData, look: AiLook): ClosetData {
   return { ...data, aiLooks: [...data.aiLooks.filter((l) => !sameParts(l, look) && l.id !== look.id), look] };
 }
 
+export function removeLooks(data: ClosetData, ids: string[]): ClosetData {
+  const set = new Set(ids);
+  return { ...data, aiLooks: data.aiLooks.filter((l) => !set.has(l.id)) };
+}
+
 export function setLookFlagged(data: ClosetData, id: string, flagged: boolean): ClosetData {
   return { ...data, aiLooks: data.aiLooks.map((l) => (l.id === id ? { ...l, flagged } : l)) };
 }
@@ -380,6 +385,8 @@ export function parseCloset(raw: unknown): ClosetData {
     const used = new Set(items.map((it) => it.image));
     if (doll.image) used.add(doll.image);
     aiLooks = raw.aiLooks.map(parseLook).filter((l) => itemIds.has(l.upperId) && itemIds.has(l.bottomId));
+    // One look per parts: a file with two (e.g. from an interrupted redo) keeps the later one; the other's picture is cleaned up.
+    aiLooks = aiLooks.filter((l, i) => !aiLooks.slice(i + 1).some((later) => sameParts(later, l)));
     for (const l of aiLooks) {
       if (used.has(l.image)) throw new InvalidClosetError(`duplicate picture ${l.image}`);
       used.add(l.image);

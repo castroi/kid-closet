@@ -1,6 +1,6 @@
 # AI doll look — decisions and implementation plan
 
-Feature for `castroi/kid-closet`. Status: **in progress**. PRs 1–3 merged; PR 4 `feat/ai-look`. Date: 2026-10-26.
+Feature for `castroi/kid-closet`. Status: **in progress**. PRs 1–4 merged; PR 5 `feat/ai-looks-parent`. Date: 2026-10-26.
 
 ## 1. Goal
 
@@ -191,7 +191,11 @@ Reviewed by the UI/UX agent twice (plan and mockup, 2026-10-26). Mockup: the "AI
 8. Last: "מחיקת כל תמונות ה־AI" with their count and size, behind a confirmation sheet like the existing delete flow in `Parent.tsx`. Deleting does not give uses back.
 
 **Screen "לוקים לתיקון"**
-- Each marked look next to all its real garment photos, with "ליצור מחדש" / "להשאיר" / "למחוק את התמונה".
+- Each marked look next to its real garment photos (the ones that were sent) and the day it was made, with "ליצור מחדש" / "להשאיר" / "למחוק את התמונה".
+- "ליצור מחדש" sends the same three pictures again, replaces the picture and clears the mark; it counts toward the monthly cap and is refused at the cap. It shows no "הבובה מוכנה" toast (the parent is watching it here). A failure is explained with the provider's reason.
+- A look made with an earlier doll can't be made again with that doll, so it offers only "להשאיר" / "למחוק את התמונה".
+- After a doll change the question "למחוק N תמונות AI של הבובה הקודמת?" appears only when that doll has looks. Kept looks come back if the parent returns to that doll (only possible with the bundled one).
+- When reading `closet.json`, two looks for the same doll + upper + bottom keep only the later one (a leftover from an interrupted replace).
 
 **New colour tokens** (light and dark values in `src/styles.css`)
 - `--ai`: the sparkle, AI button outline and usage bar (instead of reusing `--focus`).
@@ -223,6 +227,7 @@ Coverage thresholds stay: 80 % lines/statements/functions, 75 % branches. Run `n
 - v1 `closet.json` loads as v2 with default doll, empty looks, default AI settings.
 - Look key: shirt sent when no layer, layer sent when present; same picture reused for different shirts under one layer.
 - Changing the doll stops old looks from matching.
+- Two looks for the same parts load as the later one; removing looks keeps the others.
 - Deleting a garment removes its looks; "outgrown" keeps them.
 - Validation rejects malformed looks, unknown providers, bad image paths.
 

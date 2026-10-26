@@ -35,6 +35,20 @@ describe('Parent', () => {
     expect(onBack).toHaveBeenCalled();
   });
 
+  it('opens "לוקים לתיקון" and "הגדרות AI" as their own screens, and comes back', async () => {
+    const user = userEvent.setup();
+    await renderWithCloset(<Parent imageDeps={fakeImageDeps()} onBack={vi.fn()} shareEnv={env()} question={[7, 8]} now={TODAY} />, sampleCloset());
+    await openTools(user);
+    await user.click(screen.getByRole('button', { name: 'לוקים לתיקון (0)' }));
+    expect(screen.getByRole('heading', { level: 1, name: 'לוקים לתיקון' })).toBeInTheDocument();
+    expect(screen.getByText(/אין לוקים לתיקון/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'חזרה לאזור הורים' }));
+    await user.click(screen.getByRole('button', { name: 'הגדרות AI' }));
+    expect(screen.getByRole('heading', { level: 1, name: 'הגדרות AI' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'חזרה לאזור הורים' }));
+    expect(screen.getByRole('heading', { level: 1, name: 'אזור הורים' })).toBeInTheDocument();
+  });
+
   it('generates questions between 6 and 9', () => {
     for (let i = 0; i < 20; i++) {
       for (const n of randomQuestion()) {

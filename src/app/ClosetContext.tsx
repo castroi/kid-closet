@@ -31,6 +31,7 @@ export interface ClosetApi {
   setAiSettings(patch: Partial<AiSettings>): Promise<void>;
   addLook(input: Omit<AiLook, 'id' | 'image' | 'createdAt' | 'flagged'>, image: StoredImage): Promise<AiLook>;
   setLookFlagged(id: string, flagged: boolean): Promise<void>;
+  deleteLooks(ids: string[]): Promise<void>;
 }
 
 const ClosetContext = createContext<ClosetApi | null>(null);
@@ -162,6 +163,10 @@ export function ClosetProvider({ repo, children, now = defaultNow, newId = defau
           return look;
         }),
       setLookFlagged: (id, flagged) => commit((d) => setLookFlaggedIn(d, id, flagged)),
+      deleteLooks: (ids) =>
+        guard(async () => {
+          setState({ kind: 'ready', data: await repo.deleteLooks(ids) });
+        }),
     };
   }, [data, repo, commit, guard, restore, readImage, now, newId]);
 

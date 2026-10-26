@@ -24,6 +24,13 @@ export type LookJob =
   | { kind: 'waiting'; detached: boolean; counted?: boolean }
   | { kind: 'failed'; error: unknown };
 
+export interface StartOptions {
+  /** The parent's "ליצור מחדש": replace a look that exists. */
+  redo?: boolean;
+  /** No "הבובה מוכנה" toast (the parent watches the result where she asked for it). */
+  quiet?: boolean;
+}
+
 /** Why start() didn't send anything. */
 export type StartRefusal = 'not-ready' | 'busy' | 'exists' | 'cap';
 
@@ -40,7 +47,7 @@ export interface AiLookApi {
    * The only way to ask for a look. Sends nothing when AI isn't set up, a request for this look is
    * already running, a look already exists (unless `redo`, for the parent in PR 5), or the cap is reached.
    */
-  start(outfit: LookOutfit, options?: { redo?: boolean }): StartRefusal | null;
+  start(outfit: LookOutfit, options?: StartOptions): StartRefusal | null;
   detach(key: string): void;
   /** The look on screen right now, so a finished one only gets a toast when she isn't looking at it. */
   setVisibleKey(key: string | null): void;
@@ -144,7 +151,7 @@ export function AiLookProvider({ deviceStorage, imageDeps, children, now = defau
   }, [finished]);
 
   const start = useCallback(
-    (outfit: LookOutfit, options: { redo?: boolean } = {}): StartRefusal | null => {
+    (outfit: LookOutfit, options: StartOptions = {}): StartRefusal | null => {
       const closet = dataRef.current;
       const parts = lookPartsFor(closet.doll.id, outfit);
       const key = lookKey(parts);
@@ -193,7 +200,7 @@ export function AiLookProvider({ deviceStorage, imageDeps, children, now = defau
           const kept = latest.items.some((it) => it.id === parts.upperId) && latest.items.some((it) => it.id === parts.bottomId);
           if (kept) await addLook({ ...parts, provider, model: result.model, promptHash: promptHash(result.prompt) }, stored);
           setJob(key, null);
-          if (kept && visibleKey.current !== key) setFinished({ key, outfit });
+          if (kept && !options.quiet && visibleKey.current !== key) setFinished({ key, outfit });
         } catch (error) {
           setJob(key, { kind: 'failed', error });
         }

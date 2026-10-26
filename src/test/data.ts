@@ -1,5 +1,5 @@
 import { closetImagePaths } from '../core/closet';
-import { emptyCloset, type ClosetData, type Item, type Outfit } from '../core/model';
+import { emptyCloset, lookImagePath, type AiLook, type ClosetData, type Item, type Outfit } from '../core/model';
 import { MemoryFileStore } from '../storage/fileStore';
 
 export const NOW = '2026-10-24T08:00:00.000Z';
@@ -78,5 +78,22 @@ export function memoryStorage(initial: Record<string, string> = {}) {
     getItem: (k: string) => data.get(k) ?? null,
     setItem: (k: string, v: string) => void data.set(k, v),
     removeItem: (k: string) => void data.delete(k),
+  };
+}
+
+/** A saved AI look: the default doll, a shirt and jeans unless given. */
+export function makeLook(partial: Partial<AiLook> & Pick<AiLook, 'id'>): AiLook {
+  return {
+    dollId: 'default',
+    upperId: 'tBlue',
+    upperSlot: 'top',
+    bottomId: 'bJeans',
+    image: lookImagePath(partial.id, 'webp'),
+    provider: 'venice',
+    model: 'muse-image-edit',
+    promptHash: 'abc',
+    flagged: false,
+    createdAt: NOW,
+    ...partial,
   };
 }

@@ -305,6 +305,30 @@ describe('ClosetRepository', () => {
     expect(store.files.has('images/jeans.webp')).toBe(true);
   });
 
+  it('deletes chosen AI looks and their pictures, and nothing else', async () => {
+    const data = closetWith([makeItem({ id: 'shirt' }), makeItem({ id: 'shirt2' }), makeItem({ id: 'jeans', type: 'pants' })]);
+    const store = seededStore(data);
+    let n = 0;
+    const repo = new ClosetRepository(store, () => NOW, () => `l${++n}`);
+    await repo.load();
+    const input = (upperId: string) => ({
+      dollId: 'default',
+      upperId,
+      upperSlot: 'top' as const,
+      bottomId: 'jeans',
+      provider: 'venice' as const,
+      model: 'm',
+      promptHash: 'h',
+    });
+    await repo.addLook(input('shirt'), image);
+    await repo.addLook(input('shirt2'), image);
+    await repo.deleteLooks(['l1']);
+    expect(repo.getData().aiLooks.map((l) => l.id)).toEqual(['l2']);
+    expect(store.files.has('images/look-l1.webp')).toBe(false);
+    expect(store.files.has('images/look-l2.webp')).toBe(true);
+    expect(store.files.has('images/shirt.webp')).toBe(true);
+  });
+
   it('removes a new look picture only when nothing was written', async () => {
     const data = closetWith([makeItem({ id: 'shirt' }), makeItem({ id: 'jeans', type: 'pants' })]);
     const store = seededStore(data);
@@ -464,6 +488,7 @@ describe('two open copies of the app', () => {
       { dollId: 'default', upperId: 'x', upperSlot: 'top', bottomId: 'x', provider: 'venice', model: 'm', promptHash: 'h' },
       image,
     );
+    await repo.deleteLooks(['x']);
     await repo.replaceAll(closetWith([makeItem({ id: 'r' })]), new Map([['images/r.webp', new Blob(['r'])]]));
     expect(outside).toEqual([]);
   });
@@ -486,6 +511,7 @@ describe('two open copies of the app', () => {
     await repo.deleteItems(['a']);
     await repo.setDoll(image);
     await repo.resetDoll();
+    await repo.deleteLooks(['x']);
     await repo.replaceAll(closetWith([]), new Map());
     expect(deepest).toBe(1);
   });

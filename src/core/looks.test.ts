@@ -8,6 +8,7 @@ import {
   promptHash,
   putLook,
   removeItems,
+  removeLooks,
   setLookFlagged,
   storedImagePaths,
 } from './closet';
@@ -75,6 +76,11 @@ describe('what a look is made from', () => {
     expect(removeItems(data, ['jeans']).aiLooks).toEqual([]);
   });
 
+  it('removes chosen looks only', () => {
+    const data = { ...closetWith(items), aiLooks: [look({ id: 'a' }), look({ id: 'b', upperId: 'shirt2' })] };
+    expect(removeLooks(data, ['a']).aiLooks.map((l) => l.id)).toEqual(['b']);
+  });
+
   it('gives a short, stable id per prompt', () => {
     expect(promptHash('Dress the doll.')).toBe(promptHash('Dress the doll.'));
     expect(promptHash('Dress the doll.')).not.toBe(promptHash('Dress the doll!'));
@@ -88,6 +94,11 @@ describe('reading looks from closet.json', () => {
   it('keeps valid looks and drops ones whose garments are gone', () => {
     const raw = JSON.parse(JSON.stringify({ ...valid, aiLooks: [look({ id: 'l1' }), look({ id: 'l2', bottomId: 'gone' })] }));
     expect(parseCloset(raw).aiLooks.map((l) => l.id)).toEqual(['l1']);
+  });
+
+  it('keeps only the later of two looks for the same parts', () => {
+    const raw = JSON.parse(JSON.stringify({ ...valid, aiLooks: [look({ id: 'old' }), look({ id: 'new' })] }));
+    expect(parseCloset(raw).aiLooks.map((l) => l.id)).toEqual(['new']);
   });
 
   it('loads a version 3 file with no looks', () => {

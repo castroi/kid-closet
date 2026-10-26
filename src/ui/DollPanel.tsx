@@ -13,7 +13,9 @@ type Pending = { image: StoredImage; url: string };
  * picture is deleted.
  */
 export function DollPanel({ imageDeps }: { imageDeps: ImageDeps }) {
-  const { data, setDoll, resetDoll, readImage } = useCloset();
+  const { data, setDoll, resetDoll, readImage, deleteLooks } = useCloset();
+  // After the doll changes, its AI looks no longer match; the parent decides whether to keep them (plan §8).
+  const [oldLooks, setOldLooks] = useState<string[] | null>(null);
   const custom = data.doll.image;
   const storedUrl = useImageUrl(custom);
   const shownUrl = custom ? storedUrl : DEFAULT_DOLL_URL;
@@ -73,12 +75,15 @@ export function DollPanel({ imageDeps }: { imageDeps: ImageDeps }) {
     }
   };
 
-  const run = async (save: () => Promise<void>, done: string) => {
+  const run = async (save: () => Promise<void>, done: string, dollChange = false) => {
     setWorking(true);
     setMessage(null);
+    const previous = data.doll.id;
+    const looks = data.aiLooks.filter((l) => l.dollId === previous).map((l) => l.id);
     try {
       await save();
       setMessage({ text: done, error: false });
+      if (dollChange && looks.length > 0) setOldLooks(looks);
     } catch (err) {
       if (!explainedElsewhere(err)) setMessage({ text: 'השמירה לא הצליחה. נסי שוב.', error: true });
     } finally {
@@ -90,12 +95,12 @@ export function DollPanel({ imageDeps }: { imageDeps: ImageDeps }) {
     if (!pending) return;
     const { image } = pending;
     setPending(null);
-    await run(() => setDoll(image), 'הבובה הוחלפה.');
+    await run(() => setDoll(image), 'הבובה הוחלפה.', true);
   };
 
   const confirmDefault = async () => {
     setConfirmReset(false);
-    await run(resetDoll, 'חזרנו לבובה הרגילה.');
+    await run(resetDoll, 'חזרנו לבובה הרגילה.', true);
   };
 
   return (
@@ -165,6 +170,26 @@ export function DollPanel({ imageDeps }: { imageDeps: ImageDeps }) {
           </button>
           <button type="button" className="btn" onClick={() => setPending(null)}>
             ביטול
+          </button>
+        </Sheet>
+      )}
+
+      {oldLooks && (
+        <Sheet title={`למחוק ${oldLooks.length} תמונות AI של הבובה הקודמת?`} onClose={() => setOldLooks(null)}>
+          <p className="muted">הן נוצרו עם הבובה הקודמת, אז הן כבר לא יוצגו. אם תחזרי אליה, הן יחזרו.</p>
+          <button
+            type="button"
+            className="btn btn-danger"
+            onClick={async () => {
+              const ids = oldLooks;
+              setOldLooks(null);
+              await run(() => deleteLooks(ids), 'התמונות הישנות נמחקו.');
+            }}
+          >
+            כן, למחוק
+          </button>
+          <button type="button" className="btn" onClick={() => setOldLooks(null)}>
+            להשאיר
           </button>
         </Sheet>
       )}

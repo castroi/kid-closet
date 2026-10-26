@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ClosetProvider } from '../app/ClosetContext';
 import { DEFAULT_DOLL_URL } from '../app/doll';
 import { ClosetChangedElsewhereError, ClosetRepository } from '../storage/repository';
-import { NOW, closetWith, fakeImageDeps, renderWithCloset, seededStore, testIds, withDoll } from '../test/fixtures';
+import { NOW, closetWith, fakeImageDeps, makeLook, renderWithCloset, sampleCloset, seededStore, testIds, withDoll } from '../test/fixtures';
 import { DollPanel } from './DollPanel';
 
 const picture = () => new File(['raw'], 'doll.png', { type: 'image/png' });
@@ -34,6 +34,42 @@ describe('DollPanel', () => {
     expect(dollFiles(store)).toEqual([repo.getData().doll.image]);
     expect(await screen.findByRole('img', { name: 'הבובה שבחרת' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'לבובה הרגילה' })).toBeInTheDocument();
+  });
+
+  it("after a new doll, offers to delete the old doll's AI pictures", async () => {
+    const user = userEvent.setup();
+    const data = { ...sampleCloset(), aiLooks: [makeLook({ id: 'a' }), makeLook({ id: 'b', dollId: 'other' })] };
+    const { repo, store } = await renderWithCloset(<DollPanel imageDeps={fakeImageDeps()} />, data);
+    store.files.set('images/look-a.webp', new Blob(['a']));
+    await user.upload(screen.getByLabelText('בחירת תמונת בובה'), picture());
+    await user.click(await screen.findByRole('button', { name: 'כן, להחליף' }));
+
+    expect(await screen.findByRole('heading', { name: 'למחוק 1 תמונות AI של הבובה הקודמת?' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'כן, למחוק' }));
+    expect(await screen.findByText('התמונות הישנות נמחקו.')).toBeInTheDocument();
+    expect(repo.getData().aiLooks.map((l) => l.id)).toEqual(['b']);
+    expect(store.files.has('images/look-a.webp')).toBe(false);
+  });
+
+  it("keeps the old doll's AI pictures when the parent says so", async () => {
+    const user = userEvent.setup();
+    const data = withDoll({ ...sampleCloset(), aiLooks: [makeLook({ id: 'a', dollId: 'd1' })] });
+    const { repo } = await renderWithCloset(<DollPanel imageDeps={fakeImageDeps()} />, data);
+    await user.click(await screen.findByRole('button', { name: 'לבובה הרגילה' }));
+    await user.click(screen.getByRole('button', { name: 'כן, לחזור' }));
+    await user.click(await screen.findByRole('button', { name: 'להשאיר' }));
+
+    expect(screen.queryByRole('heading', { name: /של הבובה הקודמת/ })).not.toBeInTheDocument();
+    expect(repo.getData().aiLooks.map((l) => l.id)).toEqual(['a']);
+  });
+
+  it('asks nothing after a doll change when the old doll had no AI pictures', async () => {
+    const user = userEvent.setup();
+    await renderWithCloset(<DollPanel imageDeps={fakeImageDeps()} />);
+    await user.upload(screen.getByLabelText('בחירת תמונת בובה'), picture());
+    await user.click(await screen.findByRole('button', { name: 'כן, להחליף' }));
+    expect(await screen.findByText('הבובה הוחלפה.')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /של הבובה הקודמת/ })).not.toBeInTheDocument();
   });
 
   it('keeps the doll when the parent cancels', async () => {
