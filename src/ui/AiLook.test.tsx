@@ -26,7 +26,7 @@ function readyStorage(extra: Record<string, string> = {}) {
 /** Answers the bundled doll and the look request. `look` decides the provider's answer. */
 function provider(look: () => Promise<Response> = async () => new Response(PNG)) {
   return vi.fn<FetchLike>(async (url) => {
-    if (url === DEFAULT_DOLL_URL) return new Response(new Blob([cleanWebp as BlobPart]));
+    if (url === DEFAULT_DOLL_URL) return new Response(new Uint8Array(cleanWebp));
     if (url === AI_PROVIDERS.venice.endpoints.look) return look();
     throw new TypeError(`unexpected ${url}`);
   });
@@ -125,7 +125,7 @@ describe('AI look in the preview', () => {
     expect(storage.data.has(AI_USAGE_KEY)).toBe(false); // rejected up front: not charged
 
     fetchFn.mockImplementation(async (url) =>
-      url === DEFAULT_DOLL_URL ? new Response(new Blob([cleanWebp as BlobPart])) : new Response('', { status: 503 }),
+      url === DEFAULT_DOLL_URL ? new Response(new Uint8Array(cleanWebp)) : new Response('', { status: 503 }),
     );
     await user.click(screen.getByRole('button', { name: 'להלביש את הבובה' }));
     await waitFor(() => expect(storage.data.has(AI_USAGE_KEY)).toBe(true)); // reached the provider: counted
