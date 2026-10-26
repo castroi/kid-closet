@@ -226,7 +226,7 @@ Coverage thresholds stay: 80 % lines/statements/functions, 75 % branches. Run `n
 
 **Providers (fake `fetch`)**
 - Venice: request URL, headers, `modelId`, `prompt`, three images in order doll, upper, bottom; PNG response returned as a Blob.
-- OpenRouter: request body shape, `modalities`, image order; data URL parsed into a Blob.
+- OpenRouter: Image API body (`model`, `prompt`, `n: 1`, `input_references` in the order doll, upper, bottom); `data[0].b64_json` decoded into bytes.
 - Each error: 401, 402, 429, content refusal, non-image response, timeout, cancel → the right reason.
 - API key never appears in errors or logs.
 
@@ -251,7 +251,7 @@ Coverage thresholds stay: 80 % lines/statements/functions, 75 % branches. Run `n
 - Parent panel: key masked, prompt reset, test connection success/failure.
 
 **Security**
-- `securityHeaders.test.ts`: `connect-src` lists exactly `'self'`, the Venice host and the OpenRouter host.
+- `securityHeaders.test.ts`: `connect-src` lists exactly `'self'` and the four endpoint URLs from `src/ai/catalog.ts`.
 
 **Manual, on her iPhone (PR 3 and PR 4)**
 - After PR 3: "בדיקת חיבור" through each provider from the home-screen app (CORS).
