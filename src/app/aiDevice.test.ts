@@ -18,6 +18,7 @@ import {
   removeApiKey,
   saveApiKey,
   saveLastCheck,
+  savePreviewView,
   type DeviceStorage,
 } from './aiDevice';
 import { memoryStorage } from '../test/data';
