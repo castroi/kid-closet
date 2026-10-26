@@ -49,7 +49,7 @@ interface ProviderProps {
   now?: () => string;
   newId?: () => string;
   /** Shown when the saved closet cannot be read; lets the parent restore a backup. */
-  renderError?: (error: Error, restore: (zip: Uint8Array) => Promise<void>) => ReactNode;
+  renderError?: (error: Error, restore: (zip: Uint8Array) => Promise<unknown>) => ReactNode;
 }
 
 type LoadState = { kind: 'loading' } | { kind: 'ready'; data: ClosetData } | { kind: 'error'; error: Error };
