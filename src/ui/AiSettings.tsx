@@ -5,21 +5,27 @@ import {
   maskKey,
   nextResetDate,
   readApiKey,
+  readLastCheck,
   readMonthlyUse,
   removeApiKey,
   saveApiKey,
+  saveLastCheck,
   type DeviceStorage,
 } from '../app/aiDevice';
 import { useCloset } from '../app/ClosetContext';
 import { AI_PROVIDERS, effectiveModel } from '../ai/catalog';
 import { DEFAULT_PROMPT } from '../ai/prompt';
+import type { FetchLike } from '../ai/providers';
+import { checkConnection } from '../ai/send';
 import { MAX_MODEL_LENGTH, MAX_PROMPT_LENGTH } from '../core/closet';
 import { AI_PROVIDER_IDS, MAX_MONTHLY_CAP, type AiProviderId } from '../core/model';
 import type { ImageDeps } from '../image/processImage';
 import { Icon, explainedElsewhere } from './common';
+import { aiErrorDetail, aiErrorText } from './aiErrors';
 import { DollPanel } from './DollPanel';
 
-type Message = { text: string; error: boolean } | null;
+/** `detail` is the provider's own (English) words, shown in their own direction inside the Hebrew line. */
+type Message = { text: string; error: boolean; detail?: string } | null;
 
 function formatDay(date: Date): string {
   return `${date.getDate()}.${date.getMonth() + 1}`;
@@ -30,15 +36,22 @@ export function AiPanel({ deviceStorage, now, onOpen }: { deviceStorage: DeviceS
   const { data } = useCloset();
   const { provider, monthlyCap } = data.ai;
   const ready = aiReady(data.ai, deviceStorage);
+  const check = provider ? readLastCheck(deviceStorage, provider) : null;
   const used = readMonthlyUse(deviceStorage, now);
+  let status = 'לא מוגדר. הכפתור "להלביש את הבובה" לא יופיע לה עד שתגדירי ספק ומפתח.';
+  if (ready && provider) {
+    status = `מוגדר · ${AI_PROVIDERS[provider].label}`;
+    if (check?.ok) status += ` · נבדק ב־${formatDay(new Date(check.at))}`;
+    else if (check) status += ' · הבדיקה האחרונה נכשלה';
+  }
   const percent = monthlyCap > 0 ? Math.min(100, Math.round((used / monthlyCap) * 100)) : 100;
 
   return (
     <section className="panel" aria-labelledby="ai-h">
       <h2 id="ai-h">בובה ו־AI</h2>
       <div className="status-line" role="status">
-        <span className={ready ? 'status-dot on' : 'status-dot'} aria-hidden="true" />
-        {ready && provider ? `מוגדר · ${AI_PROVIDERS[provider].label}` : 'לא מוגדר. הכפתור "להלביש את הבובה" לא יופיע לה עד שתגדירי ספק ומפתח.'}
+        <span className={ready && check?.ok !== false ? 'status-dot on' : 'status-dot'} aria-hidden="true" />
+        {status}
       </div>
       <div className="kv">
         <span className="muted">השימוש החודש</span>
@@ -65,7 +78,16 @@ export function AiPanel({ deviceStorage, now, onOpen }: { deviceStorage: DeviceS
 }
 
 /** The "הגדרות AI" screen inside the parent area. */
-export function AiSettingsScreen({ deviceStorage, imageDeps }: { deviceStorage: DeviceStorage; imageDeps: ImageDeps }) {
+export function AiSettingsScreen({
+  deviceStorage,
+  imageDeps,
+  fetchFn,
+}: {
+  deviceStorage: DeviceStorage;
+  imageDeps: ImageDeps;
+  /** Only for tests; the app uses the browser's fetch. */
+  fetchFn?: FetchLike;
+}) {
   const { data, setAiSettings } = useCloset();
   const { provider } = data.ai;
   const [message, setMessage] = useState<Message>(null);
@@ -96,6 +118,13 @@ export function AiSettingsScreen({ deviceStorage, imageDeps }: { deviceStorage: 
       {message && (
         <p ref={messageRef} role="status" className={message.error ? 'error' : 'muted'}>
           {message.text}
+          {message.detail && (
+            <>
+              {' ('}
+              <bdi dir="ltr">{message.detail}</bdi>
+              {')'}
+            </>
+          )}
         </p>
       )}
 
@@ -124,7 +153,9 @@ export function AiSettingsScreen({ deviceStorage, imageDeps }: { deviceStorage: 
         )}
       </section>
 
-      {provider && <KeyPanel key={provider} provider={provider} deviceStorage={deviceStorage} onMessage={setMessage} />}
+      {provider && (
+        <KeyPanel key={provider} provider={provider} deviceStorage={deviceStorage} fetchFn={fetchFn} onMessage={setMessage} />
+      )}
 
       {provider && <UsagePanel key={`${provider}:${data.ai.model}:${data.ai.monthlyCap}`} provider={provider} save={save} />}
 
@@ -138,12 +169,38 @@ export function AiSettingsScreen({ deviceStorage, imageDeps }: { deviceStorage: 
 function KeyPanel({
   provider,
   deviceStorage,
+  fetchFn,
   onMessage,
 }: {
   provider: AiProviderId;
   deviceStorage: DeviceStorage;
+  fetchFn?: FetchLike;
   onMessage: (m: Message) => void;
 }) {
+  const [checking, setChecking] = useState(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  const runCheck = async (apiKey: string) => {
+    setChecking(true);
+    onMessage(null);
+    try {
+      const note = await checkConnection(provider, apiKey, { fetch: fetchFn });
+      saveLastCheck(deviceStorage, { provider, at: new Date().toISOString(), ok: true });
+      if (mounted.current) onMessage({ text: note ? `המפתח עובד. ${note}.` : 'המפתח עובד.', error: false });
+    } catch (err) {
+      saveLastCheck(deviceStorage, { provider, at: new Date().toISOString(), ok: false });
+      if (mounted.current) onMessage({ text: aiErrorText(err), error: true, detail: aiErrorDetail(err) });
+    } finally {
+      if (mounted.current) setChecking(false);
+    }
+  };
+
   const [saved, setSaved] = useState(() => readApiKey(deviceStorage, provider));
   const [editing, setEditing] = useState(saved === null);
   const [draft, setDraft] = useState('');
@@ -161,6 +218,7 @@ function KeyPanel({
       onMessage({ text: 'הטלפון לא מאפשר לשמור את המפתח (אולי גלישה פרטית).', error: true });
       return;
     }
+    saveLastCheck(deviceStorage, null); // the old result was about the old key
     setSaved(key);
     setDraft('');
     setEditing(false);
@@ -177,6 +235,9 @@ function KeyPanel({
             <span className="muted">המפתח</span>
             <span dir="ltr">{maskKey(saved)}</span>
           </div>
+          <button type="button" className="btn btn-dark" disabled={checking} onClick={() => void runCheck(saved)}>
+            {checking ? 'בודק…' : 'בדיקת חיבור'}
+          </button>
           <div className="btn-row">
             <button type="button" className="btn" onClick={() => setEditing(true)}>
               החלפה
@@ -187,6 +248,7 @@ function KeyPanel({
               style={{ borderColor: 'var(--line)', color: 'var(--danger-text)' }}
               onClick={() => {
                 removeApiKey(deviceStorage, provider);
+                saveLastCheck(deviceStorage, null);
                 setSaved(null);
                 setEditing(true);
                 onMessage({ text: 'המפתח נמחק מהטלפון.', error: false });

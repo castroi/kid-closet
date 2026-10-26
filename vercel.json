@@ -8,7 +8,7 @@
       "headers": [
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self' 'sha256-GFwDlRp247Qqc/FcNtGkrXihC2vDCaNXfvbngpYPs2I=' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' blob:; connect-src 'self' https://api.venice.ai https://openrouter.ai; font-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+          "value": "default-src 'self'; script-src 'self' 'sha256-GFwDlRp247Qqc/FcNtGkrXihC2vDCaNXfvbngpYPs2I=' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' blob:; connect-src 'self' https://api.venice.ai/api/v1/image/multi-edit https://api.venice.ai/api/v1/api_keys/rate_limits https://openrouter.ai/api/v1/images https://openrouter.ai/api/v1/key; font-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
         },
         { "key": "X-Content-Type-Options", "value": "nosniff" },
         { "key": "Referrer-Policy", "value": "no-referrer" },
