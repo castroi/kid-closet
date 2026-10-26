@@ -31,6 +31,8 @@ const defaultFetch: FetchLike = (url, init) => fetch(url, init);
  * and reports which of the two happened.
  */
 async function withDeadline<T>(signal: AbortSignal | undefined, timeoutMs: number, work: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  // Cancelled before it started: don't call the provider at all.
+  if (signal?.aborted) throw new AiError('cancelled');
   const controller = new AbortController();
   let timedOut = false;
   const timer = setTimeout(() => {
@@ -38,7 +40,6 @@ async function withDeadline<T>(signal: AbortSignal | undefined, timeoutMs: numbe
     controller.abort();
   }, timeoutMs);
   const onCancel = () => controller.abort();
-  if (signal?.aborted) controller.abort();
   signal?.addEventListener('abort', onCancel);
   try {
     return await work(controller.signal);

@@ -25,10 +25,14 @@ function request(fetch: FetchLike, overrides: Partial<LookRequest> = {}): LookRe
 }
 
 /** A fetch that never answers, but stops when its signal aborts, like the real one. */
-const hangingFetch: FetchLike = (_url, init) =>
-  new Promise((_resolve, reject) => {
-    init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
-  });
+const hangingFetch = vi.fn<FetchLike>(
+  (_url, init) =>
+    new Promise((_resolve, reject) => {
+      const abort = () => reject(new DOMException('aborted', 'AbortError'));
+      if (init.signal?.aborted) abort();
+      init.signal?.addEventListener('abort', abort);
+    }),
+);
 
 describe('requestLook', () => {
   it("removes every photo's location and other metadata before it leaves the phone", async () => {
@@ -85,7 +89,9 @@ describe('requestLook', () => {
     await expect(pending).rejects.toMatchObject({ reason: 'cancelled' });
     const already = new AbortController();
     already.abort();
+    hangingFetch.mockClear();
     await expect(requestLook(request(hangingFetch, { signal: already.signal }))).rejects.toMatchObject({ reason: 'cancelled' });
+    expect(hangingFetch).not.toHaveBeenCalled();
   });
 
   it('passes provider errors through unchanged', async () => {
