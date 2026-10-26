@@ -1,7 +1,7 @@
 {
   "name": "kid-closet",
   "private": true,
-  "version": "0.7.0",
+  "version": "0.8.0",
   "type": "module",
   "description": "Outfit picker PWA for kids. Runs fully on the iPhone; photos are stored as local WebP files.",
   "scripts": {
