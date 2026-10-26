@@ -20,6 +20,9 @@
   --backdrop: rgba(36, 32, 58, 0.45);
   --warn-bg: #fff4e5;
   --warn-ink: #7a4100;
+  /* AI features (the sparkle, the usage bar) and "connected" status. */
+  --ai: #6a4bc4;
+  --ok: #2e7d4f;
   --radius: 22px;
   color-scheme: light;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
@@ -48,6 +51,8 @@
   --backdrop: rgba(0, 0, 0, 0.6);
   --warn-bg: #3a2a12;
   --warn-ink: #ffc77a;
+  --ai: #a58cf0;
+  --ok: #6fd39a;
   color-scheme: dark;
 }
 
@@ -69,6 +74,8 @@
   --backdrop: rgba(0, 0, 0, 0.6);
     --warn-bg: #3a2a12;
     --warn-ink: #ffc77a;
+    --ai: #a58cf0;
+    --ok: #6fd39a;
     color-scheme: dark;
   }
 }
@@ -681,6 +688,66 @@ button:disabled {
 .photo-pick .thumb img {
   max-width: 100%;
   max-height: 100%;
+}
+
+/* AI settings */
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--line);
+  flex: none;
+}
+.status-dot.on {
+  background: var(--ok);
+}
+.status-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+.usage-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--tag);
+  overflow: hidden;
+}
+.usage-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--ai);
+}
+.row-btn {
+  min-height: 52px;
+  border-radius: 16px;
+  border: 1.5px solid var(--line);
+  background: var(--surface);
+  padding: 0 14px;
+  font-size: 16px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.text-area {
+  min-height: 180px;
+  padding: 10px 14px;
+  font-size: 14px;
+  line-height: 1.45;
+  resize: vertical;
+}
+.advanced > summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  font-weight: 700;
+  cursor: pointer;
+}
+.advanced[open] > summary {
+  margin-bottom: 8px;
 }
 
 /* The doll is a 3:4 full-body picture. */

@@ -1,6 +1,6 @@
 # AI doll look — decisions and implementation plan
 
-Feature for `castroi/kid-closet`. Status: **in progress** (PR 1 `feat/doll-image`). Date: 2026-10-26.
+Feature for `castroi/kid-closet`. Status: **in progress**. PR 1 merged; PR 2 `feat/ai-settings`. Date: 2026-10-26.
 
 ## 1. Goal
 

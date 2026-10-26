@@ -9,6 +9,7 @@ import {
   applyFilter,
   availableColors,
   closetImagePaths,
+  setAiSettings,
   findItem,
   hasOutfit,
   isSafeImagePath,
@@ -21,7 +22,17 @@ import {
   stepSelection,
   updateItem,
 } from './closet';
-import { DEFAULT_DOLL_ID, SCHEMA_VERSION, defaultName, dollImagePath, emptyCloset, slotOf } from './model';
+import {
+  DEFAULT_DOLL_ID,
+  DEFAULT_MONTHLY_CAP,
+  MAX_MONTHLY_CAP,
+  SCHEMA_VERSION,
+  defaultAiSettings,
+  defaultName,
+  dollImagePath,
+  emptyCloset,
+  slotOf,
+} from './model';
 
 const items = [
   makeItem({ id: 'a', type: 'tee', colorGroup: 'blue', occasions: ['school'] }),
@@ -43,6 +54,7 @@ describe('model helpers', () => {
       outfits: [],
       lastBackupAt: null,
       doll: { id: DEFAULT_DOLL_ID, image: null },
+      ai: { provider: null, model: '', prompt: null, monthlyCap: DEFAULT_MONTHLY_CAP },
     });
     expect(dollImagePath('d1', 'webp')).toBe('images/doll-d1.webp');
   });
@@ -205,6 +217,43 @@ describe('parseCloset', () => {
     expect(parsed.schemaVersion).toBe(SCHEMA_VERSION);
     expect(parsed.doll).toEqual({ id: DEFAULT_DOLL_ID, image: null });
     expect(parsed.items).toHaveLength(items.length);
+  });
+
+  it('loads a version 2 closet keeping its doll, with AI not set up', () => {
+    const raw: Record<string, unknown> = { ...JSON.parse(JSON.stringify(valid)), schemaVersion: 2 };
+    raw.doll = { id: 'd1', image: 'images/doll-d1.webp' };
+    delete raw.ai;
+    const parsed = parseCloset(raw);
+    expect(parsed.schemaVersion).toBe(SCHEMA_VERSION);
+    expect(parsed.doll.id).toBe('d1');
+    expect(parsed.ai).toEqual(defaultAiSettings());
+  });
+
+  it('keeps the AI settings', () => {
+    const ai = { provider: 'openrouter', model: 'meta/muse-image', prompt: 'Dress the doll.', monthlyCap: 0 };
+    expect(parseCloset({ ...valid, ai }).ai).toEqual(ai);
+  });
+
+  it.each([
+    ['(ai)', undefined],
+    ['provider', { provider: 'acme' }],
+    ['model', { model: null }],
+    ['model', { model: 'x'.repeat(201) }],
+    ['prompt', { prompt: 3 }],
+    ['prompt', { prompt: 'x'.repeat(4001) }],
+    ['monthlyCap', { monthlyCap: -1 }],
+    ['monthlyCap', { monthlyCap: 2.5 }],
+    ['monthlyCap', { monthlyCap: MAX_MONTHLY_CAP + 1 }],
+    ['monthlyCap', { monthlyCap: '100' }],
+  ])('rejects AI settings with a bad %s', (field, patch) => {
+    const ai = patch === undefined ? undefined : { ...defaultAiSettings(), ...patch };
+    expect(() => parseCloset({ ...valid, ai })).toThrow(`ai.${field}`);
+  });
+
+  it('changes only the given AI settings', () => {
+    const next = setAiSettings(valid, { provider: 'venice' });
+    expect(next.ai).toEqual({ ...defaultAiSettings(), provider: 'venice' });
+    expect(next.items).toBe(valid.items);
   });
 
   it("accepts the parent's doll picture named after the doll's id", () => {

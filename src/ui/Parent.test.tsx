@@ -30,7 +30,7 @@ describe('Parent', () => {
     await user.clear(screen.getByLabelText(/כמה זה/));
     await openTools(user);
     expect(screen.getByRole('heading', { name: 'גיבוי' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'הבובה' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'בובה ו־AI' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'חזרה לארון' }));
     expect(onBack).toHaveBeenCalled();
   });

@@ -69,3 +69,14 @@ export function asVersion1(data: ClosetData): Record<string, unknown> {
   delete raw.doll;
   return raw;
 }
+
+/** localStorage stand-in for the phone's own storage (API keys, monthly use). */
+export function memoryStorage(initial: Record<string, string> = {}) {
+  const data = new Map(Object.entries(initial));
+  return {
+    data,
+    getItem: (k: string) => data.get(k) ?? null,
+    setItem: (k: string, v: string) => void data.set(k, v),
+    removeItem: (k: string) => void data.delete(k),
+  };
+}

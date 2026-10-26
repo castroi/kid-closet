@@ -1,12 +1,17 @@
 import {
+  AI_PROVIDER_IDS,
   COLOR_GROUPS,
   DEFAULT_DOLL_ID,
+  MAX_MONTHLY_CAP,
   ITEM_TYPES,
   OCCASIONS,
   SCHEMA_VERSION,
+  defaultAiSettings,
   defaultDoll,
   dollImagePath,
   slotOf,
+  type AiProviderId,
+  type AiSettings,
   type ClosetData,
   type ColorGroup,
   type Doll,
@@ -157,6 +162,10 @@ export const MAX_ITEMS = 5000;
 export const MAX_OUTFITS = 5000;
 export const MAX_NAME_LENGTH = 200;
 
+export function setAiSettings(data: ClosetData, patch: Partial<AiSettings>): ClosetData {
+  return { ...data, ai: { ...data.ai, ...patch } };
+}
+
 /** Throws InvalidClosetError when restore data is far larger than any real closet. */
 export function assertWithinRestoreLimits(raw: unknown): void {
   if (!isRecord(raw)) return; // parseCloset reports the shape error
@@ -246,6 +255,23 @@ function parseDoll(raw: unknown): Doll {
   return { id, image };
 }
 
+/** Generous limits; they only stop a broken or hostile file from holding huge text. */
+export const MAX_MODEL_LENGTH = 200;
+export const MAX_PROMPT_LENGTH = 4000;
+
+function parseAi(raw: unknown): AiSettings {
+  const fail = (field: string) => new InvalidClosetError(`ai.${field} is invalid`);
+  if (!isRecord(raw)) throw fail('(ai)');
+  const { provider, model, prompt, monthlyCap } = raw;
+  if (provider !== null && !AI_PROVIDER_IDS.includes(provider as AiProviderId)) throw fail('provider');
+  if (!isString(model) || model.length > MAX_MODEL_LENGTH) throw fail('model');
+  if (prompt !== null && (!isString(prompt) || prompt.length > MAX_PROMPT_LENGTH)) throw fail('prompt');
+  if (typeof monthlyCap !== 'number' || !Number.isInteger(monthlyCap) || monthlyCap < 0 || monthlyCap > MAX_MONTHLY_CAP) {
+    throw fail('monthlyCap');
+  }
+  return { provider: provider as AiProviderId | null, model, prompt, monthlyCap };
+}
+
 /** Every photo file the closet uses: one per item, plus the parent's doll picture. */
 export function closetImagePaths(data: ClosetData): string[] {
   const paths = data.items.map((it) => it.image);
@@ -256,8 +282,8 @@ export function closetImagePaths(data: ClosetData): string[] {
 /** Validates data read from closet.json or a backup. Throws InvalidClosetError. */
 export function parseCloset(raw: unknown): ClosetData {
   if (!isRecord(raw)) throw new InvalidClosetError('closet is not an object');
-  // Version 1 had no doll; it loads with the bundled one.
-  if (raw.schemaVersion !== 1 && raw.schemaVersion !== SCHEMA_VERSION) {
+  // Version 1 had no doll and versions 1–2 no AI settings; they load with the defaults.
+  if (raw.schemaVersion !== 1 && raw.schemaVersion !== 2 && raw.schemaVersion !== SCHEMA_VERSION) {
     throw new InvalidClosetError(`unsupported schemaVersion ${String(raw.schemaVersion)}`);
   }
   if (!Array.isArray(raw.items)) throw new InvalidClosetError('items is not a list');
@@ -276,5 +302,6 @@ export function parseCloset(raw: unknown): ClosetData {
   if (doll.image && items.some((it) => it.image === doll.image)) {
     throw new InvalidClosetError('doll.image is used by an item');
   }
-  return { schemaVersion: SCHEMA_VERSION, items, outfits, lastBackupAt: raw.lastBackupAt, doll };
+  const ai = raw.schemaVersion === SCHEMA_VERSION ? parseAi(raw.ai) : defaultAiSettings();
+  return { schemaVersion: SCHEMA_VERSION, items, outfits, lastBackupAt: raw.lastBackupAt, doll, ai };
 }
