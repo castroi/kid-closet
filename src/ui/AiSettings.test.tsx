@@ -95,9 +95,28 @@ describe('AiSettingsScreen', () => {
       <AiSettingsScreen deviceStorage={storage} imageDeps={fakeImageDeps()} />,
       closetWithAi({ provider: 'venice' }),
     );
-    await user.type(screen.getByLabelText('מפתח חדש'), 'k');
+    await user.type(screen.getByLabelText('מפתח חדש'), 'sk-valid-key-1');
     await user.click(screen.getByRole('button', { name: 'שמירת המפתח' }));
     expect(screen.getByText(/הטלפון לא מאפשר לשמור את המפתח/)).toBeInTheDocument();
+  });
+
+  it('refuses a key with a space or that is too short, and keeps it out of password managers', async () => {
+    const user = userEvent.setup();
+    const { storage } = await renderScreen({ provider: 'openrouter' });
+    const input = screen.getByLabelText('מפתח חדש');
+    expect(input).toHaveAttribute('type', 'text');
+    expect(input).toHaveAttribute('autocomplete', 'off');
+    for (const bad of ['sk-or v1-abcdef', 'short']) {
+      await user.clear(input);
+      await user.type(input, bad);
+      expect(screen.getByText(/מפתח לא תקין/)).toBeInTheDocument();
+      expect(input).toHaveAttribute('aria-invalid', 'true');
+      expect(screen.getByRole('button', { name: 'שמירת המפתח' })).toBeDisabled();
+    }
+    await user.clear(input);
+    await user.type(input, '  sk-or-v1-abcdef  ');
+    await user.click(screen.getByRole('button', { name: 'שמירת המפתח' }));
+    expect(storage.data.get(`${AI_KEY_PREFIX}openrouter`)).toBe('sk-or-v1-abcdef');
   });
 
   it('saves the model and the monthly cap, and refuses a bad cap', async () => {

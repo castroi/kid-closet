@@ -732,6 +732,9 @@ button:disabled {
   justify-content: space-between;
   gap: 8px;
 }
+.secret-input {
+  -webkit-text-security: disc;
+}
 .text-area {
   min-height: 180px;
   padding: 10px 14px;

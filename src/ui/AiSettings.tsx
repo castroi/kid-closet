@@ -1,5 +1,7 @@
 import { useId, useState } from 'react';
 import {
+  aiReady,
+  isValidApiKey,
   maskKey,
   nextResetDate,
   readApiKey,
@@ -27,7 +29,7 @@ function formatDay(date: Date): string {
 export function AiPanel({ deviceStorage, now, onOpen }: { deviceStorage: DeviceStorage; now: Date; onOpen: () => void }) {
   const { data } = useCloset();
   const { provider, monthlyCap } = data.ai;
-  const ready = provider !== null && readApiKey(deviceStorage, provider) !== null;
+  const ready = aiReady(data.ai, deviceStorage);
   const used = readMonthlyUse(deviceStorage, now);
   const percent = monthlyCap > 0 ? Math.min(100, Math.round((used / monthlyCap) * 100)) : 100;
 
@@ -143,9 +145,10 @@ function KeyPanel({
   const id = useId();
   const label = AI_PROVIDERS[provider].label;
 
+  const key = draft.trim();
+  const invalid = key !== '' && !isValidApiKey(key);
   const store = () => {
-    const key = draft.trim();
-    if (!key) return;
+    if (!key || invalid) return;
     if (!saveApiKey(deviceStorage, provider, key)) {
       onMessage({ text: 'הטלפון לא מאפשר לשמור את המפתח (אולי גלישה פרטית).', error: true });
       return;
@@ -196,19 +199,26 @@ function KeyPanel({
           <label className="label" htmlFor={id}>
             מפתח חדש
           </label>
+          {/* A text field drawn as dots, not type="password": Safari would offer to save a password to
+              iCloud Keychain, which would take the key off this phone. */}
           <input
             id={id}
-            className="text-input"
-            type="password"
+            className="text-input secret-input"
+            type="text"
             dir="ltr"
             autoComplete="off"
+            autoCorrect="off"
             autoCapitalize="off"
             spellCheck={false}
+            data-1p-ignore=""
+            data-lpignore="true"
             value={draft}
+            aria-invalid={invalid}
             onChange={(e) => setDraft(e.target.value)}
           />
+          {invalid && <p className="error">מפתח לא תקין: בלי רווחים, לפחות 8 תווים. כדאי להעתיק אותו שוב מהאתר של הספק.</p>}
           <div className="btn-row">
-            <button type="submit" className="btn btn-dark" disabled={!draft.trim()}>
+            <button type="submit" className="btn btn-dark" disabled={!key || invalid}>
               שמירת המפתח
             </button>
             {saved && (

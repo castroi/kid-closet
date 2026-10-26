@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   AI_KEY_PREFIX,
   AI_USAGE_KEY,
+  aiReady,
+  isValidApiKey,
   maskKey,
   monthOf,
   nextResetDate,
@@ -47,8 +49,24 @@ describe('API keys on the device', () => {
     expect(readApiKey(memoryStorage({ [`${AI_KEY_PREFIX}venice`]: '' }), 'venice')).toBeNull();
   });
 
-  it('shows only the last four characters', () => {
+  it('shows only the last four characters of a long key, and nothing of a short one', () => {
     expect(maskKey('sk-or-v1-abcdef1234')).toBe('••••1234');
+    expect(maskKey('abcdefgh')).toBe('••••');
+  });
+
+  it('accepts only printable keys without spaces, 8 to 512 characters', () => {
+    expect(isValidApiKey('sk-or-v1-abc_DEF.123')).toBe(true);
+    for (const bad of ['short', 'has space-in-it', 'tab\tinside-key', 'zero\u200bwidth-key', 'x'.repeat(513), 'עבריתעבריתע']) {
+      expect(isValidApiKey(bad)).toBe(false);
+    }
+  });
+
+  it('is ready only with a provider and its key on this phone', () => {
+    const storage = memoryStorage({ [`${AI_KEY_PREFIX}venice`]: 'sk-venice-123' });
+    const ai = { provider: null, model: '', prompt: null, monthlyCap: 100 };
+    expect(aiReady(ai, storage)).toBe(false);
+    expect(aiReady({ ...ai, provider: 'venice' }, storage)).toBe(true);
+    expect(aiReady({ ...ai, provider: 'openrouter' }, storage)).toBe(false);
   });
 });
 

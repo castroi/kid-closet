@@ -1,4 +1,4 @@
-import type { AiProviderId } from '../core/model';
+import type { AiProviderId, AiSettings } from '../core/model';
 
 /**
  * What belongs to this phone only, never to the closet or its backups: the API keys
@@ -44,9 +44,24 @@ export function removeApiKey(storage: DeviceStorage, provider: AiProviderId): vo
   }
 }
 
-/** Shows only the end of a key, so it can be recognised but not copied off the screen. */
+/**
+ * API keys are long runs of printable characters without spaces. A pasted key with a
+ * space, a line break or an invisible character would fail later with a confusing error.
+ */
+const API_KEY = /^[\x21-\x7e]{8,512}$/;
+
+export function isValidApiKey(key: string): boolean {
+  return API_KEY.test(key);
+}
+
+/** Shows only the end of a long key, so it can be recognised but not copied off the screen. */
 export function maskKey(key: string): string {
-  return `••••${key.slice(-4)}`;
+  return key.length >= 12 ? `••••${key.slice(-4)}` : '••••';
+}
+
+/** AI looks can be made only with a provider picked and its key on this phone. The kid's button uses the same check. */
+export function aiReady(ai: AiSettings, storage: DeviceStorage): boolean {
+  return ai.provider !== null && readApiKey(storage, ai.provider) !== null;
 }
 
 /** The phone's local month, e.g. "2026-10"; usage starts again on the 1st. */
