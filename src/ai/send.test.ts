@@ -82,18 +82,6 @@ describe('requestLook', () => {
     await expect(requestLook(request(hangingFetch, { timeoutMs: 20 }))).rejects.toMatchObject({ reason: 'timeout' });
   });
 
-  it('stops when cancelled, and says so', async () => {
-    const controller = new AbortController();
-    const pending = requestLook(request(hangingFetch, { signal: controller.signal }));
-    controller.abort();
-    await expect(pending).rejects.toMatchObject({ reason: 'cancelled' });
-    const already = new AbortController();
-    already.abort();
-    hangingFetch.mockClear();
-    await expect(requestLook(request(hangingFetch, { signal: already.signal }))).rejects.toMatchObject({ reason: 'cancelled' });
-    expect(hangingFetch).not.toHaveBeenCalled();
-  });
-
   it('passes provider errors through unchanged', async () => {
     const fetch = vi.fn<FetchLike>().mockResolvedValue(new Response('', { status: 401 }));
     await expect(requestLook(request(fetch))).rejects.toMatchObject({ reason: 'unauthorized' });
@@ -101,6 +89,20 @@ describe('requestLook', () => {
 });
 
 describe('checkConnection', () => {
+  it('stops when cancelled, and never calls the provider when cancelled before it starts', async () => {
+    const controller = new AbortController();
+    const pending = checkConnection('venice', 'k', { fetch: hangingFetch, signal: controller.signal });
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ reason: 'cancelled' });
+    const already = new AbortController();
+    already.abort();
+    hangingFetch.mockClear();
+    await expect(checkConnection('venice', 'k', { fetch: hangingFetch, signal: already.signal })).rejects.toMatchObject({
+      reason: 'cancelled',
+    });
+    expect(hangingFetch).not.toHaveBeenCalled();
+  });
+
   it("returns the provider's note, and times out like a look", async () => {
     const fetch = vi.fn<FetchLike>().mockResolvedValue(Response.json({ data: { limit_remaining: 1 } }));
     await expect(checkConnection('openrouter', 'k', { fetch })).resolves.toBe('נשארו USD 1.00 במגבלה של המפתח');

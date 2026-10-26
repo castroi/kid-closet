@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
 import { AI_PROVIDERS } from './catalog';
-import { ADAPTERS, AiError, base64ToBytes, type FetchLike, type LookCall } from './providers';
+import { ADAPTERS, AiError, MAX_RESULT_BYTES, base64ToBytes, type FetchLike, type LookCall } from './providers';
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
 const images = { doll: 'data:image/webp;base64,RE9MTA==', upper: 'data:image/jpeg;base64,VE9Q', bottom: 'data:image/webp;base64,Qk9U' };
@@ -119,6 +119,42 @@ describe('errors from either provider', () => {
     const abort = new DOMException('aborted', 'AbortError');
     const fetch = vi.fn<FetchLike>().mockRejectedValue(abort);
     await expect(ADAPTERS.openrouter.generateLook(lookCall(fetch, { signal: controller.signal }))).rejects.toBe(abort);
+  });
+});
+
+describe('safety of what comes back', () => {
+  it('never keeps the API key in an error, even when the provider repeats it', async () => {
+    const venice = fetchReturning(Response.json({ error: 'Invalid key sk-test-123 for this route' }, { status: 401 }));
+    const err = (await ADAPTERS.venice.generateLook(lookCall(venice)).catch((e: unknown) => e)) as AiError;
+    expect(err.detail).toBe('401 Invalid key •••• for this route');
+    expect(err.message).not.toContain('sk-test-123');
+    const network = vi.fn<FetchLike>().mockRejectedValue(new TypeError('failed for sk-test-123'));
+    const err2 = (await ADAPTERS.openrouter.generateLook(lookCall(network)).catch((e: unknown) => e)) as AiError;
+    expect(err2.detail).not.toContain('sk-test-123');
+  });
+
+  it('refuses an answer that says it is too large before downloading it', async () => {
+    const big = String(MAX_RESULT_BYTES + 1);
+    const venice = fetchReturning(new Response(PNG, { headers: { 'Content-Length': big } }));
+    await expect(ADAPTERS.venice.generateLook(lookCall(venice))).rejects.toMatchObject({ reason: 'bad-response' });
+    const b64 = String(Math.ceil(((MAX_RESULT_BYTES + 1) * 4) / 3));
+    const openrouter = fetchReturning(new Response('{}', { headers: { 'Content-Length': b64 } }));
+    await expect(ADAPTERS.openrouter.generateLook(lookCall(openrouter))).rejects.toMatchObject({ reason: 'bad-response' });
+  });
+
+  it('reports a download cut off by the deadline as an abort, not a broken answer or a working key', async () => {
+    const controller = new AbortController();
+    const abort = new DOMException('aborted', 'AbortError');
+    const cutOff = () => {
+      const response = Response.json({});
+      vi.spyOn(response, 'json').mockImplementation(() => {
+        controller.abort();
+        return Promise.reject(abort);
+      });
+      return vi.fn<FetchLike>().mockResolvedValue(response);
+    };
+    await expect(ADAPTERS.openrouter.generateLook(lookCall(cutOff(), { signal: controller.signal }))).rejects.toBe(abort);
+    await expect(ADAPTERS.openrouter.checkKey({ apiKey: 'k', signal: controller.signal, fetch: cutOff() })).rejects.toBe(abort);
   });
 });
 

@@ -9,7 +9,7 @@ export interface AiProviderInfo {
    * Exactly these are in the CSP's connect-src (vercel.json); securityHeaders.test.ts checks it.
    */
   endpoints: { look: string; check: string };
-  /** Used when the parent leaves the model empty. To be confirmed on her iPhone with a real key (docs/ai-doll-look.md, PR 3). */
+  /** Used when the parent leaves the model empty. Unconfirmed until the first real look (docs/ai-doll-look.md §3). */
   defaultModel: string;
   /** Where the parent creates an API key. */
   keysUrl: string;

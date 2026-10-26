@@ -2,7 +2,7 @@ import type { AiProviderId, AiSettings } from '../core/model';
 import { stripPhotoMetadata } from '../image/metadata';
 import { effectiveModel } from './catalog';
 import { effectivePrompt } from './prompt';
-import { ADAPTERS, AiError, type FetchLike } from './providers';
+import { ADAPTERS, AiError, MAX_RESULT_BYTES, type FetchLike } from './providers';
 
 /** A stored picture: the doll, or a garment photo. */
 export interface StoredPicture {
@@ -18,11 +18,14 @@ export interface LookResult {
   prompt: string;
 }
 
-/** Image models take 10–60 s; past this the kid gets "try again later" and her try is kept. */
-export const LOOK_TIMEOUT_MS = 90_000;
+/**
+ * Image models take 10–60 s. A look is never cancelled by the kid: her "ביטול" only stops
+ * waiting on screen (PR 4), because the provider makes and charges for the picture anyway
+ * and plan §8 saves one that arrives late. Only this deadline aborts, for a call that hangs.
+ */
+export const LOOK_TIMEOUT_MS = 180_000;
 export const CHECK_TIMEOUT_MS = 20_000;
-/** Far above a 1–2K picture; stops a broken answer from filling the phone's memory. */
-export const MAX_RESULT_BYTES = 20 * 1024 * 1024;
+export { MAX_RESULT_BYTES } from './providers';
 
 const defaultFetch: FetchLike = (url, init) => fetch(url, init);
 
@@ -92,7 +95,6 @@ export interface LookRequest {
   /** The shirt, or the layer when the outfit has one. */
   upper: StoredPicture;
   bottom: StoredPicture;
-  signal?: AbortSignal;
   fetch?: FetchLike;
   timeoutMs?: number;
 }
@@ -105,7 +107,7 @@ export async function requestLook(req: LookRequest): Promise<LookResult> {
   const model = effectiveModel(req.provider, req.settings.model);
   const prompt = effectivePrompt(req.settings.prompt);
   const images = { doll: toCleanDataUrl(req.doll), upper: toCleanDataUrl(req.upper), bottom: toCleanDataUrl(req.bottom) };
-  const bytes = await withDeadline(req.signal, req.timeoutMs ?? LOOK_TIMEOUT_MS, (signal) =>
+  const bytes = await withDeadline(undefined, req.timeoutMs ?? LOOK_TIMEOUT_MS, (signal) =>
     ADAPTERS[req.provider].generateLook({ images, prompt, model, apiKey: req.apiKey, signal, fetch: req.fetch ?? defaultFetch }),
   );
   if (bytes.length > MAX_RESULT_BYTES) throw new AiError('bad-response', 'picture too large');

@@ -36,6 +36,20 @@ export class AiError extends Error {
 
 export type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
 
+/** Far above a 1–2K picture; stops a broken answer from filling the phone's memory. */
+export const MAX_RESULT_BYTES = 20 * 1024 * 1024;
+
+/** Refuses an answer that says up front it is too large, before downloading it. */
+function refuseIfTooLarge(response: Response, factor = 1): void {
+  const length = Number(response.headers.get('content-length'));
+  if (Number.isFinite(length) && length * factor > MAX_RESULT_BYTES) throw new AiError('bad-response', 'picture too large');
+}
+
+/** Some providers repeat the key in an auth error; it must never reach the screen or storage. */
+function redact(text: string, apiKey: string): string {
+  return apiKey ? text.split(apiKey).join('••••') : text;
+}
+
 export interface LookImages {
   /** data: URLs, in the order the prompt names them: 1 doll, 2 upper garment, 3 trousers. */
   doll: string;
@@ -67,8 +81,8 @@ function reasonForStatus(status: number): AiErrorReason {
   return 'bad-request';
 }
 
-/** Turns a failed response into an AiError, with the provider's message when it sent one. */
-async function failure(response: Response): Promise<AiError> {
+/** Turns a failed response into an AiError, with the provider's message (without the key) when it sent one. */
+async function failure(response: Response, apiKey: string): Promise<AiError> {
   let detail = '';
   try {
     const body = (await response.json()) as { error?: unknown };
@@ -80,16 +94,16 @@ async function failure(response: Response): Promise<AiError> {
   } catch {
     // not JSON; the status says enough
   }
-  return new AiError(reasonForStatus(response.status), `${response.status}${detail ? ` ${detail.slice(0, 300)}` : ''}`);
+  return new AiError(reasonForStatus(response.status), `${response.status}${detail ? ` ${redact(detail, apiKey).slice(0, 300)}` : ''}`);
 }
 
 /** Calls fetch and maps "no answer at all" to `network` (offline, blocked by CORS, or the connection dropped). */
-async function call(fetchFn: FetchLike, url: string, init: RequestInit): Promise<Response> {
+async function call(fetchFn: FetchLike, url: string, init: RequestInit, apiKey: string): Promise<Response> {
   try {
     return await fetchFn(url, init);
   } catch (err) {
     if (init.signal?.aborted) throw err; // send.ts tells a timeout from a cancel
-    throw new AiError('network', err instanceof Error ? err.message : String(err));
+    throw new AiError('network', redact(err instanceof Error ? err.message : String(err), apiKey));
   }
 }
 
@@ -99,29 +113,32 @@ function headers(apiKey: string, json: boolean): Record<string, string> {
 
 const venice: ProviderAdapter = {
   async generateLook({ images, prompt, model, apiKey, signal, fetch }) {
-    const response = await call(fetch, AI_PROVIDERS.venice.endpoints.look, {
+    const init: RequestInit = {
       method: 'POST',
       headers: headers(apiKey, true),
       // The first image is the base the others are put on. safe_mode stays on (Venice's default): it's a kid's app.
       body: JSON.stringify({ modelId: model, prompt, images: [images.doll, images.upper, images.bottom], safe_mode: true }),
       signal,
-    });
-    if (!response.ok) throw await failure(response);
+    };
+    const response = await call(fetch, AI_PROVIDERS.venice.endpoints.look, init, apiKey);
+    if (!response.ok) throw await failure(response, apiKey);
+    // Readable only if Venice exposes these headers to web pages (CORS); checked on her iPhone (plan §3).
     if (response.headers.get('x-venice-is-content-violation') === 'true' || response.headers.get('x-venice-is-blurred') === 'true') {
       throw new AiError('refused');
     }
+    refuseIfTooLarge(response);
     return new Uint8Array(await response.arrayBuffer());
   },
   async checkKey({ apiKey, signal, fetch }) {
-    const response = await call(fetch, AI_PROVIDERS.venice.endpoints.check, { method: 'GET', headers: headers(apiKey, false), signal });
-    if (!response.ok) throw await failure(response);
+    const response = await call(fetch, AI_PROVIDERS.venice.endpoints.check, { method: 'GET', headers: headers(apiKey, false), signal }, apiKey);
+    if (!response.ok) throw await failure(response, apiKey);
     return null;
   },
 };
 
 const openrouter: ProviderAdapter = {
   async generateLook({ images, prompt, model, apiKey, signal, fetch }) {
-    const response = await call(fetch, AI_PROVIDERS.openrouter.endpoints.look, {
+    const init: RequestInit = {
       method: 'POST',
       headers: headers(apiKey, true),
       body: JSON.stringify({
@@ -131,13 +148,16 @@ const openrouter: ProviderAdapter = {
         input_references: [images.doll, images.upper, images.bottom].map((url) => ({ type: 'image_url', image_url: { url } })),
       }),
       signal,
-    });
-    if (!response.ok) throw await failure(response);
+    };
+    const response = await call(fetch, AI_PROVIDERS.openrouter.endpoints.look, init, apiKey);
+    if (!response.ok) throw await failure(response, apiKey);
+    refuseIfTooLarge(response, 0.75); // base64 is 4/3 the size of the picture
     let b64: unknown;
     try {
       const body = (await response.json()) as { data?: { b64_json?: unknown }[] };
       b64 = body?.data?.[0]?.b64_json;
-    } catch {
+    } catch (err) {
+      if (signal.aborted) throw err; // cut off while downloading: a timeout, not a broken answer
       throw new AiError('bad-response', 'not JSON');
     }
     if (typeof b64 !== 'string' || b64.length === 0) throw new AiError('bad-response', 'no picture in the answer');
@@ -145,13 +165,14 @@ const openrouter: ProviderAdapter = {
     return base64ToBytes(b64);
   },
   async checkKey({ apiKey, signal, fetch }) {
-    const response = await call(fetch, AI_PROVIDERS.openrouter.endpoints.check, { method: 'GET', headers: headers(apiKey, false), signal });
-    if (!response.ok) throw await failure(response);
+    const response = await call(fetch, AI_PROVIDERS.openrouter.endpoints.check, { method: 'GET', headers: headers(apiKey, false), signal }, apiKey);
+    if (!response.ok) throw await failure(response, apiKey);
     try {
       const body = (await response.json()) as { data?: { limit_remaining?: unknown } };
       const left = body?.data?.limit_remaining;
       return typeof left === 'number' ? `נשארו USD ${left.toFixed(2)} במגבלה של המפתח` : null;
-    } catch {
+    } catch (err) {
+      if (signal.aborted) throw err; // a timeout must not read as "the key works"
       return null;
     }
   },
