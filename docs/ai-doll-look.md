@@ -32,8 +32,9 @@ In the outfit preview ("לראות את הלוק"), she can press one button and
 | # | Question | Proposal |
 |---|---|---|
 | 1 | Push access to the repository | Granted 2026-10-26. |
-| 2 | Does Venice allow calls from the browser (CORS)? | **Unverified.** Test on her iPhone in PR 3. If refused, Venice needs a small Vercel proxy, which adds a server; decide then. OpenRouter browser calls: indirect evidence only. |
-| 3 | Default model per provider | Proposal: Muse Image (cheapest). Must verify in PR 3 that it works through Venice multi-edit and OpenRouter chat completions; otherwise Nano Banana 2.1. |
+| 2 | Do the providers allow calls from a web page (CORS)? | **Left to the owner after PR 3 is merged:** on her iPhone, "בדיקת חיבור" with a real key for each provider. A "network" answer with internet on means blocked; then use only the other provider, or decide on a small Vercel proxy (adds a server). Can't be tested from the build environment. |
+| 3 | Does Venice expose its refusal headers to web pages? | `x-venice-is-content-violation` / `x-venice-is-blurred` are readable only if Venice lists them in `Access-Control-Expose-Headers`. **Left to the owner with the first real Venice look (PR 4):** if a blurred picture is saved, the parent removes it from "לוקים לתיקון" and we look for another signal. |
+| 4 | Default model per provider | `muse-image-edit` (Venice) and `meta/muse-image` (OpenRouter), both the cheapest. Request shapes match the docs, but **left to the owner to confirm with the first real look in PR 4**; if one fails with "bad request", switch that provider to Nano Banana 2.1 (`nano-banana-2-1-edit` / `google/gemini-nano-banana-2.1`). |
 
 ## 4. Privacy and security changes
 
@@ -108,7 +109,7 @@ interface LookRequest {
   prompt: string;
   model: string;
   apiKey: string;
-  signal: AbortSignal;
+  // no cancel: the kid's "ביטול" only stops waiting on screen (§8)
 }
 
 interface AiProvider {
@@ -123,7 +124,7 @@ interface AiProvider {
 
 Errors are mapped to one type with a reason: `no-key`, `offline`, `unauthorized` (401), `no-credit` (402), `rate-limited` (429), `refused` (content filter), `timeout`, `bad-response`, `cancelled`. The kid sees one friendly line; the parent area shows the reason.
 
-Timeout: 90 seconds, through `AbortController`.
+Timeout: 3 minutes for a look and 20 seconds for a key check, through `AbortController`. Only the key check can be cancelled.
 
 ### Venice
 
@@ -135,11 +136,7 @@ Timeout: 90 seconds, through `AbortController`.
 
 ### OpenRouter
 
-- `POST https://openrouter.ai/api/v1/chat/completions`, header `Authorization: Bearer <key>`.
-- Body: `model`, `modalities: ["image", "text"]`, one user message whose `content` is the prompt text followed by the three images as `image_url` data URLs, in order doll, upper, bottom.
-- Response: base64 data URL in `choices[0].message.images[0].image_url.url`.
-- Docs: https://openrouter.ai/docs/guides/overview/multimodal/image-generation
-- **Decided in PR 3:** the app uses the dedicated Image API, `POST https://openrouter.ai/api/v1/images`, with `input_references: [{ type: 'image_url', image_url: { url: <data URL> } }]` (doll, upper, bottom) and `n: 1`. The answer is `data[0].b64_json`, decoded in the app (the CSP doesn't allow fetching `data:` URLs). Key check: `GET /api/v1/key` (shows `limit_remaining`). Docs: https://openrouter.ai/docs/api/api-reference/images/generate-an-image
+- The app uses the dedicated Image API (decided in PR 3; chat completions isn't used), `POST https://openrouter.ai/api/v1/images`, with `input_references: [{ type: 'image_url', image_url: { url: <data URL> } }]` (doll, upper, bottom) and `n: 1`. The answer is `data[0].b64_json`, decoded in the app (the CSP doesn't allow fetching `data:` URLs). Key check: `GET /api/v1/key` (shows `limit_remaining`). Docs: https://openrouter.ai/docs/api/api-reference/images/generate-an-image
 
 ### Default prompt
 
@@ -165,7 +162,8 @@ Reviewed by the UI/UX agent twice (plan and mockup, 2026-10-26). Mockup: the "AI
 - Hidden when no provider/key is set. Disabled offline with the caption "צריך אינטרנט".
 - **Countdown, shown only when 20 or fewer are left** (an always-visible number turns the dolls into something to spend). Wording without "לך", because parent regenerations count too: "נשארו עוד 12 בובות החודש"; singular "נשארה עוד בובה אחת החודש". The singular/plural rule lives in one helper next to `src/core/gallery.ts`.
 - **At 0:** button disabled, caption "הבובות של החודש נגמרו. חוזרות ב־1 בנובמבר" (real date of the next month). Saved AI looks still show. The parent can still regenerate or raise the cap.
-- Waiting: doll shown faded, text "הבובה מתלבשת… זה לוקח עד דקה", an indeterminate animation (no fake percentage), button "ביטול". If the picture arrives after cancel, it is saved anyway (already paid for).
+- Waiting: doll shown faded, text "הבובה מתלבשת… זה לוקח עד דקה", an indeterminate animation (no fake percentage), button "ביטול". **"ביטול" only stops waiting on screen; the request keeps going** (the provider makes and charges for the picture anyway), and the picture is saved when it arrives. Only a 3-minute deadline aborts a call that hangs.
+- **What counts toward the monthly cap:** every request that reached the provider and may cost money: a picture, a timeout, a refusal, a provider error (5xx) or a broken answer. Not counted: no answer at all (offline/CORS) and requests the provider rejected up front (401, 402, 400, 429).
 - The request lives in the app's shared state, not in the screen, so leaving the tab doesn't lose it. A toast "הבובה מוכנה · לראות" appears; "לראות" opens that look's preview without changing what she is currently picking.
 - Result (opens first when a look exists): AI picture with a permanent tag "תמונת AI · צבעים וגזרה יכולים להיות שונים", a row of small real garment photos under it (**all garments of the outfit**: layer, shirt and trousers when there's a layer), and the toggle "בובה / תמונות".
 - After her try: no regenerate button. **"לא דומה?"** (touch target ≥ 44 px) marks the look for the parent and shows "סימנו להורים".
@@ -210,7 +208,7 @@ Each PR follows `CLAUDE.md`: branch from `main`, draft PR, review agent, fixes a
 |---|---|---|---|
 | 1 | `feat/doll-image` | Schema v2 (doll part, v1 migration), bundled default doll (pre-cached by the service worker), change/reset in the parent area, doll in backup export/restore | — |
 | 2 | `feat/ai-settings` | `AiSettings` in schema, device-only key storage, short "בובה ו־AI" panel and the "הגדרות AI" screen (provider, key, model, cap, prompt under "מתקדם"), CSP hosts in `vercel.json`, README/`CLAUDE.md` privacy text | 1 |
-| 3 | `feat/ai-providers` | Provider interface, Venice and OpenRouter adapters, error mapping, timeout, "בדיקת חיבור" wired up. **Includes the on-iPhone CORS test and model check** | 2 |
+| 3 | `feat/ai-providers` | Provider interface, Venice and OpenRouter adapters, error mapping, timeout, "בדיקת חיבור" wired up. The on-iPhone CORS test and model check are left to the owner after merge (§3) | 2 |
 | 4 | `feat/ai-look` | `--ai`/`--ok` tokens, countdown helper, `AiLook` model, request in shared state, button and waiting state, save as WebP, show saved look, toggle, tag, "לא דומה?", one-try rule, monthly cap, cascade delete with garments, favourites card | 3 |
 | 5 | `feat/ai-looks-parent` | "לוקים לתיקון" screen with regenerate/keep/delete, delete-all with confirmation, delete-old-looks question on doll change | 4 |
 | 6 | `feat/backup-ai-looks` | AI looks in backup export/restore, validation, size caps | 4 |
@@ -256,7 +254,8 @@ Coverage thresholds stay: 80 % lines/statements/functions, 75 % branches. Run `n
 - `securityHeaders.test.ts`: `connect-src` lists exactly `'self'`, the Venice host and the OpenRouter host.
 
 **Manual, on her iPhone (PR 3 and PR 4)**
-- Real call through each provider from the home-screen app (CORS).
+- After PR 3: "בדיקת חיבור" through each provider from the home-screen app (CORS).
+- With the first look in PR 4: the default model of each provider, and whether a Venice refusal is detected.
 - Real result quality with the default doll and her own photos.
 - Offline behaviour and leaving the screen mid-request.
 
