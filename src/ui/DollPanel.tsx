@@ -159,7 +159,7 @@ export function DollPanel({ imageDeps }: { imageDeps: ImageDeps }) {
               <img src={pending.url} alt="הבובה החדשה" />
             </div>
           </div>
-          <p className="muted">{custom ? 'התמונה הקודמת של הבובה תימחק.' : 'אפשר לחזור לבובה הרגילה בכל רגע.'}</p>
+          <p className="muted">{custom ? 'התמונה הקודמת של הבובה תימחק ואי אפשר להחזיר אותה, אלא מגיבוי.' : 'אפשר לחזור לבובה הרגילה בכל רגע.'}</p>
           <button type="button" className="btn btn-dark" onClick={confirmReplace}>
             כן, להחליף
           </button>
@@ -171,7 +171,7 @@ export function DollPanel({ imageDeps }: { imageDeps: ImageDeps }) {
 
       {confirmReset && (
         <Sheet title="לחזור לבובה הרגילה?" onClose={() => setConfirmReset(false)}>
-          <p className="muted">התמונה שבחרת תימחק, אלא אם היא בגיבוי.</p>
+          <p className="muted">התמונה שבחרת תימחק ואי אפשר להחזיר אותה, אלא מגיבוי.</p>
           <button type="button" className="btn btn-danger" onClick={confirmDefault}>
             כן, לחזור
           </button>

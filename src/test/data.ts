@@ -1,3 +1,4 @@
+import { closetImagePaths } from '../core/closet';
 import { emptyCloset, type ClosetData, type Item, type Outfit } from '../core/model';
 import { MemoryFileStore } from '../storage/fileStore';
 
@@ -45,9 +46,7 @@ export function testPhoto(ext: 'webp' | 'jpg'): Uint8Array {
 export function seededStore(data: ClosetData): MemoryFileStore {
   const store = new MemoryFileStore();
   store.files.set('closet-b.json', new Blob([JSON.stringify({ generation: 1, savedAt: NOW, closet: data })]));
-  const paths = data.items.map((it) => it.image);
-  if (data.doll.image) paths.push(data.doll.image);
-  for (const path of paths) {
+  for (const path of closetImagePaths(data)) {
     const jpg = path.endsWith('.jpg');
     store.files.set(path, new Blob([testPhoto(jpg ? 'jpg' : 'webp') as BlobPart], { type: jpg ? 'image/jpeg' : 'image/webp' }));
   }
