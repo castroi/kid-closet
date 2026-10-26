@@ -1,8 +1,10 @@
-import { addItem as addItemTo, closetImagePaths, parseCloset, removeItems } from '../core/closet';
+import { addItem as addItemTo, closetImagePaths, parseCloset, putLook, removeItems, storedImagePaths } from '../core/closet';
 import {
   defaultDoll,
   dollImagePath,
   emptyCloset,
+  lookImagePath,
+  type AiLook,
   type ClosetData,
   type ColorGroup,
   type Doll,
@@ -215,13 +217,39 @@ export class ClosetRepository {
     });
   }
 
+  /** Deletes items, their photos, and the AI looks (with their pictures) that used them. */
   deleteItems(ids: string[]): Promise<ClosetData> {
     return this.locked(async () => {
-      const set = new Set(ids);
-      const paths = this.data.items.filter((it) => set.has(it.id)).map((it) => it.image);
+      const before = storedImagePaths(this.data);
       const next = await this.persist(removeItems(this.data, ids));
-      for (const p of paths) await this.store.remove(p).catch(() => undefined);
+      const kept = new Set(storedImagePaths(next));
+      for (const p of before) if (!kept.has(p)) await this.store.remove(p).catch(() => undefined);
       return next;
+    });
+  }
+
+  /**
+   * Saves a picture the AI made for a look. Replaces an older look for the same parts
+   * (the parent's redo), deleting its picture after the save.
+   */
+  addLook(input: Omit<AiLook, 'id' | 'image' | 'createdAt' | 'flagged'>, image: StoredImage): Promise<AiLook> {
+    return this.locked(async () => {
+      const id = this.newId();
+      const look: AiLook = { ...input, id, image: lookImagePath(id, image.ext), flagged: false, createdAt: this.clock() };
+      // Picture first, then the list, as in addItem: a crash in between leaves only an orphan.
+      await this.store.write(look.image, image.blob);
+      const before = storedImagePaths(this.data);
+      let next: ClosetData;
+      try {
+        next = await this.persist(putLook(this.data, look));
+      } catch (err) {
+        // As in setDoll: remove it only when nothing was written; a reported failure may have landed.
+        if (err instanceof ClosetChangedElsewhereError) await this.store.remove(look.image).catch(() => undefined);
+        throw err;
+      }
+      const kept = new Set(storedImagePaths(next));
+      for (const p of before) if (!kept.has(p)) await this.store.remove(p).catch(() => undefined);
+      return look;
     });
   }
 
@@ -294,7 +322,7 @@ export class ClosetRepository {
 
   /** Best-effort: a cleanup failure must never fail the load or save that called it. */
   private async removeOrphanImages(): Promise<void> {
-    const referenced = new Set(closetImagePaths(this.data));
+    const referenced = new Set(storedImagePaths(this.data));
     let names: string[];
     try {
       names = await this.store.list(IMAGES_DIR);

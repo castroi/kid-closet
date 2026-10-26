@@ -69,6 +69,28 @@ export interface AiSettings {
 export const DEFAULT_MONTHLY_CAP = 100;
 export const MAX_MONTHLY_CAP = 1000;
 
+/**
+ * A picture of the doll wearing a look, made by the AI. It is identified by what was sent:
+ * the doll, the upper garment (the shirt, or the layer when there is one) and the trousers.
+ * Outfits that differ only by a shirt under a layer share one picture.
+ */
+export interface AiLook {
+  id: string;
+  dollId: string;
+  upperId: string;
+  upperSlot: 'top' | 'layer';
+  bottomId: string;
+  /** Always "images/look-<id>.webp" (or .jpg), so deleting one look never removes another's picture. */
+  image: string;
+  provider: AiProviderId;
+  model: string;
+  /** Which prompt made it (a short hash), so a changed prompt can be told apart later. */
+  promptHash: string;
+  /** She tapped "לא דומה?"; the parent sees it in "לוקים לתיקון". */
+  flagged: boolean;
+  createdAt: string;
+}
+
 export interface ClosetData {
   schemaVersion: number;
   items: Item[];
@@ -76,13 +98,14 @@ export interface ClosetData {
   lastBackupAt: string | null;
   doll: Doll;
   ai: AiSettings;
+  aiLooks: AiLook[];
 }
 
 /**
- * 2 added `doll`, 3 added `ai`. Older files and backups still load: version 1 with the
- * bundled doll, versions 1 and 2 with AI not set up.
+ * 2 added `doll`, 3 added `ai`, 4 added `aiLooks`. Older files and backups still load:
+ * version 1 with the bundled doll, versions 1–2 with AI not set up, versions 1–3 with no looks.
  */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export const ITEM_TYPES: ItemType[] = ['tee', 'longTop', 'sweater', 'jacket', 'pants', 'shorts'];
 export const SLOTS: Slot[] = ['layer', 'top', 'bottom'];
@@ -134,6 +157,7 @@ export function emptyCloset(): ClosetData {
     lastBackupAt: null,
     doll: defaultDoll(),
     ai: defaultAiSettings(),
+    aiLooks: [],
   };
 }
 
@@ -143,6 +167,10 @@ export function defaultAiSettings(): AiSettings {
 
 export function defaultDoll(): Doll {
   return { id: DEFAULT_DOLL_ID, image: null };
+}
+
+export function lookImagePath(id: string, ext: 'webp' | 'jpg'): string {
+  return `images/look-${id}.${ext}`;
 }
 
 /** The parent's doll picture is named after the doll's id, like an item's photo. */

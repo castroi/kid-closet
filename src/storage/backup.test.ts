@@ -63,6 +63,26 @@ describe('backup', () => {
     expect(await blobToBytes((await targetStore.read('images/doll-d1.jpg'))!)).toEqual(testPhoto('jpg'));
   });
 
+  it('leaves AI looks out of backups for now, and a restore brings none', async () => {
+    const store = seededStore(sample());
+    const repo = new ClosetRepository(store, () => NOW, () => 'l1');
+    await repo.load();
+    await repo.addLook(
+      { dollId: 'default', upperId: 't', upperSlot: 'top', bottomId: 'b', provider: 'venice', model: 'm', promptHash: 'h' },
+      { blob: new Blob([testPhoto('webp') as BlobPart], { type: 'image/webp' }), ext: 'webp' },
+    );
+    const zip = await exportBackup(repo, NOW);
+    const { closet, images } = readBackup(zip);
+    expect(closet.aiLooks).toEqual([]);
+    expect([...images.keys()]).not.toContain('images/look-l1.webp');
+
+    const lying = manifestZip(
+      { format: BACKUP_FORMAT, exportedAt: NOW, closet: { ...repo.getData() } },
+      { 'images/t.webp': testPhoto('webp'), 'images/b.jpg': testPhoto('jpg') },
+    );
+    expect(readBackup(lying).closet.aiLooks).toEqual([]);
+  });
+
   it('keeps the AI settings in the backup', async () => {
     const ai = { provider: 'venice' as const, model: 'm', prompt: 'p', monthlyCap: 7 };
     const repo = new ClosetRepository(seededStore({ ...sample(), ai }), () => NOW);

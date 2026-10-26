@@ -75,3 +75,8 @@ export function showAllLabel(slot: Slot, total: number): string {
 export function noMatchLabel(slot: Slot): string {
   return `אין ${SLOT_NOUN[slot].word} כאלה`;
 }
+
+/** "נשארו עוד 12 בובות החודש" / "נשארה עוד בובה אחת החודש". No "לך": the parent's redos count too. */
+export function dollsLeftText(left: number): string {
+  return left === 1 ? 'נשארה עוד בובה אחת החודש' : `נשארו עוד ${left} בובות החודש`;
+}

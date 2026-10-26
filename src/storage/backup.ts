@@ -54,11 +54,12 @@ export async function exportBackup(repo: ClosetRepository, exportedAt: string): 
     // Photos are already compressed; storing them avoids wasting time on the phone.
     files[item.image] = [bytes, { level: 0 }];
   }
-  let closet = data;
+  // AI looks aren't in backups yet (PR 6 of docs/ai-doll-look.md); they can be made again.
+  let closet: ClosetData = { ...data, aiLooks: [] };
   const dollBytes = data.doll.image ? images.get(data.doll.image) : null;
   if (data.doll.image && dollBytes) files[data.doll.image] = [dollBytes, { level: 0 }];
   // A lost doll picture must never block the backup of her clothes: back up the bundled doll instead.
-  else if (data.doll.image) closet = { ...data, doll: defaultDoll() };
+  else if (data.doll.image) closet = { ...closet, doll: defaultDoll() };
   const manifest: Manifest = { format: BACKUP_FORMAT, exportedAt, closet };
   files[BACKUP_MANIFEST] = strToU8(JSON.stringify(manifest, null, 2));
   return zipSync(files);
@@ -105,6 +106,8 @@ export function readBackup(zip: Uint8Array): { closet: ClosetData; images: Map<s
     if (err instanceof InvalidClosetError) throw new InvalidBackupError(err.message);
     throw err;
   }
+  // Looks aren't in backups yet, so a backup can't bring pictures for them.
+  closet = { ...closet, aiLooks: [] };
   const images = new Map<string, Blob>();
   for (const path of closetImagePaths(closet)) {
     const bytes = entries[path];

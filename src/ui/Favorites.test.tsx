@@ -2,7 +2,7 @@ import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { ClosetChangedElsewhereError } from '../storage/repository';
-import { makeOutfit, renderWithCloset, sampleCloset } from '../test/fixtures';
+import { NOW, makeOutfit, renderWithCloset, sampleCloset } from '../test/fixtures';
 import { Favorites } from './Favorites';
 
 function closetWithTwoLooks() {
@@ -12,6 +12,32 @@ function closetWithTwoLooks() {
 }
 
 describe('Favorites', () => {
+  it("shows the doll for a look the AI made, with the shirt when it's under a layer, and the heart stays", async () => {
+    const data = sampleCloset(); // o1: sweater over the blue shirt, jeans
+    data.aiLooks = [
+      {
+        id: 'l1',
+        dollId: 'default',
+        upperId: 'lSweater',
+        upperSlot: 'layer',
+        bottomId: 'bJeans',
+        image: 'images/look-l1.webp',
+        provider: 'venice',
+        model: 'm',
+        promptHash: 'h',
+        flagged: false,
+        createdAt: NOW,
+      },
+    ];
+    const { store } = await renderWithCloset(<Favorites onOpen={vi.fn()} />, data);
+    store.files.set('images/look-l1.webp', new Blob(['look'], { type: 'image/webp' }));
+    const card = screen.getByRole('button', { name: /^פתיחת הלוק/ });
+    expect(card.querySelector('.fav-ai-mark')).not.toBeNull();
+    expect(screen.getByRole('img', { name: 'חולצה כחולה' })).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: 'סוודר צהוב' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^הסרה מהמועדפים/ })).toBeInTheDocument();
+  });
+
   it('lists saved looks and filters by occasion', async () => {
     const user = userEvent.setup();
     await renderWithCloset(<Favorites onOpen={vi.fn()} />, closetWithTwoLooks());

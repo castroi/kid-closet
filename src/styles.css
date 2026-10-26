@@ -1108,3 +1108,148 @@ a {
   padding: 0 6px;
   margin: -12px -6px;
 }
+
+/* AI look in the preview and favourites (docs/ai-doll-look.md §8). The AI picture is not a garment
+   photo, so it may be faded while waiting; garment photos never are. */
+.ai-switch {
+  align-self: center;
+}
+.ai-preview {
+  gap: 10px;
+}
+.ai-look-img {
+  width: 100%;
+  max-width: 320px;
+  aspect-ratio: 3 / 4;
+  object-fit: contain;
+  border-radius: 18px;
+  background: var(--surface-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-2);
+}
+.ai-look-img.faded {
+  opacity: 0.5;
+}
+.ai-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ink-2);
+}
+.ai-tag svg,
+.ai-btn svg,
+.ai-waiting-mark,
+.fav-ai-mark {
+  color: var(--ai);
+}
+.ai-real-photos {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  justify-content: center;
+}
+.link-btn {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 12px;
+  border: none;
+  background: transparent;
+  color: var(--accent-text);
+  font-weight: 600;
+  text-decoration: underline;
+}
+.ai-waiting {
+  position: relative;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+.ai-waiting-mark {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ai-waiting-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+.ai-progress {
+  width: 220px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--tag);
+  overflow: hidden;
+}
+/* No percentage: the wait has no known length, so the bar only shows that something is happening. */
+.ai-progress > span {
+  display: block;
+  width: 40%;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--ai);
+  animation: ai-progress 1.6s ease-in-out infinite;
+}
+@keyframes ai-progress {
+  from {
+    transform: translateX(160%);
+  }
+  to {
+    transform: translateX(-260%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ai-progress > span {
+    animation: none;
+    width: 100%;
+  }
+}
+.ai-cancel {
+  min-height: 44px;
+  border-color: var(--line);
+}
+.ai-action {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ai-btn {
+  border-color: var(--ai);
+  color: var(--ai);
+}
+.ai-caption {
+  text-align: center;
+}
+.fav-thumb {
+  position: relative;
+}
+.fav-ai-img {
+  width: 100%;
+  height: 160px;
+  object-fit: contain;
+  border-radius: 12px;
+}
+.fav-ai-mark {
+  position: absolute;
+  top: 8px;
+  inset-inline-start: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 14px;
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.fav-ai-shirt {
+  position: absolute;
+  bottom: 8px;
+  inset-inline-end: 8px;
+  background: var(--surface);
+  border-radius: 10px;
+  padding: 2px;
+}

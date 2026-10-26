@@ -4,6 +4,7 @@ import {
   AI_CHECK_KEY,
   AI_KEY_PREFIX,
   AI_USAGE_KEY,
+  PREVIEW_VIEW_KEY,
   aiReady,
   isValidApiKey,
   maskKey,
@@ -12,6 +13,8 @@ import {
   readApiKey,
   readLastCheck,
   readMonthlyUse,
+  readPreviewView,
+  recordUse,
   removeApiKey,
   saveApiKey,
   saveLastCheck,
@@ -111,5 +114,27 @@ describe('last key check', () => {
     expect(readLastCheck(memoryStorage({ [AI_CHECK_KEY]: '{"provider":"venice","at":1,"ok":true}' }), 'venice')).toBeNull();
     expect(readLastCheck(broken, 'venice')).toBeNull();
     expect(() => saveLastCheck(broken, null)).not.toThrow();
+  });
+});
+
+describe('counting uses and remembering the view', () => {
+  it('counts this month, starting again in a new month', () => {
+    const storage = memoryStorage();
+    recordUse(storage, new Date(2026, 9, 26));
+    recordUse(storage, new Date(2026, 9, 27));
+    expect(readMonthlyUse(storage, new Date(2026, 9, 28))).toBe(2);
+    recordUse(storage, new Date(2026, 10, 1));
+    expect(readMonthlyUse(storage, new Date(2026, 10, 1))).toBe(1);
+    expect(() => recordUse(broken, new Date())).not.toThrow();
+  });
+
+  it('opens on the doll unless she last chose the photos', () => {
+    const storage = memoryStorage();
+    expect(readPreviewView(storage)).toBe('doll');
+    savePreviewView(storage, 'photos');
+    expect(storage.data.get(PREVIEW_VIEW_KEY)).toBe('photos');
+    expect(readPreviewView(storage)).toBe('photos');
+    expect(readPreviewView(broken)).toBe('doll');
+    expect(() => savePreviewView(broken, 'doll')).not.toThrow();
   });
 });

@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
 import { defaultAiSettings } from '../core/model';
+import bundledDollDataUrl from '../assets/doll-default.webp?inline';
 import { cleanWebp, gpsJpeg, gpsWebp } from '../test/photos';
 import { AI_PROVIDERS } from './catalog';
 import { DEFAULT_PROMPT } from './prompt';
@@ -47,6 +48,15 @@ describe('requestLook', () => {
       expect(text).not.toContain('GPSXMP');
       expect(text).not.toContain('COMMENT-ME');
     }
+  });
+
+  it('sends the real bundled doll (lossy WebP) unchanged, as it has no metadata', async () => {
+    const doll = Uint8Array.from(atob(bundledDollDataUrl.split(',')[1]), (c) => c.charCodeAt(0));
+    expect(doll.length).toBeGreaterThan(1000);
+    const fetch = vi.fn<FetchLike>().mockResolvedValue(new Response(PNG));
+    await requestLook(request(fetch, { doll: { bytes: doll, ext: 'webp' } }));
+    const body = JSON.parse(fetch.mock.calls[0][1].body as string) as { images: string[] };
+    expect(body.images[0]).toBe(`data:image/webp;base64,${bytesToBase64(doll)}`);
   });
 
   it("uses the provider's default model and the built-in prompt when none are set, and reports them", async () => {

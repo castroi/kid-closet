@@ -3,12 +3,14 @@ import type { Outfit } from '../core/model';
 import type { ImageDeps } from '../image/processImage';
 import { AddItem } from '../ui/AddItem';
 import { Closet } from '../ui/Closet';
-import { Icon } from '../ui/common';
+import { Icon, Toast } from '../ui/common';
 import { DressUp } from '../ui/DressUp';
 import { Favorites } from '../ui/Favorites';
 import { Parent } from '../ui/Parent';
 import { Settings } from '../ui/Settings';
-import type { DeviceStorage } from './aiDevice';
+import type { FetchLike } from '../ai/providers';
+import { browserDeviceStorage, type DeviceStorage } from './aiDevice';
+import { AiLookProvider, useAiLooks, type LookOutfit } from './AiLooks';
 import type { ShareEnv, StorageLike } from './device';
 import { browserThemeEnv, useTheme, type ThemeEnv } from './theme';
 
@@ -28,18 +30,31 @@ export interface AppProps {
   today?: Date;
   themeEnv?: ThemeEnv;
   deviceStorage?: DeviceStorage;
+  /** Only for tests: the provider calls and the bundled doll. */
+  fetchFn?: FetchLike;
 }
 
-export function App({ imageDeps, shareEnv, storage, today, themeEnv, deviceStorage }: AppProps) {
+export function App({ deviceStorage: givenStorage, fetchFn, ...props }: AppProps) {
+  // The phone's own storage for the API key, this month's use and view choices; never in the closet or backups.
+  const [deviceStorage] = useState<DeviceStorage>(() => (givenStorage === undefined ? browserDeviceStorage() : givenStorage));
+  return (
+    <AiLookProvider deviceStorage={deviceStorage} imageDeps={props.imageDeps} fetchFn={fetchFn}>
+      <Screens {...props} deviceStorage={deviceStorage} />
+    </AiLookProvider>
+  );
+}
+
+function Screens({ imageDeps, shareEnv, storage, today, themeEnv, deviceStorage }: Omit<AppProps, 'fetchFn'>) {
   const [tab, setTab] = useState<Tab>('dress');
   const [env] = useState<ThemeEnv>(() => themeEnv ?? browserThemeEnv());
   const theme = useTheme(env);
   const [settingsOpen, setSettingsOpen] = useState(false);
   // Opening a favourite remounts the dress-up screen with that outfit selected.
-  const [opened, setOpened] = useState<{ outfit: Outfit; key: number } | null>(null);
+  const [opened, setOpened] = useState<{ outfit: Outfit | LookOutfit; preview: boolean; key: number } | null>(null);
+  const ai = useAiLooks();
 
-  const openOutfit = (outfit: Outfit) => {
-    setOpened((prev) => ({ outfit, key: (prev?.key ?? 0) + 1 }));
+  const openOutfit = (outfit: Outfit | LookOutfit, preview = false) => {
+    setOpened((prev) => ({ outfit, preview, key: (prev?.key ?? 0) + 1 }));
     setTab('dress');
   };
 
@@ -49,12 +64,13 @@ export function App({ imageDeps, shareEnv, storage, today, themeEnv, deviceStora
         {tab === 'dress' && (
           <DressUp
             key={opened?.key ?? 0}
-            initialOutfit={opened?.outfit ?? null}
+            initialOutfit={opened ? { id: '', createdAt: '', ...opened.outfit } : null}
+            initialPreview={opened?.preview ?? false}
             today={today}
             onOpenFavorites={() => setTab('favorites')}
           />
         )}
-        {tab === 'favorites' && <Favorites onOpen={openOutfit} />}
+        {tab === 'favorites' && <Favorites onOpen={(o) => openOutfit(o)} />}
         {tab === 'closet' && <Closet onOpenParent={() => setTab('parent')} onOpenSettings={() => setSettingsOpen(true)} />}
         {tab === 'add' && <AddItem imageDeps={imageDeps} onOpenCloset={() => setTab('closet')} />}
         {tab === 'parent' && (
@@ -67,6 +83,19 @@ export function App({ imageDeps, shareEnv, storage, today, themeEnv, deviceStora
           />
         )}
       </main>
+      {ai.finished && (
+        <div className="action-bar">
+          <Toast
+            text="הבובה מוכנה"
+            actionLabel="לראות"
+            onAction={() => {
+              const outfit = ai.finished;
+              ai.clearFinished();
+              if (outfit) openOutfit(outfit, true);
+            }}
+          />
+        </div>
+      )}
       <nav className="tabbar" aria-label="ניווט ראשי">
         {NAV.map((n) => (
           <button
