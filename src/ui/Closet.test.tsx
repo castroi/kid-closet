@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { ClosetChangedElsewhereError } from '../storage/repository';
@@ -69,7 +69,7 @@ describe('Closet', () => {
     await user.type(dialog.getByRole('textbox'), 'החולצה עם הכוכבים');
     await user.click(dialog.getByRole('button', { name: 'ורוד' }));
     await user.click(dialog.getByRole('button', { name: 'שמירה' }));
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(repo.getData().items.find((i) => i.id === 'tBlue')).toMatchObject({
       name: 'החולצה עם הכוכבים',
       colorGroup: 'pink',
@@ -108,8 +108,8 @@ describe('Closet', () => {
     // She can try again from the same sheet.
     expect(dialog.getByRole('button', { name: 'קטן עליי' })).toBeEnabled();
     await user.click(dialog.getByRole('button', { name: 'קטן עליי' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(repo.getData().items.find((i) => i.id === 'tBlue')?.status).toBe('outgrown');
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('shows a failed move next to the move button', async () => {

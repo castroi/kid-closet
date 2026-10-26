@@ -1253,3 +1253,28 @@ a {
   border-radius: 10px;
   padding: 2px;
 }
+
+/* Parent: looks to fix (docs/ai-doll-look.md §8) */
+.fix-row {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+}
+.fix-ai-img {
+  width: 150px;
+  aspect-ratio: 3 / 4;
+  object-fit: contain;
+  border-radius: 14px;
+  background: var(--surface-2);
+  flex: none;
+}
+.fix-real {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  justify-content: center;
+  min-width: 0;
+}
+.fix-real .ai-real-photos {
+  justify-content: flex-start;
+}

@@ -1,4 +1,12 @@
-import { addItem as addItemTo, closetImagePaths, parseCloset, putLook, removeItems, storedImagePaths } from '../core/closet';
+import {
+  addItem as addItemTo,
+  closetImagePaths,
+  parseCloset,
+  putLook,
+  removeItems,
+  removeLooks as removeLooksFrom,
+  storedImagePaths,
+} from '../core/closet';
 import {
   defaultDoll,
   dollImagePath,
@@ -222,6 +230,17 @@ export class ClosetRepository {
     return this.locked(async () => {
       const before = storedImagePaths(this.data);
       const next = await this.persist(removeItems(this.data, ids));
+      const kept = new Set(storedImagePaths(next));
+      for (const p of before) if (!kept.has(p)) await this.store.remove(p).catch(() => undefined);
+      return next;
+    });
+  }
+
+  /** Deletes AI looks and their pictures (the parent's "למחוק את התמונה" and "מחיקת כל תמונות ה־AI"). */
+  deleteLooks(ids: string[]): Promise<ClosetData> {
+    return this.locked(async () => {
+      const before = storedImagePaths(this.data);
+      const next = await this.persist(removeLooksFrom(this.data, ids));
       const kept = new Set(storedImagePaths(next));
       for (const p of before) if (!kept.has(p)) await this.store.remove(p).catch(() => undefined);
       return next;

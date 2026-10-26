@@ -84,6 +84,16 @@ export function dollsLeftText(left: number): string {
 const HEBREW_MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
 
 /** "1 בנובמבר": a date she can read, without a year. */
+/** "תמונת AI אחת" / "3 תמונות AI", for the delete questions. */
+export function aiPicturesText(n: number): string {
+  return n === 1 ? 'תמונת AI אחת' : `${n} תמונות AI`;
+}
+
+/** "נמחקה תמונה אחת." / "נמחקו 3 תמונות." */
+export function deletedPicturesText(n: number): string {
+  return n === 1 ? 'נמחקה תמונה אחת.' : `נמחקו ${n} תמונות.`;
+}
+
 export function hebrewDay(date: Date): string {
   return `${date.getDate()} ב${HEBREW_MONTHS[date.getMonth()]}`;
 }

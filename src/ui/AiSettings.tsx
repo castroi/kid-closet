@@ -20,7 +20,9 @@ import { checkConnection } from '../ai/send';
 import { MAX_MODEL_LENGTH, MAX_PROMPT_LENGTH } from '../core/closet';
 import { AI_PROVIDER_IDS, MAX_MONTHLY_CAP, type AiProviderId } from '../core/model';
 import type { ImageDeps } from '../image/processImage';
-import { Icon, explainedElsewhere } from './common';
+import { formatBytes } from '../app/device';
+import { aiPicturesText, deletedPicturesText } from '../core/gallery';
+import { Icon, Sheet, explainedElsewhere } from './common';
 import { aiErrorDetail, aiErrorText } from './aiErrors';
 import { DollPanel } from './DollPanel';
 
@@ -32,7 +34,17 @@ function formatDay(date: Date): string {
 }
 
 /** The short panel on the parent page: is AI set up, how much is used this month, and the way to its settings. */
-export function AiPanel({ deviceStorage, now, onOpen }: { deviceStorage: DeviceStorage; now: Date; onOpen: () => void }) {
+export function AiPanel({
+  deviceStorage,
+  now,
+  onOpen,
+  onOpenFix,
+}: {
+  deviceStorage: DeviceStorage;
+  now: Date;
+  onOpen: () => void;
+  onOpenFix: () => void;
+}) {
   const { data } = useCloset();
   const { provider, monthlyCap } = data.ai;
   const ready = aiReady(data.ai, deviceStorage);
@@ -69,6 +81,10 @@ export function AiPanel({ deviceStorage, now, onOpen }: { deviceStorage: DeviceS
       >
         <span style={{ width: `${percent}%` }} />
       </div>
+      <button type="button" className="row-btn" onClick={onOpenFix}>
+        <span>לוקים לתיקון ({data.aiLooks.filter((l) => l.flagged).length})</span>
+        <Icon name="next" />
+      </button>
       <button type="button" className="row-btn" onClick={onOpen}>
         <span>הגדרות AI</span>
         <Icon name="next" />
@@ -162,6 +178,8 @@ export function AiSettingsScreen({
       <DollPanel imageDeps={imageDeps} />
 
       <PromptPanel save={save} />
+
+      <DeleteAllLooks />
     </>
   );
 }
@@ -427,6 +445,75 @@ function PromptPanel({ save }: { save: (patch: { prompt?: string | null }, done:
           </div>
         </div>
       </details>
+    </section>
+  );
+}
+
+/** The last thing on the screen: every AI picture, with a confirmation. Uses already counted stay counted. */
+function DeleteAllLooks() {
+  const { data, readImage, deleteLooks } = useCloset();
+  const looks = data.aiLooks;
+  const [bytes, setBytes] = useState<number | null>(null);
+  const [confirm, setConfirm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<Message>(null);
+
+  useEffect(() => {
+    let active = true;
+    Promise.all(looks.map((l) => readImage(l.image).then((b) => b?.size ?? 0, () => 0))).then((sizes) => {
+      if (active) setBytes(sizes.reduce((a, b) => a + b, 0));
+    });
+    return () => {
+      active = false;
+    };
+  }, [looks, readImage]);
+
+  const run = async () => {
+    setBusy(true);
+    setMessage(null);
+    const count = looks.length;
+    try {
+      await deleteLooks(looks.map((l) => l.id));
+      setMessage({ text: deletedPicturesText(count), error: false });
+    } catch (err) {
+      if (!explainedElsewhere(err)) setMessage({ text: 'המחיקה נכשלה.', error: true });
+    } finally {
+      setConfirm(false);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="panel" aria-labelledby="looks-h">
+      <h2 id="looks-h">תמונות ה־AI</h2>
+      <div className="kv">
+        <span className="muted">תמונות שמורות</span>
+        <span>
+          {looks.length}
+          {bytes !== null && looks.length > 0 ? ` · ${formatBytes(bytes)}` : ''}
+        </span>
+      </div>
+      {message && (
+        <p role="status" className={message.error ? 'error' : 'muted'}>
+          {message.text}
+        </p>
+      )}
+      <button type="button" className="btn btn-danger" disabled={looks.length === 0 || busy} onClick={() => setConfirm(true)}>
+        מחיקת כל תמונות ה־AI
+      </button>
+      {confirm && (
+        <Sheet title={`למחוק ${aiPicturesText(looks.length)}?`} onClose={() => setConfirm(false)}>
+          <p className="muted">
+            אי אפשר להחזיר אותן, והשימוש החודשי לא חוזר. היא תוכל ליצור אותן שוב, וכל יצירה תיספר מחדש.
+          </p>
+          <button type="button" className="btn btn-danger" onClick={run} disabled={busy}>
+            כן, למחוק
+          </button>
+          <button type="button" className="btn" onClick={() => setConfirm(false)}>
+            לא, להשאיר
+          </button>
+        </Sheet>
+      )}
     </section>
   );
 }

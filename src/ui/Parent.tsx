@@ -15,6 +15,7 @@ import type { ImageDeps } from '../image/processImage';
 import { backupFileName, readBackupFile } from '../storage/backup';
 import { browserDeviceStorage, type DeviceStorage } from '../app/aiDevice';
 import { AiPanel, AiSettingsScreen } from './AiSettings';
+import { LooksToFix } from './LooksToFix';
 import { Icon, Sheet, Swatch, restoreErrorText } from './common';
 
 export const BACKUP_REMINDER_DAYS = 14;
@@ -48,31 +49,34 @@ export function Parent({
   now = () => new Date(),
 }: Props) {
   const [unlocked, setUnlocked] = useState(false);
-  const [view, setView] = useState<'main' | 'ai'>('main');
+  const [view, setView] = useState<'main' | 'ai' | 'fix'>('main');
   const [deviceStorage] = useState<DeviceStorage>(() => (givenStorage === undefined ? browserDeviceStorage() : givenStorage));
-  const inAi = unlocked && view === 'ai';
+  const shown = unlocked ? view : 'main';
   // Each view starts at its top, not at the scroll position of the one before.
   const screenRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (screenRef.current) screenRef.current.scrollTop = 0;
-  }, [inAi]);
+  }, [shown]);
+  const title = shown === 'ai' ? 'הגדרות AI' : shown === 'fix' ? 'לוקים לתיקון' : 'אזור הורים';
   return (
     <div className="screen" ref={screenRef}>
       <div className="screen-header" style={{ justifyContent: 'flex-start' }}>
         <button
           type="button"
           className="icon-btn"
-          aria-label={inAi ? 'חזרה לאזור הורים' : 'חזרה לארון'}
-          onClick={inAi ? () => setView('main') : onBack}
+          aria-label={shown === 'main' ? 'חזרה לארון' : 'חזרה לאזור הורים'}
+          onClick={shown === 'main' ? onBack : () => setView('main')}
         >
           <Icon name="back" />
         </button>
-        <h1>{inAi ? 'הגדרות AI' : 'אזור הורים'}</h1>
+        <h1>{title}</h1>
       </div>
       {!unlocked ? (
         <Gate question={question} onUnlock={() => setUnlocked(true)} />
-      ) : inAi ? (
+      ) : shown === 'ai' ? (
         <AiSettingsScreen deviceStorage={deviceStorage} imageDeps={imageDeps} />
+      ) : shown === 'fix' ? (
+        <LooksToFix />
       ) : (
         <ParentTools
           shareEnv={shareEnv}
@@ -80,6 +84,7 @@ export function Parent({
           now={now}
           deviceStorage={deviceStorage}
           onOpenAi={() => setView('ai')}
+          onOpenFix={() => setView('fix')}
         />
       )}
     </div>
@@ -127,12 +132,14 @@ function ParentTools({
   now,
   deviceStorage,
   onOpenAi,
+  onOpenFix,
 }: {
   shareEnv: ShareEnv;
   storage?: StorageLike;
   now: () => Date;
   deviceStorage: DeviceStorage;
   onOpenAi: () => void;
+  onOpenFix: () => void;
 }) {
   const api = useCloset();
   const { data } = api;
@@ -269,7 +276,7 @@ function ParentTools({
         </div>
       </section>
 
-      <AiPanel deviceStorage={deviceStorage} now={now()} onOpen={onOpenAi} />
+      <AiPanel deviceStorage={deviceStorage} now={now()} onOpen={onOpenAi} onOpenFix={onOpenFix} />
 
       <section className="panel" aria-labelledby="storage-h">
         <h2 id="storage-h">אחסון בטלפון</h2>

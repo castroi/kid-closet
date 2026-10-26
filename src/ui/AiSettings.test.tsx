@@ -7,7 +7,7 @@ import type { FetchLike } from '../ai/providers';
 import { DEFAULT_PROMPT } from '../ai/prompt';
 import { emptyCloset, type AiSettings, type ClosetData } from '../core/model';
 import { exportBackup } from '../storage/backup';
-import { NOW, fakeImageDeps, memoryStorage, renderWithCloset } from '../test/fixtures';
+import { NOW, fakeImageDeps, makeLook, memoryStorage, renderWithCloset, sampleCloset } from '../test/fixtures';
 import { AiPanel, AiSettingsScreen } from './AiSettings';
 
 const OCT = new Date(2026, 9, 26, 12);
@@ -32,18 +32,18 @@ describe('AiPanel', () => {
       [AI_CHECK_KEY]: JSON.stringify({ provider: 'venice', at: '2026-10-25T10:00:00.000Z', ok: true }),
     });
     const { unmount } = await renderWithCloset(
-      <AiPanel deviceStorage={storage} now={OCT} onOpen={vi.fn()} />,
+      <AiPanel deviceStorage={storage} now={OCT} onOpen={vi.fn()} onOpenFix={vi.fn()} />,
       closetWithAi({ provider: 'venice' }),
     );
     expect(screen.getByRole('status')).toHaveTextContent('מוגדר · Venice · נבדק ב־25.10');
     unmount();
     storage.setItem(AI_CHECK_KEY, JSON.stringify({ provider: 'venice', at: '2026-10-25T10:00:00.000Z', ok: false }));
-    await renderWithCloset(<AiPanel deviceStorage={storage} now={OCT} onOpen={vi.fn()} />, closetWithAi({ provider: 'venice' }));
+    await renderWithCloset(<AiPanel deviceStorage={storage} now={OCT} onOpen={vi.fn()} onOpenFix={vi.fn()} />, closetWithAi({ provider: 'venice' }));
     expect(screen.getByRole('status')).toHaveTextContent('הבדיקה האחרונה נכשלה');
   });
 
   it('says AI is not set up until there is a provider and a key', async () => {
-    await renderWithCloset(<AiPanel deviceStorage={memoryStorage()} now={OCT} onOpen={vi.fn()} />, closetWithAi({ provider: 'venice' }));
+    await renderWithCloset(<AiPanel deviceStorage={memoryStorage()} now={OCT} onOpen={vi.fn()} onOpenFix={vi.fn()} />, closetWithAi({ provider: 'venice' }));
     expect(screen.getByRole('status')).toHaveTextContent('לא מוגדר');
   });
 
@@ -54,7 +54,7 @@ describe('AiPanel', () => {
       [`${AI_KEY_PREFIX}venice`]: 'k',
       [AI_USAGE_KEY]: JSON.stringify({ month: '2026-10', count: 23 }),
     });
-    await renderWithCloset(<AiPanel deviceStorage={storage} now={OCT} onOpen={onOpen} />, closetWithAi({ provider: 'venice' }));
+    await renderWithCloset(<AiPanel deviceStorage={storage} now={OCT} onOpen={onOpen} onOpenFix={vi.fn()} />, closetWithAi({ provider: 'venice' }));
     expect(screen.getByRole('status')).toHaveTextContent('מוגדר · Venice');
     expect(screen.getByText('23 מתוך 100 · מתאפס ב־1.11')).toBeInTheDocument();
     expect(screen.getByRole('progressbar', { name: 'השימוש החודש' })).toHaveAttribute('aria-valuenow', '23');
@@ -62,8 +62,17 @@ describe('AiPanel', () => {
     expect(onOpen).toHaveBeenCalled();
   });
 
+  it('counts the looks she flagged and opens them', async () => {
+    const user = userEvent.setup();
+    const onOpenFix = vi.fn();
+    const data = { ...sampleCloset(), aiLooks: [makeLook({ id: 'a', flagged: true }), makeLook({ id: 'b', bottomId: 'bShorts' })] };
+    await renderWithCloset(<AiPanel deviceStorage={memoryStorage()} now={OCT} onOpen={vi.fn()} onOpenFix={onOpenFix} />, data);
+    await user.click(screen.getByRole('button', { name: 'לוקים לתיקון (1)' }));
+    expect(onOpenFix).toHaveBeenCalled();
+  });
+
   it('shows a full bar when the cap is 0, with a valid range for screen readers', async () => {
-    await renderWithCloset(<AiPanel deviceStorage={memoryStorage()} now={OCT} onOpen={vi.fn()} />, closetWithAi({ monthlyCap: 0 }));
+    await renderWithCloset(<AiPanel deviceStorage={memoryStorage()} now={OCT} onOpen={vi.fn()} onOpenFix={vi.fn()} />, closetWithAi({ monthlyCap: 0 }));
     expect(screen.getByText('0 מתוך 0 · מתאפס ב־1.11')).toBeInTheDocument();
     expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuemax', '1');
     expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '1');
@@ -231,5 +240,59 @@ describe('AiSettingsScreen', () => {
     await user.click(screen.getByRole('button', { name: 'Venice' }));
     expect(await screen.findByText('השמירה לא הצליחה. נסי שוב.')).toBeInTheDocument();
     expect(repo.getData().ai.provider).toBeNull();
+  });
+});
+
+describe('deleting every AI picture', () => {
+  const looks = [makeLook({ id: 'a' }), makeLook({ id: 'b', bottomId: 'bShorts' })];
+
+  async function renderWithLooks() {
+    const result = await renderWithCloset(<AiSettingsScreen deviceStorage={memoryStorage()} imageDeps={fakeImageDeps()} />, {
+      ...sampleCloset(),
+      aiLooks: looks,
+    });
+    result.store.files.set(looks[0].image, new Blob([new Uint8Array(1536)]));
+    result.store.files.set(looks[1].image, new Blob([new Uint8Array(512)]));
+    return result;
+  }
+
+  it('asks first, then deletes the looks and their pictures, keeping the clothes', async () => {
+    const user = userEvent.setup();
+    const { repo, store } = await renderWithLooks();
+    expect(screen.getByText('תמונות שמורות').nextElementSibling).toHaveTextContent(/^2/);
+    await user.click(screen.getByRole('button', { name: 'מחיקת כל תמונות ה־AI' }));
+    expect(screen.getByRole('heading', { name: 'למחוק 2 תמונות AI?' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'כן, למחוק' }));
+
+    expect(await screen.findByText('נמחקו 2 תמונות.')).toBeInTheDocument();
+    expect(repo.getData().aiLooks).toEqual([]);
+    expect(store.files.has(looks[0].image)).toBe(false);
+    expect(store.files.has(looks[1].image)).toBe(false);
+    expect(store.files.has('images/tBlue.webp')).toBe(true);
+    expect(screen.getByRole('button', { name: 'מחיקת כל תמונות ה־AI' })).toBeDisabled();
+  });
+
+  it('keeps everything when the parent says no', async () => {
+    const user = userEvent.setup();
+    const { repo } = await renderWithLooks();
+    await user.click(screen.getByRole('button', { name: 'מחיקת כל תמונות ה־AI' }));
+    await user.click(screen.getByRole('button', { name: 'לא, להשאיר' }));
+    expect(screen.queryByRole('heading', { name: 'למחוק 2 תמונות AI?' })).not.toBeInTheDocument();
+    expect(repo.getData().aiLooks).toHaveLength(2);
+  });
+
+  it('says so when the delete fails', async () => {
+    const user = userEvent.setup();
+    const { repo } = await renderWithLooks();
+    vi.spyOn(repo, 'deleteLooks').mockRejectedValueOnce(new Error('disk full'));
+    await user.click(screen.getByRole('button', { name: 'מחיקת כל תמונות ה־AI' }));
+    await user.click(screen.getByRole('button', { name: 'כן, למחוק' }));
+    expect(await screen.findByText('המחיקה נכשלה.')).toBeInTheDocument();
+    expect(repo.getData().aiLooks).toHaveLength(2);
+  });
+
+  it('cannot be pressed when there are no pictures', async () => {
+    await renderWithCloset(<AiSettingsScreen deviceStorage={memoryStorage()} imageDeps={fakeImageDeps()} />, sampleCloset());
+    expect(screen.getByRole('button', { name: 'מחיקת כל תמונות ה־AI' })).toBeDisabled();
   });
 });
