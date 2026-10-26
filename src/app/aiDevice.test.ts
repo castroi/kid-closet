@@ -4,7 +4,6 @@ import {
   AI_CHECK_KEY,
   AI_KEY_PREFIX,
   AI_USAGE_KEY,
-  PREVIEW_VIEW_KEY,
   aiReady,
   isValidApiKey,
   maskKey,
@@ -13,12 +12,10 @@ import {
   readApiKey,
   readLastCheck,
   readMonthlyUse,
-  readPreviewView,
   recordUse,
   removeApiKey,
   saveApiKey,
   saveLastCheck,
-  savePreviewView,
   type DeviceStorage,
 } from './aiDevice';
 import { memoryStorage } from '../test/data';
@@ -118,7 +115,7 @@ describe('last key check', () => {
   });
 });
 
-describe('counting uses and remembering the view', () => {
+describe('counting uses', () => {
   it('counts this month, starting again in a new month', () => {
     const storage = memoryStorage();
     recordUse(storage, new Date(2026, 9, 26));
@@ -127,15 +124,5 @@ describe('counting uses and remembering the view', () => {
     recordUse(storage, new Date(2026, 10, 1));
     expect(readMonthlyUse(storage, new Date(2026, 10, 1))).toBe(1);
     expect(() => recordUse(broken, new Date())).not.toThrow();
-  });
-
-  it('opens on the doll unless she last chose the photos', () => {
-    const storage = memoryStorage();
-    expect(readPreviewView(storage)).toBe('doll');
-    savePreviewView(storage, 'photos');
-    expect(storage.data.get(PREVIEW_VIEW_KEY)).toBe('photos');
-    expect(readPreviewView(storage)).toBe('photos');
-    expect(readPreviewView(broken)).toBe('doll');
-    expect(() => savePreviewView(broken, 'doll')).not.toThrow();
   });
 });

@@ -1,10 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { nextResetDate, readPreviewView, savePreviewView } from '../app/aiDevice';
+import { nextResetDate } from '../app/aiDevice';
 import { lookKey, useAiLooks, type LookOutfit } from '../app/AiLooks';
 import { useCloset } from '../app/ClosetContext';
 import { DEFAULT_DOLL_URL } from '../app/doll';
 import { findLook, lookPartsFor } from '../core/closet';
-import { dollsLeftText } from '../core/gallery';
+import { dollsLeftText, hebrewDay } from '../core/gallery';
 import type { Item } from '../core/model';
 import { Garment, Icon, explainedElsewhere, useImageUrl } from './common';
 
@@ -23,10 +23,6 @@ function useOnline(): boolean {
     };
   }, []);
   return online;
-}
-
-function formatDay(date: Date): string {
-  return `${date.getDate()}.${date.getMonth() + 1}`;
 }
 
 interface Props {
@@ -51,7 +47,8 @@ export function AiLookPreview({ outfit, layer, top, bottom, photos, now = new Da
   const key = lookKey(parts);
   const look = findLook(data, parts);
   const job = ai.jobs[key];
-  const [view, setView] = useState(() => readPreviewView(ai.deviceStorage));
+  // Plan decision #16: a look always opens on the doll; "תמונות" is one tap away.
+  const [view, setView] = useState<'doll' | 'photos'>('doll');
   const [flagError, setFlagError] = useState(false);
   const lookUrl = useImageUrl(look?.image ?? null);
   const dollUrl = useImageUrl(data.doll.image);
@@ -60,11 +57,6 @@ export function AiLookPreview({ outfit, layer, top, bottom, photos, now = new Da
     ai.setVisibleKey(key);
     return () => ai.setVisibleKey(null);
   }, [ai, key]);
-
-  const choose = (v: 'doll' | 'photos') => {
-    setView(v);
-    savePreviewView(ai.deviceStorage, v);
-  };
 
   const flag = async () => {
     if (!look) return;
@@ -81,10 +73,10 @@ export function AiLookPreview({ outfit, layer, top, bottom, photos, now = new Da
     return (
       <>
         <div className="switch ai-switch" role="group" aria-label="איך לראות את הלוק">
-          <button type="button" aria-pressed={view === 'doll'} onClick={() => choose('doll')}>
+          <button type="button" aria-pressed={view === 'doll'} onClick={() => setView('doll')}>
             בובה
           </button>
-          <button type="button" aria-pressed={view === 'photos'} onClick={() => choose('photos')}>
+          <button type="button" aria-pressed={view === 'photos'} onClick={() => setView('photos')}>
             תמונות
           </button>
         </div>
@@ -149,12 +141,12 @@ export function AiLookPreview({ outfit, layer, top, bottom, photos, now = new Da
   }
 
   const cap = data.ai.monthlyCap;
-  const left = Math.max(0, cap - ai.usedThisMonth);
+  const left = Math.max(0, cap - ai.monthlyUse());
   const busy = job?.kind === 'waiting';
   return (
     <>
       {photos}
-      {ai.ready && (
+      {ai.isReady() && (
         <div className="ai-action">
           {job?.kind === 'failed' && (
             <p className="error" role="alert">
@@ -172,8 +164,10 @@ export function AiLookPreview({ outfit, layer, top, bottom, photos, now = new Da
           </button>
           {!online ? (
             <p className="muted ai-caption">צריך אינטרנט</p>
+          ) : cap === 0 ? (
+            <p className="muted ai-caption">הבובות לא פעילות כרגע</p>
           ) : left === 0 ? (
-            <p className="muted ai-caption">הבובות של החודש נגמרו. חוזרות ב־{formatDay(nextResetDate(now))}</p>
+            <p className="muted ai-caption">הבובות של החודש נגמרו. חוזרות ב־{hebrewDay(nextResetDate(now))}</p>
           ) : left <= COUNTDOWN_FROM ? (
             <p className="muted ai-caption">{dollsLeftText(left)}</p>
           ) : null}

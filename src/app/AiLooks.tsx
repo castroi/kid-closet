@@ -1,10 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { requestLook } from '../ai/send';
+import { requestLook, type LookResult } from '../ai/send';
 import { AiError, type FetchLike } from '../ai/providers';
-import { lookPartsFor, promptHash, type LookParts } from '../core/closet';
+import { findLook, lookPartsFor, promptHash, type LookParts } from '../core/closet';
 import type { Occasion } from '../core/model';
+import { stripPhotoMetadata } from '../image/metadata';
 import { DOLL_MAX_SIDE, processImage, type ImageDeps } from '../image/processImage';
 import { blobToBytes } from '../storage/fileStore';
+import type { StoredImage } from '../storage/repository';
 import { aiReady, readApiKey, readMonthlyUse, recordUse, type DeviceStorage } from './aiDevice';
 import { useCloset } from './ClosetContext';
 import { DEFAULT_DOLL_URL } from './doll';
@@ -22,13 +24,21 @@ export type LookJob =
   | { kind: 'waiting'; detached: boolean }
   | { kind: 'failed'; error: unknown };
 
+/** Why start() didn't send anything. */
+export type StartRefusal = 'not-ready' | 'busy' | 'exists' | 'cap';
+
 export interface AiLookApi {
   deviceStorage: DeviceStorage;
-  /** A provider and its key are set; otherwise the button isn't shown at all. */
-  ready: boolean;
-  usedThisMonth: number;
+  /** A provider and its key are set; otherwise the button isn't shown at all. Read live: the key lives outside React. */
+  isReady(): boolean;
+  /** Pictures counted this month, plus requests still running (they will probably count). */
+  monthlyUse(): number;
   jobs: Readonly<Record<string, LookJob>>;
-  start(outfit: LookOutfit): void;
+  /**
+   * The only way to ask for a look. Sends nothing when AI isn't set up, a request for this look is
+   * already running, a look already exists (unless `redo`, for the parent in PR 5), or the cap is reached.
+   */
+  start(outfit: LookOutfit, options?: { redo?: boolean }): StartRefusal | null;
   detach(key: string): void;
   /** The look on screen right now, so a finished one only gets a toast when she isn't looking at it. */
   setVisibleKey(key: string | null): void;
@@ -45,6 +55,9 @@ export function lookKey(parts: LookParts): string {
 function counts(err: unknown): boolean {
   return err instanceof AiError && ['timeout', 'refused', 'provider-down', 'bad-response'].includes(err.reason);
 }
+
+/** How long "הבובה מוכנה" stays when she doesn't tap it. */
+export const FINISHED_TOAST_MS = 10_000;
 
 const AiLookContext = createContext<AiLookApi | null>(null);
 
@@ -67,43 +80,76 @@ interface Props {
 }
 
 /**
+ * Makes the stored picture from the provider's answer: resized to ≤1024 px WebP. If the phone
+ * can't decode it, a WebP or JPEG answer is kept as it came (without metadata), so a paid picture
+ * isn't lost; only a PNG that can't be decoded is.
+ */
+async function storedPicture(result: LookResult, imageDeps: ImageDeps): Promise<StoredImage> {
+  try {
+    return await processImage(new Blob([result.bytes as BlobPart], { type: result.mime }), imageDeps, DOLL_MAX_SIDE);
+  } catch (err) {
+    if (result.mime === 'image/png') throw err;
+    const ext = result.mime === 'image/webp' ? 'webp' : 'jpg';
+    const clean = stripPhotoMetadata(result.bytes, ext);
+    return { blob: new Blob([clean as BlobPart], { type: result.mime }), ext };
+  }
+}
+
+/**
  * Runs AI look requests above the screens, so leaving the dress-up screen while one is
  * waiting doesn't lose a picture that is already being paid for.
  */
 export function AiLookProvider({ deviceStorage, imageDeps, children, now = defaultNow, fetchFn = defaultFetch }: Props) {
   const { data, readImage, addLook } = useCloset();
   const [jobs, setJobs] = useState<Record<string, LookJob>>({});
-  const [finished, setFinished] = useState<LookOutfit | null>(null);
-  const [usageTick, setUsageTick] = useState(0);
+  const [finished, setFinished] = useState<{ key: string; outfit: LookOutfit } | null>(null);
+  // Bumped after each counted use, so screens re-read the count.
+  const [usageVersion, setUsageVersion] = useState(0);
   const visibleKey = useRef<string | null>(null);
-  // The latest closet, read when a request starts (the button may outlive a render).
+  // The latest closet and jobs, read when a request starts or ends (they outlive a render).
   const dataRef = useRef(data);
+  const jobsRef = useRef(jobs);
   useEffect(() => {
     dataRef.current = data;
   }, [data]);
 
-  const setJob = useCallback(
-    (key: string, job: LookJob | null) =>
-      setJobs((current) => {
-        const next = { ...current };
-        if (job) next[key] = job;
-        else delete next[key];
-        return next;
-      }),
-    [],
-  );
+  const setJob = useCallback((key: string, job: LookJob | null) => {
+    const next = { ...jobsRef.current };
+    if (job) next[key] = job;
+    else delete next[key];
+    jobsRef.current = next;
+    setJobs(next);
+  }, []);
+
+  const running = useCallback(() => Object.values(jobsRef.current).filter((j) => j.kind === 'waiting').length, []);
+
+  const monthlyUse = useCallback(() => readMonthlyUse(deviceStorage, now()) + running(), [deviceStorage, now, running]);
 
   const count = useCallback(() => {
     recordUse(deviceStorage, now());
-    setUsageTick((t) => t + 1);
+    setUsageVersion((v) => v + 1);
   }, [deviceStorage, now]);
 
+  // The toast goes away by itself after a while.
+  useEffect(() => {
+    if (!finished) return;
+    const timer = setTimeout(() => setFinished(null), FINISHED_TOAST_MS);
+    return () => clearTimeout(timer);
+  }, [finished]);
+
   const start = useCallback(
-    (outfit: LookOutfit) => {
+    (outfit: LookOutfit, options: { redo?: boolean } = {}): StartRefusal | null => {
       const closet = dataRef.current;
       const parts = lookPartsFor(closet.doll.id, outfit);
       const key = lookKey(parts);
-      setJobs((current) => (current[key]?.kind === 'waiting' ? current : { ...current, [key]: { kind: 'waiting', detached: false } }));
+      const provider = closet.ai.provider;
+      const apiKey = provider ? readApiKey(deviceStorage, provider) : null;
+      if (!provider || !apiKey) return 'not-ready';
+      if (jobsRef.current[key]?.kind === 'waiting') return 'busy';
+      if (!options.redo && findLook(closet, parts)) return 'exists';
+      // Requests still running count too, so two looks at once can't go past the cap.
+      if (monthlyUse() >= closet.ai.monthlyCap) return 'cap';
+      setJob(key, { kind: 'waiting', detached: false });
 
       const readPicture = async (path: string) => {
         const blob = await readImage(path);
@@ -124,11 +170,8 @@ export function AiLookProvider({ deviceStorage, imageDeps, children, now = defau
 
       void (async () => {
         try {
-          const provider = closet.ai.provider;
-          const apiKey = provider ? readApiKey(deviceStorage, provider) : null;
-          if (!provider || !apiKey) throw new AiError('unauthorized', 'AI is not set up');
           const [doll, upper, bottom] = await Promise.all([readDoll(), itemImage(parts.upperId), itemImage(parts.bottomId)]);
-          let result;
+          let result: LookResult;
           try {
             result = await requestLook({ provider, settings: closet.ai, apiKey, doll, upper, bottom, fetch: fetchFn });
           } catch (err) {
@@ -136,36 +179,43 @@ export function AiLookProvider({ deviceStorage, imageDeps, children, now = defau
             throw err;
           }
           count();
-          const stored = await processImage(new Blob([result.bytes as BlobPart], { type: result.mime }), imageDeps, DOLL_MAX_SIDE);
-          await addLook({ ...parts, provider, model: result.model, promptHash: promptHash(result.prompt) }, stored);
+          const stored = await storedPicture(result, imageDeps);
+          // A garment deleted while the AI worked: its look would be dropped on the next load anyway.
+          const latest = dataRef.current;
+          if (latest.items.some((it) => it.id === parts.upperId) && latest.items.some((it) => it.id === parts.bottomId)) {
+            await addLook({ ...parts, provider, model: result.model, promptHash: promptHash(result.prompt) }, stored);
+          }
           setJob(key, null);
-          if (visibleKey.current !== key) setFinished(outfit);
+          if (visibleKey.current !== key) setFinished({ key, outfit });
         } catch (error) {
           setJob(key, { kind: 'failed', error });
         }
       })();
+      return null;
     },
-    [deviceStorage, fetchFn, imageDeps, readImage, addLook, count, setJob],
+    [deviceStorage, fetchFn, imageDeps, readImage, addLook, count, setJob, monthlyUse],
   );
 
   const api = useMemo<AiLookApi>(
     () => ({
       deviceStorage,
-      ready: aiReady(data.ai, deviceStorage),
-      usedThisMonth: readMonthlyUse(deviceStorage, now()),
+      isReady: () => aiReady(data.ai, deviceStorage),
+      monthlyUse,
       jobs,
       start,
-      detach: (key) =>
-        setJobs((current) => (current[key]?.kind === 'waiting' ? { ...current, [key]: { kind: 'waiting', detached: true } } : current)),
+      detach: (key) => {
+        if (jobsRef.current[key]?.kind === 'waiting') setJob(key, { kind: 'waiting', detached: true });
+      },
       setVisibleKey: (key) => {
         visibleKey.current = key;
+        // She opened the look herself: the toast has nothing left to say.
+        if (key !== null) setFinished((f) => (f?.key === key ? null : f));
       },
-      finished,
+      finished: finished?.outfit ?? null,
       clearFinished: () => setFinished(null),
     }),
-    // usageTick: re-read the count after each recorded use.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [deviceStorage, data.ai, usageTick, now, jobs, start, finished],
+    // usageVersion: a new value after each counted use, so monthlyUse() is read again.
+    [deviceStorage, monthlyUse, jobs, start, setJob, finished, usageVersion, data.ai],
   );
 
   return <AiLookContext.Provider value={api}>{children}</AiLookContext.Provider>;

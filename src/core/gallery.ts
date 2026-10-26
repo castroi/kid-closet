@@ -80,3 +80,10 @@ export function noMatchLabel(slot: Slot): string {
 export function dollsLeftText(left: number): string {
   return left === 1 ? 'נשארה עוד בובה אחת החודש' : `נשארו עוד ${left} בובות החודש`;
 }
+
+const HEBREW_MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
+
+/** "1 בנובמבר": a date she can read, without a year. */
+export function hebrewDay(date: Date): string {
+  return `${date.getDate()} ב${HEBREW_MONTHS[date.getMonth()]}`;
+}

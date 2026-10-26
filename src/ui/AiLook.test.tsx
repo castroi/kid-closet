@@ -1,8 +1,9 @@
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { AI_KEY_PREFIX, AI_USAGE_KEY, PREVIEW_VIEW_KEY } from '../app/aiDevice';
+import { AI_KEY_PREFIX, AI_USAGE_KEY } from '../app/aiDevice';
 import { App } from '../app/App';
+import { FINISHED_TOAST_MS, useAiLooks, type AiLookApi } from '../app/AiLooks';
 import { DEFAULT_DOLL_URL } from '../app/doll';
 import { AI_PROVIDERS } from '../ai/catalog';
 import type { FetchLike } from '../ai/providers';
@@ -157,7 +158,29 @@ describe('AI look in the preview', () => {
 
     await render(100);
     await openPreview(user);
-    expect(screen.getByText('הבובות של החודש נגמרו. חוזרות ב־1.7')).toBeInTheDocument();
+    expect(screen.getByText('הבובות של החודש נגמרו. חוזרות ב־1 ביולי')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'להלביש את הבובה' })).toBeDisabled();
+  });
+
+  it('shows the button as soon as the parent saves the key, without restarting the app', async () => {
+    const user = userEvent.setup();
+    const storage = memoryStorage();
+    await renderWithCloset(<DressUp today={WARM_DAY} onOpenFavorites={vi.fn()} />, closetWithAi(), { deviceStorage: storage });
+    await openPreview(user);
+    expect(screen.queryByRole('button', { name: 'להלביש את הבובה' })).not.toBeInTheDocument();
+    storage.setItem(`${AI_KEY_PREFIX}venice`, 'sk-venice-123'); // saved in the parent area meanwhile
+    await user.click(screen.getByRole('button', { name: 'לשנות משהו' }));
+    await openPreview(user);
+    expect(screen.getByRole('button', { name: 'להלביש את הבובה' })).toBeInTheDocument();
+  });
+
+  it('says the dolls are off when the parent set the cap to 0, without promising a date', async () => {
+    const user = userEvent.setup();
+    const data = closetWithAi();
+    data.ai.monthlyCap = 0;
+    await renderWithCloset(<DressUp today={WARM_DAY} onOpenFavorites={vi.fn()} />, data, { deviceStorage: readyStorage() });
+    await openPreview(user);
+    expect(screen.getByText('הבובות לא פעילות כרגע')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'להלביש את הבובה' })).toBeDisabled();
   });
 
@@ -181,11 +204,10 @@ describe('AI look in the preview', () => {
     }
   });
 
-  it('switches between the doll and the photos and remembers it; "לא דומה?" marks the look for the parent', async () => {
+  it('switches to the photos, but a look always opens on the doll again; "לא דומה?" marks it for the parent', async () => {
     const user = userEvent.setup();
-    const storage = readyStorage();
     const { repo } = await renderWithCloset(<DressUp today={WARM_DAY} onOpenFavorites={vi.fn()} />, closetWithAi(), {
-      deviceStorage: storage,
+      deviceStorage: readyStorage(),
       fetchFn: provider(),
     });
     await openPreview(user);
@@ -194,8 +216,9 @@ describe('AI look in the preview', () => {
 
     await user.click(screen.getByRole('button', { name: 'תמונות' }));
     expect(screen.queryByRole('img', { name: 'הבובה לובשת את הלוק' })).not.toBeInTheDocument();
-    expect(storage.data.get(PREVIEW_VIEW_KEY)).toBe('photos');
-    await user.click(screen.getByRole('button', { name: 'בובה' }));
+    await user.click(screen.getByRole('button', { name: 'לשנות משהו' }));
+    await openPreview(user);
+    expect(await screen.findByRole('img', { name: 'הבובה לובשת את הלוק' })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'לא דומה?' }));
     expect(await screen.findByText(/סימנו להורים/)).toBeInTheDocument();
@@ -218,6 +241,47 @@ describe('AI look in the preview', () => {
   });
 });
 
+describe('start() guards every paid request', () => {
+  it('sends nothing for a look that exists, one already running, or past the cap; a redo is allowed', async () => {
+    const grabbed: { api?: AiLookApi } = {};
+    function Grab() {
+      grabbed.api = useAiLooks();
+      return null;
+    }
+    let answer: (r: Response) => void = () => undefined;
+    const fetchFn = provider(() => new Promise((resolve) => (answer = resolve)));
+    const data = closetWithAi();
+    data.ai.monthlyCap = 2;
+    const { repo } = await renderWithCloset(<Grab />, data, { deviceStorage: readyStorage(), fetchFn });
+    const outfit = { occasion: 'school' as const, layerId: null, topId: 'tBlue', bottomId: 'bJeans' };
+    const other = { ...outfit, topId: 'tWhite' };
+    const third = { ...outfit, topId: 'tLong' };
+    const lookCalls = () => fetchFn.mock.calls.filter(([url]) => url === AI_PROVIDERS.venice.endpoints.look).length;
+
+    act(() => expect(grabbed.api!.start(outfit)).toBeNull());
+    act(() => expect(grabbed.api!.start(outfit)).toBe('busy'));
+    act(() => expect(grabbed.api!.start(other)).toBeNull());
+    act(() => expect(grabbed.api!.start(third)).toBe('cap')); // two running already fill a cap of 2
+    await waitFor(() => expect(lookCalls()).toBe(2));
+    await act(async () => answer(new Response(PNG)));
+    await waitFor(() => expect(repo.getData().aiLooks.length).toBeGreaterThan(0));
+    const done = repo.getData().aiLooks[0];
+    const doneOutfit = { ...outfit, topId: done.upperId };
+    act(() => expect(grabbed.api!.start(doneOutfit)).toBe('exists'));
+  });
+
+  it('refuses when AI is not set up', async () => {
+    const grabbed: { api?: AiLookApi } = {};
+    function Grab() {
+      grabbed.api = useAiLooks();
+      return null;
+    }
+    await renderWithCloset(<Grab />, closetWithAi(), { deviceStorage: memoryStorage() });
+    expect(grabbed.api!.start({ occasion: 'school', layerId: null, topId: 'tBlue', bottomId: 'bJeans' })).toBe('not-ready');
+    expect(grabbed.api!.isReady()).toBe(false);
+  });
+});
+
 describe('a look that finishes while she is elsewhere', () => {
   it('says "הבובה מוכנה" and "לראות" opens it', async () => {
     const user = userEvent.setup();
@@ -237,5 +301,29 @@ describe('a look that finishes while she is elsewhere', () => {
     await user.click(within(toast.closest('.toast') as HTMLElement).getByRole('button', { name: 'לראות' }));
     expect(await screen.findByRole('img', { name: 'הבובה לובשת את הלוק' })).toBeInTheDocument();
     expect(screen.queryByText('הבובה מוכנה')).not.toBeInTheDocument();
+  });
+
+  it('goes away by itself after a while', async () => {
+    const user = userEvent.setup();
+    let answer: (r: Response) => void = () => undefined;
+    const fetchFn = provider(() => new Promise((resolve) => (answer = resolve)));
+    await renderWithCloset(
+      <App imageDeps={fakeImageDeps()} shareEnv={{ download: vi.fn() }} today={WARM_DAY} deviceStorage={readyStorage()} fetchFn={fetchFn} />,
+      closetWithAi(),
+    );
+    await openPreview(user);
+    await user.click(screen.getByRole('button', { name: 'להלביש את הבובה' }));
+    await user.click(screen.getByRole('button', { name: 'מועדפים' }));
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      await act(async () => answer(new Response(PNG)));
+      await screen.findByText('הבובה מוכנה');
+      await act(async () => {
+        vi.advanceTimersByTime(FINISHED_TOAST_MS + 1);
+      });
+      expect(screen.queryByText('הבובה מוכנה')).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

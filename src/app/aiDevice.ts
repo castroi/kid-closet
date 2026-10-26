@@ -120,22 +120,3 @@ export function recordUse(storage: DeviceStorage, now: Date): void {
     // the cap can't be kept without storage; the provider's own limit still applies
   }
 }
-
-/** Which way the kid last looked at a look: the doll picture or the real photos. Per device. */
-export const PREVIEW_VIEW_KEY = 'kid-closet:preview-view';
-
-export function readPreviewView(storage: DeviceStorage): 'doll' | 'photos' {
-  try {
-    return storage?.getItem(PREVIEW_VIEW_KEY) === 'photos' ? 'photos' : 'doll';
-  } catch {
-    return 'doll';
-  }
-}
-
-export function savePreviewView(storage: DeviceStorage, view: 'doll' | 'photos'): void {
-  try {
-    storage?.setItem(PREVIEW_VIEW_KEY, view);
-  } catch {
-    // only the remembered choice is lost
-  }
-}
