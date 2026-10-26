@@ -3,23 +3,31 @@ import type { AiProviderId } from '../core/model';
 export interface AiProviderInfo {
   id: AiProviderId;
   label: string;
-  /** The only address the app may call for this provider; it must also be in the CSP's connect-src (vercel.json). */
   origin: string;
-  /** Used when the parent leaves the model empty. Checked against the provider in PR 3 (docs/ai-doll-look.md). */
+  /**
+   * The only URLs the app calls for this provider: making a look, and checking the key.
+   * Exactly these are in the CSP's connect-src (vercel.json); securityHeaders.test.ts checks it.
+   */
+  endpoints: { look: string; check: string };
+  /** Used when the parent leaves the model empty. To be confirmed on her iPhone with a real key (docs/ai-doll-look.md, PR 3). */
   defaultModel: string;
   /** Where the parent creates an API key. */
   keysUrl: string;
 }
 
 /**
- * Providers the app can send a look to. Adding one = an entry here, its adapter (PR 3),
- * its origin in vercel.json's connect-src, and their tests.
+ * Providers the app can send a look to. Adding one = an entry here, its adapter in
+ * src/ai/providers.ts, its endpoints in vercel.json's connect-src, and their tests.
  */
 export const AI_PROVIDERS: Record<AiProviderId, AiProviderInfo> = {
   venice: {
     id: 'venice',
     label: 'Venice',
     origin: 'https://api.venice.ai',
+    endpoints: {
+      look: 'https://api.venice.ai/api/v1/image/multi-edit',
+      check: 'https://api.venice.ai/api/v1/api_keys/rate_limits',
+    },
     defaultModel: 'muse-image-edit',
     keysUrl: 'https://venice.ai/settings/api',
   },
@@ -27,6 +35,10 @@ export const AI_PROVIDERS: Record<AiProviderId, AiProviderInfo> = {
     id: 'openrouter',
     label: 'OpenRouter',
     origin: 'https://openrouter.ai',
+    endpoints: {
+      look: 'https://openrouter.ai/api/v1/images',
+      check: 'https://openrouter.ai/api/v1/key',
+    },
     defaultModel: 'meta/muse-image',
     keysUrl: 'https://openrouter.ai/keys',
   },

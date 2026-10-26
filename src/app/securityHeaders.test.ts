@@ -31,17 +31,24 @@ describe('security headers (vercel.json)', () => {
     expect(csp).not.toMatch(/'unsafe-eval'/);
   });
 
-  it('lets the page call only its own origin and the AI providers the parent can pick', () => {
-    // Photos may leave the phone only to these addresses (docs/ai-doll-look.md); anything else stays blocked.
+  it("lets the page call only its own origin and the AI providers' exact endpoints", () => {
+    // Photos may leave the phone only to these URLs (docs/ai-doll-look.md); anything else stays blocked,
+    // including other paths on the providers' own sites.
     const csp = header('Content-Security-Policy') ?? '';
     const connect = csp
       .split(';')
       .map((d) => d.trim())
       .find((d) => d.startsWith('connect-src '));
     const sources = connect?.split(/\s+/).slice(1) ?? [];
-    const providers = Object.values(AI_PROVIDERS).map((p) => p.origin);
-    expect(sources.sort()).toEqual(["'self'", ...providers].sort());
-    for (const origin of providers) expect(origin).toMatch(/^https:\/\/[a-z0-9.-]+$/);
+    const endpoints = Object.values(AI_PROVIDERS).flatMap((p) => [p.endpoints.look, p.endpoints.check]);
+    expect([...sources].sort()).toEqual(["'self'", ...endpoints].sort());
+    for (const p of Object.values(AI_PROVIDERS)) {
+      for (const url of [p.endpoints.look, p.endpoints.check]) {
+        // A full path, not a folder: CSP treats a trailing "/" as "everything below".
+        expect(url.startsWith(`${p.origin}/`)).toBe(true);
+        expect(url).toMatch(/^https:\/\/[a-z0-9.-]+(\/[a-z0-9_-]+)+$/);
+      }
+    }
   });
 
   it('sends the other protective headers on every page', () => {

@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import {
+  AI_CHECK_KEY,
   AI_KEY_PREFIX,
   AI_USAGE_KEY,
   aiReady,
@@ -9,9 +10,11 @@ import {
   monthOf,
   nextResetDate,
   readApiKey,
+  readLastCheck,
   readMonthlyUse,
   removeApiKey,
   saveApiKey,
+  saveLastCheck,
   type DeviceStorage,
 } from './aiDevice';
 import { memoryStorage } from '../test/data';
@@ -90,5 +93,23 @@ describe('monthly use', () => {
   it('starts again on the 1st of next month, also across the year', () => {
     expect(nextResetDate(oct)).toEqual(new Date(2026, 10, 1));
     expect(nextResetDate(new Date(2026, 11, 31))).toEqual(new Date(2027, 0, 1));
+  });
+});
+
+describe('last key check', () => {
+  it("keeps the last result for the provider it was about, and can forget it", () => {
+    const storage = memoryStorage();
+    saveLastCheck(storage, { provider: 'venice', at: '2026-10-26T10:00:00.000Z', ok: true });
+    expect(readLastCheck(storage, 'venice')).toEqual({ provider: 'venice', at: '2026-10-26T10:00:00.000Z', ok: true });
+    expect(readLastCheck(storage, 'openrouter')).toBeNull();
+    saveLastCheck(storage, null);
+    expect(readLastCheck(storage, 'venice')).toBeNull();
+  });
+
+  it('reads anything odd as no check', () => {
+    expect(readLastCheck(memoryStorage({ [AI_CHECK_KEY]: 'oops' }), 'venice')).toBeNull();
+    expect(readLastCheck(memoryStorage({ [AI_CHECK_KEY]: '{"provider":"venice","at":1,"ok":true}' }), 'venice')).toBeNull();
+    expect(readLastCheck(broken, 'venice')).toBeNull();
+    expect(() => saveLastCheck(broken, null)).not.toThrow();
   });
 });

@@ -8,6 +8,33 @@ export type DeviceStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> 
 
 export const AI_KEY_PREFIX = 'kid-closet:ai-key:';
 export const AI_USAGE_KEY = 'kid-closet:ai-usage';
+export const AI_CHECK_KEY = 'kid-closet:ai-check';
+
+/** The last "בדיקת חיבור" on this phone, shown in the parent panel. */
+export interface LastCheck {
+  provider: AiProviderId;
+  at: string;
+  ok: boolean;
+}
+
+export function readLastCheck(storage: DeviceStorage, provider: AiProviderId): LastCheck | null {
+  try {
+    const raw = JSON.parse(storage?.getItem(AI_CHECK_KEY) ?? 'null') as Partial<LastCheck> | null;
+    if (raw?.provider !== provider || typeof raw.at !== 'string' || typeof raw.ok !== 'boolean') return null;
+    return { provider, at: raw.at, ok: raw.ok };
+  } catch {
+    return null;
+  }
+}
+
+export function saveLastCheck(storage: DeviceStorage, check: LastCheck | null): void {
+  try {
+    if (check) storage?.setItem(AI_CHECK_KEY, JSON.stringify(check));
+    else storage?.removeItem(AI_CHECK_KEY);
+  } catch {
+    // only the status line loses it
+  }
+}
 
 export function browserDeviceStorage(): DeviceStorage {
   try {

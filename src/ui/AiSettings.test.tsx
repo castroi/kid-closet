@@ -2,7 +2,8 @@ import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { strFromU8, unzipSync } from 'fflate';
 import { describe, expect, it, vi } from 'vitest';
-import { AI_KEY_PREFIX, AI_USAGE_KEY } from '../app/aiDevice';
+import { AI_CHECK_KEY, AI_KEY_PREFIX, AI_USAGE_KEY } from '../app/aiDevice';
+import type { FetchLike } from '../ai/providers';
 import { DEFAULT_PROMPT } from '../ai/prompt';
 import { emptyCloset, type AiSettings, type ClosetData } from '../core/model';
 import { exportBackup } from '../storage/backup';
@@ -16,15 +17,31 @@ function closetWithAi(ai: Partial<AiSettings>): ClosetData {
   return { ...data, ai: { ...data.ai, ...ai } };
 }
 
-async function renderScreen(ai: Partial<AiSettings> = {}, storage = memoryStorage()) {
+async function renderScreen(ai: Partial<AiSettings> = {}, storage = memoryStorage(), fetchFn?: FetchLike) {
   const result = await renderWithCloset(
-    <AiSettingsScreen deviceStorage={storage} imageDeps={fakeImageDeps()} />,
+    <AiSettingsScreen deviceStorage={storage} imageDeps={fakeImageDeps()} fetchFn={fetchFn} />,
     closetWithAi(ai),
   );
   return { ...result, storage };
 }
 
 describe('AiPanel', () => {
+  it('adds the last key check to the status', async () => {
+    const storage = memoryStorage({
+      [`${AI_KEY_PREFIX}venice`]: 'sk-venice-123',
+      [AI_CHECK_KEY]: JSON.stringify({ provider: 'venice', at: '2026-10-25T10:00:00.000Z', ok: true }),
+    });
+    const { unmount } = await renderWithCloset(
+      <AiPanel deviceStorage={storage} now={OCT} onOpen={vi.fn()} />,
+      closetWithAi({ provider: 'venice' }),
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('מוגדר · Venice · נבדק ב־25.10');
+    unmount();
+    storage.setItem(AI_CHECK_KEY, JSON.stringify({ provider: 'venice', at: '2026-10-25T10:00:00.000Z', ok: false }));
+    await renderWithCloset(<AiPanel deviceStorage={storage} now={OCT} onOpen={vi.fn()} />, closetWithAi({ provider: 'venice' }));
+    expect(screen.getByRole('status')).toHaveTextContent('הבדיקה האחרונה נכשלה');
+  });
+
   it('says AI is not set up until there is a provider and a key', async () => {
     await renderWithCloset(<AiPanel deviceStorage={memoryStorage()} now={OCT} onOpen={vi.fn()} />, closetWithAi({ provider: 'venice' }));
     expect(screen.getByRole('status')).toHaveTextContent('לא מוגדר');
@@ -170,6 +187,38 @@ describe('AiSettingsScreen', () => {
     expect(await screen.findByText('חזרנו להנחיה הרגילה.')).toBeInTheDocument();
     expect(repo.getData().ai.prompt).toBeNull();
     expect(screen.getByLabelText(/ההנחיה/)).toHaveValue(DEFAULT_PROMPT);
+  });
+
+  it('checks the saved key with the provider and remembers the result', async () => {
+    const user = userEvent.setup();
+    const storage = memoryStorage({ [`${AI_KEY_PREFIX}openrouter`]: 'sk-or-v1-abcdef' });
+    const fetchFn = vi.fn<FetchLike>().mockResolvedValue(Response.json({ data: { limit_remaining: 4.2 } }));
+    await renderScreen({ provider: 'openrouter' }, storage, fetchFn);
+    await user.click(screen.getByRole('button', { name: 'בדיקת חיבור' }));
+    expect(await screen.findByText('המפתח עובד. נשארו USD 4.20 במגבלה של המפתח.')).toBeInTheDocument();
+    expect(fetchFn).toHaveBeenCalledWith('https://openrouter.ai/api/v1/key', expect.objectContaining({ method: 'GET' }));
+    expect(JSON.parse(storage.data.get(AI_CHECK_KEY)!)).toMatchObject({ provider: 'openrouter', ok: true });
+  });
+
+  it('explains a failed check to the parent, with the provider\'s words', async () => {
+    const user = userEvent.setup();
+    const storage = memoryStorage({ [`${AI_KEY_PREFIX}venice`]: 'sk-venice-123' });
+    const fetchFn = vi.fn<FetchLike>().mockResolvedValue(Response.json({ error: 'Authentication failed' }, { status: 401 }));
+    await renderScreen({ provider: 'venice' }, storage, fetchFn);
+    await user.click(screen.getByRole('button', { name: 'בדיקת חיבור' }));
+    expect(await screen.findByText(/הספק לא קיבל את המפתח.*\(401 Authentication failed\)/)).toBeInTheDocument();
+    expect(JSON.parse(storage.data.get(AI_CHECK_KEY)!)).toMatchObject({ provider: 'venice', ok: false });
+  });
+
+  it('forgets the last check when the key changes', async () => {
+    const user = userEvent.setup();
+    const storage = memoryStorage({
+      [`${AI_KEY_PREFIX}venice`]: 'sk-venice-123',
+      [AI_CHECK_KEY]: JSON.stringify({ provider: 'venice', at: '2026-10-25T10:00:00.000Z', ok: false }),
+    });
+    await renderScreen({ provider: 'venice' }, storage);
+    await user.click(screen.getByRole('button', { name: 'מחיקה' }));
+    expect(storage.data.has(AI_CHECK_KEY)).toBe(false);
   });
 
   it('says so when saving a setting fails', async () => {

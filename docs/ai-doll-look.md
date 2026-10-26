@@ -1,6 +1,6 @@
 # AI doll look — decisions and implementation plan
 
-Feature for `castroi/kid-closet`. Status: **in progress**. PR 1 merged; PR 2 `feat/ai-settings`. Date: 2026-10-26.
+Feature for `castroi/kid-closet`. Status: **in progress**. PRs 1–2 merged; PR 3 `feat/ai-providers`. Date: 2026-10-26.
 
 ## 1. Goal
 
@@ -37,9 +37,9 @@ In the outfit preview ("לראות את הלוק"), she can press one button and
 
 ## 4. Privacy and security changes
 
-- **CSP** (`vercel.json`): `connect-src 'self' https://api.venice.ai https://openrouter.ai`. Nothing else. `securityHeaders.test.ts` checks the exact list.
+- **CSP** (`vercel.json`): `connect-src` lists `'self'` and the four exact endpoint URLs (Venice multi-edit and rate_limits, OpenRouter images and key). Nothing else, not even other paths on those sites. `securityHeaders.test.ts` checks the exact list.
 - **Adding a provider** = one adapter file + one host in the CSP + its test. That is intentional: a hacked dependency still can't send photos to an arbitrary site.
-- **What the CSP does and doesn't guarantee:** both provider origins are open all the time, whichever one the parent picked. The app's code sends only to the picked provider with her key; a compromised dependency could still send to the other provider's origin (with its own key, so to its own account). Accepted risk; PR 3 narrows `connect-src` to the exact endpoint paths where the providers allow it.
+- **What the CSP does and doesn't guarantee:** both provider origins are open all the time, whichever one the parent picked. The app's code sends only to the picked provider with her key; a compromised dependency could still send to the other provider's origin (with its own key, so to its own account). Accepted risk, made smaller in PR 3: `connect-src` lists only the four exact endpoint URLs.
 - **API key storage**: device only (`localStorage`, like the theme), never in `closet.json` or the backup. Shown masked (last 4 characters, nothing for keys under 12). Entered in a text field drawn as dots, so Safari doesn't offer to save it to iCloud Keychain. Checked on entry: 8–512 printable characters, no spaces.
 - **Sent data**: only the three images and the prompt. No names, colours or occasions.
 - **Recommendation for the parent**: set a spending limit on the provider key itself where the provider supports it (OpenRouter does; Venice unverified).
@@ -129,7 +129,8 @@ Timeout: 90 seconds, through `AbortController`.
 
 - `POST https://api.venice.ai/api/v1/image/multi-edit`, header `Authorization: Bearer <key>`.
 - Body: `modelId`, `prompt`, `images` = array of up to 3 (base64 strings, URLs or file uploads). The first image is the base (the doll).
-- Response: raw `image/png` bytes. 402 = insufficient balance.
+- Response: raw image bytes (`image/png`, `image/jpeg` or `image/webp`). 402 = insufficient balance. Headers `x-venice-is-content-violation` / `x-venice-is-blurred` = refused. `safe_mode: true` is sent (Venice's default).
+- Key check: `GET https://api.venice.ai/api/v1/api_keys/rate_limits`.
 - Docs: https://docs.venice.ai/guides/media/image-editing and https://docs.venice.ai/api-reference/endpoint/image/multi-edit.md
 
 ### OpenRouter
@@ -138,7 +139,7 @@ Timeout: 90 seconds, through `AbortController`.
 - Body: `model`, `modalities: ["image", "text"]`, one user message whose `content` is the prompt text followed by the three images as `image_url` data URLs, in order doll, upper, bottom.
 - Response: base64 data URL in `choices[0].message.images[0].image_url.url`.
 - Docs: https://openrouter.ai/docs/guides/overview/multimodal/image-generation
-- To verify in PR 3: whether a given model is reachable through chat completions or only through the Image API (`POST /api/v1/images` with `input_references`).
+- **Decided in PR 3:** the app uses the dedicated Image API, `POST https://openrouter.ai/api/v1/images`, with `input_references: [{ type: 'image_url', image_url: { url: <data URL> } }]` (doll, upper, bottom) and `n: 1`. The answer is `data[0].b64_json`, decoded in the app (the CSP doesn't allow fetching `data:` URLs). Key check: `GET /api/v1/key` (shows `limit_remaining`). Docs: https://openrouter.ai/docs/api/api-reference/images/generate-an-image
 
 ### Default prompt
 
