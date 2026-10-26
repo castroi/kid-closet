@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
 import { NOW, asVersion1, closetWith, makeItem, makeOutfit, seededStore, withDoll } from '../test/data';
+import { SCHEMA_VERSION } from '../core/model';
 import { MemoryFileStore, blobToText } from './fileStore';
 import {
   CLOSET_FILES,
@@ -258,7 +259,7 @@ describe('ClosetRepository', () => {
     await repo.load();
     await repo.update((d) => d);
     const saved = JSON.parse(await blobToText(store.files.get('closet-a.json')!)) as { closet: { schemaVersion: number } };
-    expect(saved.closet.schemaVersion).toBe(2);
+    expect(saved.closet.schemaVersion).toBe(SCHEMA_VERSION);
     expect(store.files.has('images/a.webp')).toBe(true);
   });
 
