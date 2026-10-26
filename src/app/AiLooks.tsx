@@ -33,6 +33,8 @@ export interface AiLookApi {
   isReady(): boolean;
   /** Pictures counted this month, plus requests still running (they will probably count). */
   monthlyUse(): number;
+  /** Changes after each counted use, so screens that show the count render again. */
+  usageVersion: number;
   jobs: Readonly<Record<string, LookJob>>;
   /**
    * The only way to ask for a look. Sends nothing when AI isn't set up, a request for this look is
@@ -201,6 +203,7 @@ export function AiLookProvider({ deviceStorage, imageDeps, children, now = defau
       deviceStorage,
       isReady: () => aiReady(data.ai, deviceStorage),
       monthlyUse,
+      usageVersion,
       jobs,
       start,
       detach: (key) => {
@@ -214,8 +217,7 @@ export function AiLookProvider({ deviceStorage, imageDeps, children, now = defau
       finished: finished?.outfit ?? null,
       clearFinished: () => setFinished(null),
     }),
-    // usageVersion: a new value after each counted use, so monthlyUse() is read again.
-    [deviceStorage, monthlyUse, jobs, start, setJob, finished, usageVersion, data.ai],
+    [deviceStorage, monthlyUse, usageVersion, jobs, start, setJob, finished, data.ai],
   );
 
   return <AiLookContext.Provider value={api}>{children}</AiLookContext.Provider>;
