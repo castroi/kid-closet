@@ -48,16 +48,41 @@ export interface Doll {
 
 export const DEFAULT_DOLL_ID = 'default';
 
+export const AI_PROVIDER_IDS = ['venice', 'openrouter'] as const;
+export type AiProviderId = (typeof AI_PROVIDER_IDS)[number];
+
+/**
+ * How the parent set up AI looks. No secrets: the API key and this month's use stay on the
+ * device (src/app/aiDevice.ts), so this can go into backups.
+ */
+export interface AiSettings {
+  /** null until the parent picks one; the AI button stays hidden until then. */
+  provider: AiProviderId | null;
+  /** The provider's model name; empty means the provider's default. */
+  model: string;
+  /** null means the built-in prompt (src/ai/prompt.ts). */
+  prompt: string | null;
+  /** AI pictures per month on this phone, counting the parent's redos. */
+  monthlyCap: number;
+}
+
+export const DEFAULT_MONTHLY_CAP = 100;
+export const MAX_MONTHLY_CAP = 1000;
+
 export interface ClosetData {
   schemaVersion: number;
   items: Item[];
   outfits: Outfit[];
   lastBackupAt: string | null;
   doll: Doll;
+  ai: AiSettings;
 }
 
-/** 2 added `doll`. Version 1 files and backups still load, with the bundled doll. */
-export const SCHEMA_VERSION = 2;
+/**
+ * 2 added `doll`, 3 added `ai`. Older files and backups still load: version 1 with the
+ * bundled doll, versions 1 and 2 with AI not set up.
+ */
+export const SCHEMA_VERSION = 3;
 
 export const ITEM_TYPES: ItemType[] = ['tee', 'longTop', 'sweater', 'jacket', 'pants', 'shorts'];
 export const SLOTS: Slot[] = ['layer', 'top', 'bottom'];
@@ -102,7 +127,18 @@ export const COLOR_INFO: Record<ColorGroup, { label: string; hex: string }> = {
 export const COLOR_GROUPS = Object.keys(COLOR_INFO) as ColorGroup[];
 
 export function emptyCloset(): ClosetData {
-  return { schemaVersion: SCHEMA_VERSION, items: [], outfits: [], lastBackupAt: null, doll: defaultDoll() };
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    items: [],
+    outfits: [],
+    lastBackupAt: null,
+    doll: defaultDoll(),
+    ai: defaultAiSettings(),
+  };
+}
+
+export function defaultAiSettings(): AiSettings {
+  return { provider: null, model: '', prompt: null, monthlyCap: DEFAULT_MONTHLY_CAP };
 }
 
 export function defaultDoll(): Doll {

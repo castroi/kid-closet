@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useCloset } from '../app/ClosetContext';
 import { BUILD_INFO, REPO_URL, commitUrl, shortCommit, type BuildInfo } from '../app/buildInfo';
 import {
@@ -13,8 +13,9 @@ import {
 import { COLOR_INFO } from '../core/model';
 import type { ImageDeps } from '../image/processImage';
 import { backupFileName, readBackupFile } from '../storage/backup';
+import { browserDeviceStorage, type DeviceStorage } from '../app/aiDevice';
+import { AiPanel, AiSettingsScreen } from './AiSettings';
 import { Icon, Sheet, Swatch, restoreErrorText } from './common';
-import { DollPanel } from './DollPanel';
 
 export const BACKUP_REMINDER_DAYS = 14;
 
@@ -26,26 +27,57 @@ export function randomQuestion(): [number, number] {
 interface Props {
   onBack: () => void;
   imageDeps: ImageDeps;
+  /** The phone's own storage for the API key and this month's use; never in the closet or backups. */
+  deviceStorage?: DeviceStorage;
   shareEnv: ShareEnv;
   storage?: StorageLike;
   question?: [number, number];
   now?: () => Date;
 }
 
-export function Parent({ onBack, imageDeps, shareEnv, storage, question, now = () => new Date() }: Props) {
+export function Parent({
+  onBack,
+  imageDeps,
+  deviceStorage: givenStorage,
+  shareEnv,
+  storage,
+  question,
+  now = () => new Date(),
+}: Props) {
   const [unlocked, setUnlocked] = useState(false);
+  const [view, setView] = useState<'main' | 'ai'>('main');
+  const [deviceStorage] = useState<DeviceStorage>(() => (givenStorage === undefined ? browserDeviceStorage() : givenStorage));
+  const inAi = unlocked && view === 'ai';
+  // Each view starts at its top, not at the scroll position of the one before.
+  const screenRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (screenRef.current) screenRef.current.scrollTop = 0;
+  }, [inAi]);
   return (
-    <div className="screen">
+    <div className="screen" ref={screenRef}>
       <div className="screen-header" style={{ justifyContent: 'flex-start' }}>
-        <button type="button" className="icon-btn" aria-label="חזרה לארון" onClick={onBack}>
+        <button
+          type="button"
+          className="icon-btn"
+          aria-label={inAi ? 'חזרה לאזור הורים' : 'חזרה לארון'}
+          onClick={inAi ? () => setView('main') : onBack}
+        >
           <Icon name="back" />
         </button>
-        <h1>אזור הורים</h1>
+        <h1>{inAi ? 'הגדרות AI' : 'אזור הורים'}</h1>
       </div>
-      {unlocked ? (
-        <ParentTools imageDeps={imageDeps} shareEnv={shareEnv} storage={storage} now={now} />
-      ) : (
+      {!unlocked ? (
         <Gate question={question} onUnlock={() => setUnlocked(true)} />
+      ) : inAi ? (
+        <AiSettingsScreen deviceStorage={deviceStorage} imageDeps={imageDeps} />
+      ) : (
+        <ParentTools
+          shareEnv={shareEnv}
+          storage={storage}
+          now={now}
+          deviceStorage={deviceStorage}
+          onOpenAi={() => setView('ai')}
+        />
       )}
     </div>
   );
@@ -87,15 +119,17 @@ function Gate({ question, onUnlock }: { question?: [number, number]; onUnlock: (
 }
 
 function ParentTools({
-  imageDeps,
   shareEnv,
   storage,
   now,
+  deviceStorage,
+  onOpenAi,
 }: {
-  imageDeps: ImageDeps;
   shareEnv: ShareEnv;
   storage?: StorageLike;
   now: () => Date;
+  deviceStorage: DeviceStorage;
+  onOpenAi: () => void;
 }) {
   const api = useCloset();
   const { data } = api;
@@ -231,7 +265,7 @@ function ParentTools({
         </div>
       </section>
 
-      <DollPanel imageDeps={imageDeps} />
+      <AiPanel deviceStorage={deviceStorage} now={now()} onOpen={onOpenAi} />
 
       <section className="panel" aria-labelledby="storage-h">
         <h2 id="storage-h">אחסון בטלפון</h2>

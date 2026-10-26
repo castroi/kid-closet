@@ -63,6 +63,13 @@ describe('backup', () => {
     expect(await blobToBytes((await targetStore.read('images/doll-d1.jpg'))!)).toEqual(testPhoto('jpg'));
   });
 
+  it('keeps the AI settings in the backup', async () => {
+    const ai = { provider: 'venice' as const, model: 'm', prompt: 'p', monthlyCap: 7 };
+    const repo = new ClosetRepository(seededStore({ ...sample(), ai }), () => NOW);
+    await repo.load();
+    expect(readBackup(await exportBackup(repo, NOW)).closet.ai).toEqual(ai);
+  });
+
   it('restores a version 1 backup with the bundled doll', () => {
     const v1 = asVersion1(sample());
     const zip = manifestZip(

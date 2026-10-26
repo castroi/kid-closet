@@ -4,8 +4,9 @@ An outfit picker for an 11-year-old, made as a web app that is added to the iPho
 She picks where she is going (school, a regular day, a festive event), the weather, and swipes
 through her own clothes: an outer layer when it is cold, a shirt and trousers.
 
-Everything runs **on the phone**. There is no server and no account; photos never leave the device
-unless a parent exports a backup.
+Everything runs **on the phone**. There is no server and no account. Photos leave the device only when a parent
+exports a backup, or after a parent sets up AI looks (an AI provider and her own API key, in the parent area): then
+the doll and the two garments of a look are sent to that provider, and nowhere else.
 
 ## Screens
 
@@ -15,7 +16,7 @@ unless a parent exports a backup.
 | מועדפים (Favourites) | Saved looks, filter by occasion, tap to open, remove. |
 | הארון שלי (My closet) | Items by category, tap to edit, select several to move to / from "outgrown" with undo. |
 | הוספה (Add) | Take or choose a photo, pick type, occasions and colour. The name is optional. |
-| אזור הורים (Parents) | Behind a simple question: backup export / restore, the doll (change or reset), storage status, permanent delete. |
+| אזור הורים (Parents) | Behind a simple question: backup export / restore, "בובה ו־AI" (status, monthly use, and the "הגדרות AI" screen: provider, API key, model, monthly cap, doll, prompt), storage status, permanent delete. |
 
 ## How data is stored
 

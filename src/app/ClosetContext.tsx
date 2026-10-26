@@ -2,11 +2,12 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import {
   addOutfit as addOutfitTo,
   removeOutfit as removeOutfitFrom,
+  setAiSettings as setAiSettingsOf,
   setStatus as setStatusOf,
   updateItem as updateItemIn,
   type ItemPatch,
 } from '../core/closet';
-import type { ClosetData, Item, ItemStatus, Outfit } from '../core/model';
+import type { AiSettings, ClosetData, Item, ItemStatus, Outfit } from '../core/model';
 import { exportBackup, importBackup } from '../storage/backup';
 import { ClosetChangedElsewhereError, type ClosetRepository, type NewItem, type StoredImage } from '../storage/repository';
 
@@ -26,6 +27,7 @@ export interface ClosetApi {
   readImage(path: string): Promise<Blob | null>;
   setDoll(image: StoredImage): Promise<void>;
   resetDoll(): Promise<void>;
+  setAiSettings(patch: Partial<AiSettings>): Promise<void>;
 }
 
 const ClosetContext = createContext<ClosetApi | null>(null);
@@ -149,6 +151,7 @@ export function ClosetProvider({ repo, children, now = defaultNow, newId = defau
         guard(async () => {
           setState({ kind: 'ready', data: await repo.resetDoll() });
         }),
+      setAiSettings: (patch) => commit((d) => setAiSettingsOf(d, patch)),
     };
   }, [data, repo, commit, guard, restore, readImage, now, newId]);
 
