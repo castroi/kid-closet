@@ -3,9 +3,10 @@ import userEvent from '@testing-library/user-event';
 import { strToU8, zipSync } from 'fflate';
 import { describe, expect, it, vi } from 'vitest';
 import type { ShareEnv } from '../app/device';
-import { MAX_BACKUP_FILE_BYTES, backupFileName, exportBackup } from '../storage/backup';
+import { BACKUP_FORMAT, MAX_BACKUP_FILE_BYTES, backupFileName, exportBackup } from '../storage/backup';
+import { closetImagePaths } from '../core/closet';
 import { ClosetRepository } from '../storage/repository';
-import { NOW, closetWith, fakeImageDeps, makeItem, renderWithCloset, sampleCloset, seededStore } from '../test/fixtures';
+import { NOW, closetWith, fakeImageDeps, makeItem, makeLook, renderWithCloset, sampleCloset, seededStore, testPhoto } from '../test/fixtures';
 import { AboutApp, Parent, randomQuestion } from './Parent';
 
 const TODAY = () => new Date('2026-10-24T08:00:00Z');
@@ -156,7 +157,7 @@ describe('Parent', () => {
     const user = userEvent.setup();
     const source = new ClosetRepository(seededStore(closetWith([makeItem({ id: 'fromBackup', name: 'מהגיבוי' })])), () => NOW);
     await source.load();
-    const zip = await exportBackup(source, NOW);
+    const zip = (await exportBackup(source, NOW)).zip;
 
     const { repo } = await renderWithCloset(
       <Parent imageDeps={fakeImageDeps()} onBack={vi.fn()} shareEnv={env()} question={[7, 8]} now={TODAY} />,
@@ -259,30 +260,41 @@ describe('AboutApp', () => {
 });
 
 describe('Parent: AI looks and backups', () => {
-  it('says AI looks are not in the backup yet, and warns before a restore removes them', async () => {
+  it('backs up AI looks and says when one had to be left out', async () => {
     const user = userEvent.setup();
-    const data = sampleCloset();
-    data.aiLooks = [
-      {
-        id: 'l1',
-        dollId: 'default',
-        upperId: 'tBlue',
-        upperSlot: 'top',
-        bottomId: 'bJeans',
-        image: 'images/look-l1.webp',
-        provider: 'venice',
-        model: 'm',
-        promptHash: 'h',
-        flagged: false,
-        createdAt: NOW,
-      },
-    ];
-    await renderWithCloset(<Parent imageDeps={fakeImageDeps()} onBack={vi.fn()} shareEnv={env()} question={[7, 8]} now={TODAY} />, data);
+    const shareEnv = env();
+    const data = { ...sampleCloset(), aiLooks: [makeLook({ id: 'l1' }), makeLook({ id: 'l2', bottomId: 'bShorts' })] };
+    const { store } = await renderWithCloset(
+      <Parent imageDeps={fakeImageDeps()} onBack={vi.fn()} shareEnv={shareEnv} question={[7, 8]} now={TODAY} />,
+      data,
+    );
+    // l2's picture is on the phone; l1's was lost.
+    store.files.set('images/look-l2.webp', new Blob([testPhoto('webp') as BlobPart], { type: 'image/webp' }));
     await openTools(user);
-    expect(screen.getByText(/עוד לא נשמרות בגיבוי/)).toBeInTheDocument();
-    const zip = zipSync({ 'closet.json': strToU8('{}') });
+    expect(screen.getByText(/כולל הבובה ותמונות ה־AI/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'ייצוא גיבוי' }));
+    expect(await screen.findByText(/תמונת AI אחת לא נכנסה לגיבוי/)).toBeInTheDocument();
+    expect(shareEnv.download).toHaveBeenCalled();
+  });
+
+  it('restores the clothes from a backup with a broken AI picture, and says it was left out', async () => {
+    const user = userEvent.setup();
+    const backup = { ...sampleCloset(), aiLooks: [makeLook({ id: 'l1' })] };
+    const photos = Object.fromEntries(closetImagePaths(backup).map((p) => [p, testPhoto('webp')]));
+    const zip = zipSync({
+      'closet.json': strToU8(JSON.stringify({ format: BACKUP_FORMAT, exportedAt: NOW, closet: backup })),
+      ...photos,
+      'images/look-l1.webp': strToU8('broken'),
+    });
+    const { repo } = await renderWithCloset(
+      <Parent imageDeps={fakeImageDeps()} onBack={vi.fn()} shareEnv={env()} question={[7, 8]} now={TODAY} />,
+      closetWith([]),
+    );
+    await openTools(user);
     await user.upload(screen.getByLabelText('שחזור מגיבוי'), new File([zip as BlobPart], 'b.zip', { type: 'application/zip' }));
-    const sheet = await screen.findByRole('dialog', { name: 'לשחזר מהגיבוי?' });
-    expect(within(sheet).getByText(/ושחזור ימחק אותן/)).toBeInTheDocument();
+    await user.click(within(await screen.findByRole('dialog', { name: 'לשחזר מהגיבוי?' })).getByRole('button', { name: 'כן, לשחזר' }));
+    expect(await screen.findByText('השחזור הושלם. תמונת AI אחת לא שוחזרה. אפשר ליצור אותה שוב.')).toBeInTheDocument();
+    expect(repo.getData().items).toHaveLength(backup.items.length);
+    expect(repo.getData().aiLooks).toEqual([]);
   });
 });

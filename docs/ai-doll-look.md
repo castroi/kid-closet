@@ -1,6 +1,6 @@
 # AI doll look — decisions and implementation plan
 
-Feature for `castroi/kid-closet`. Status: **in progress**. PRs 1–4 merged; PR 5 `feat/ai-looks-parent`. Date: 2026-10-26.
+Feature for `castroi/kid-closet`. Status: **in progress**. PRs 1–5 merged; PR 6 `feat/backup-ai-looks`. Date: 2026-10-26.
 
 ## 1. Goal
 
@@ -218,7 +218,7 @@ Each PR follows `CLAUDE.md`: branch from `main`, draft PR, review agent, fixes a
 | 5 | `feat/ai-looks-parent` | "לוקים לתיקון" screen with regenerate/keep/delete, delete-all with confirmation, delete-old-looks question on doll change | 4 |
 | 6 | `feat/backup-ai-looks` | AI looks in backup export/restore, validation, size caps | 4 |
 
-Until PR 6, backups leave AI looks out (export writes `aiLooks: []`, restore ignores any), and a restore removes the phone's looks: they can be made again. The look pictures (~100–200 KB each, 100 a month; a few may be larger, kept as the provider sent them when the phone couldn't decode them) would soon pass the 150 MB restore cap, so PR 6 has to decide how they fit.
+**PR 6 decision (2026-10-26): backups include AI looks, newest first, as long as the whole backup stays within the 150 MB restore limit.** Clothes and the doll always go in; the oldest looks are left out when there is no room (they can be made again, the clothes can't), and so is a look whose picture is lost or over the 10 MB per-file limit. After the export the parent sees "N תמונות AI ישנות לא נכנסו לגיבוי…". The export picks the looks from their file sizes before reading any, so left-out pictures never fill the phone's memory. A restore replaces the phone's looks with the backup's; a look whose picture is missing or broken is left out (the clothes are still restored, and the parent sees "N תמונות AI לא שוחזרו"), and more than 5000 looks are refused. The look pictures are ~100–200 KB each, so about 700+ fit next to a typical closet.
 
 ## 10. Tests
 

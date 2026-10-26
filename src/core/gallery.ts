@@ -83,7 +83,6 @@ export function dollsLeftText(left: number): string {
 
 const HEBREW_MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
 
-/** "1 בנובמבר": a date she can read, without a year. */
 /** "תמונת AI אחת" / "3 תמונות AI", for the delete questions. */
 export function aiPicturesText(n: number): string {
   return n === 1 ? 'תמונת AI אחת' : `${n} תמונות AI`;
@@ -94,6 +93,19 @@ export function deletedPicturesText(n: number): string {
   return n === 1 ? 'נמחקה תמונה אחת.' : `נמחקו ${n} תמונות.`;
 }
 
+/** Looks left out of a backup: the oldest when there's no room, or a picture that is lost or too large. */
+export function skippedLooksText(n: number): string {
+  const what = n === 1 ? 'תמונת AI אחת לא נכנסה' : `${n} תמונות AI לא נכנסו`;
+  const again = n === 1 ? 'אותה' : 'אותן';
+  return `${what} לגיבוי (הישנות ביותר, כדי שאפשר יהיה לשחזר אותו, או תמונה פגומה). אפשר ליצור ${again} שוב.`;
+}
+
+/** Looks a restore left out because their picture was missing or broken. */
+export function notRestoredLooksText(n: number): string {
+  return n === 1 ? 'תמונת AI אחת לא שוחזרה. אפשר ליצור אותה שוב.' : `${n} תמונות AI לא שוחזרו. אפשר ליצור אותן שוב.`;
+}
+
+/** "1 בנובמבר": a date she can read, without a year. */
 export function hebrewDay(date: Date): string {
   return `${date.getDate()} ב${HEBREW_MONTHS[date.getMonth()]}`;
 }

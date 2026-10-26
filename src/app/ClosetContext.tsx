@@ -9,7 +9,7 @@ import {
   type ItemPatch,
 } from '../core/closet';
 import type { AiLook, AiSettings, ClosetData, Item, ItemStatus, Outfit } from '../core/model';
-import { exportBackup, importBackup } from '../storage/backup';
+import { exportBackup, importBackup, type BackupResult } from '../storage/backup';
 import { ClosetChangedElsewhereError, type ClosetRepository, type NewItem, type StoredImage } from '../storage/repository';
 
 export type OutfitInput = Omit<Outfit, 'id' | 'createdAt'>;
@@ -22,9 +22,10 @@ export interface ClosetApi {
   deleteItems(ids: string[]): Promise<void>;
   addOutfit(outfit: OutfitInput): Promise<void>;
   removeOutfit(id: string): Promise<void>;
-  exportBackup(): Promise<Uint8Array>;
+  exportBackup(): Promise<BackupResult>;
   markBackedUp(): Promise<void>;
-  importBackup(zip: Uint8Array): Promise<void>;
+  /** Resolves to the number of AI looks the backup couldn't bring back. */
+  importBackup(zip: Uint8Array): Promise<number>;
   readImage(path: string): Promise<Blob | null>;
   setDoll(image: StoredImage): Promise<void>;
   resetDoll(): Promise<void>;
@@ -48,7 +49,7 @@ interface ProviderProps {
   now?: () => string;
   newId?: () => string;
   /** Shown when the saved closet cannot be read; lets the parent restore a backup. */
-  renderError?: (error: Error, restore: (zip: Uint8Array) => Promise<void>) => ReactNode;
+  renderError?: (error: Error, restore: (zip: Uint8Array) => Promise<unknown>) => ReactNode;
 }
 
 type LoadState = { kind: 'loading' } | { kind: 'ready'; data: ClosetData } | { kind: 'error'; error: Error };
@@ -113,9 +114,10 @@ export function ClosetProvider({ repo, children, now = defaultNow, newId = defau
 
   const restore = useCallback(
     async (zip: Uint8Array) => {
-      const data = await importBackup(repo, zip);
+      const { closet, skippedLooks } = await importBackup(repo, zip);
       setChangedElsewhere(false);
-      setState({ kind: 'ready', data });
+      setState({ kind: 'ready', data: closet });
+      return skippedLooks;
     },
     [repo],
   );

@@ -139,7 +139,7 @@ describe('ClosetProvider', () => {
     const user = userEvent.setup();
     const source = new ClosetRepository(seededStore(closetWith([makeItem({ id: 'a' }), makeItem({ id: 'b' })])), () => NOW);
     await source.load();
-    const zip = await exportBackup(source, NOW);
+    const zip = (await exportBackup(source, NOW)).zip;
 
     render(
       <ClosetProvider

@@ -5,7 +5,7 @@ import { ClosetCorruptedError } from '../storage/repository';
 
 interface Props {
   error: Error;
-  onRestore: (zip: Uint8Array) => Promise<void>;
+  onRestore: (zip: Uint8Array) => Promise<unknown>;
   onRetry?: () => void;
 }
 
@@ -65,7 +65,7 @@ export function RecoveryScreen({ error, onRestore, onRetry = () => window.locati
   );
 }
 
-function RestoreFromBackup({ error, onRestore }: { error: Error; onRestore: (zip: Uint8Array) => Promise<void> }) {
+function RestoreFromBackup({ error, onRestore }: { error: Error; onRestore: (zip: Uint8Array) => Promise<unknown> }) {
   const id = useId();
   const [message, setMessage] = useState<string | null>(null);
   return (
