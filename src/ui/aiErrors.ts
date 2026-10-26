@@ -11,7 +11,7 @@ export function aiErrorText(err: unknown): string {
     case 'rate-limited':
       return 'יותר מדי בקשות בזמן קצר. כדאי לנסות שוב בעוד כמה דקות.';
     case 'bad-request':
-      return 'הספק לא קיבל את הבקשה. אולי שם המודל לא נכון.';
+      return 'הספק לא קיבל את הבקשה: אולי שם המודל לא נכון, או שאחת התמונות קטנה מדי.';
     case 'provider-down':
       return 'אצל הספק יש תקלה כרגע. כדאי לנסות שוב מאוחר יותר.';
     case 'refused':

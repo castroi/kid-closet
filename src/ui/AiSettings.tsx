@@ -24,7 +24,8 @@ import { Icon, explainedElsewhere } from './common';
 import { aiErrorDetail, aiErrorText } from './aiErrors';
 import { DollPanel } from './DollPanel';
 
-type Message = { text: string; error: boolean } | null;
+/** `detail` is the provider's own (English) words, shown in their own direction inside the Hebrew line. */
+type Message = { text: string; error: boolean; detail?: string } | null;
 
 function formatDay(date: Date): string {
   return `${date.getDate()}.${date.getMonth() + 1}`;
@@ -117,6 +118,13 @@ export function AiSettingsScreen({
       {message && (
         <p ref={messageRef} role="status" className={message.error ? 'error' : 'muted'}>
           {message.text}
+          {message.detail && (
+            <>
+              {' ('}
+              <bdi dir="ltr">{message.detail}</bdi>
+              {')'}
+            </>
+          )}
         </p>
       )}
 
@@ -187,8 +195,7 @@ function KeyPanel({
       if (mounted.current) onMessage({ text: note ? `המפתח עובד. ${note}.` : 'המפתח עובד.', error: false });
     } catch (err) {
       saveLastCheck(deviceStorage, { provider, at: new Date().toISOString(), ok: false });
-      const detail = aiErrorDetail(err);
-      if (mounted.current) onMessage({ text: `${aiErrorText(err)}${detail ? ` (${detail})` : ''}`, error: true });
+      if (mounted.current) onMessage({ text: aiErrorText(err), error: true, detail: aiErrorDetail(err) });
     } finally {
       if (mounted.current) setChecking(false);
     }
