@@ -206,7 +206,10 @@ describe('AiSettingsScreen', () => {
     const fetchFn = vi.fn<FetchLike>().mockResolvedValue(Response.json({ error: 'Authentication failed' }, { status: 401 }));
     await renderScreen({ provider: 'venice' }, storage, fetchFn);
     await user.click(screen.getByRole('button', { name: 'בדיקת חיבור' }));
-    expect(await screen.findByText(/הספק לא קיבל את המפתח.*\(401 Authentication failed\)/)).toBeInTheDocument();
+    const status = await screen.findByText(/הספק לא קיבל את המפתח/);
+    expect(status).toHaveTextContent('(401 Authentication failed)');
+    // The provider's English words keep their own direction inside the Hebrew sentence.
+    expect(within(status).getByText('401 Authentication failed')).toHaveAttribute('dir', 'ltr');
     expect(JSON.parse(storage.data.get(AI_CHECK_KEY)!)).toMatchObject({ provider: 'venice', ok: false });
   });
 
