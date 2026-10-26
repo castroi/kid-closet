@@ -1,3 +1,4 @@
+import { closetImagePaths } from '../core/closet';
 import { emptyCloset, type ClosetData, type Item, type Outfit } from '../core/model';
 import { MemoryFileStore } from '../storage/fileStore';
 
@@ -41,18 +42,30 @@ export function testPhoto(ext: 'webp' | 'jpg'): Uint8Array {
   ]);
 }
 
-/** A store that already holds a saved closet (generation 1) and a photo per item. */
+/** A store that already holds a saved closet (generation 1) and every photo it uses (items and doll). */
 export function seededStore(data: ClosetData): MemoryFileStore {
   const store = new MemoryFileStore();
   store.files.set('closet-b.json', new Blob([JSON.stringify({ generation: 1, savedAt: NOW, closet: data })]));
-  for (const item of data.items) {
-    const jpg = item.image.endsWith('.jpg');
-    store.files.set(item.image, new Blob([testPhoto(jpg ? 'jpg' : 'webp') as BlobPart], { type: jpg ? 'image/jpeg' : 'image/webp' }));
+  for (const path of closetImagePaths(data)) {
+    const jpg = path.endsWith('.jpg');
+    store.files.set(path, new Blob([testPhoto(jpg ? 'jpg' : 'webp') as BlobPart], { type: jpg ? 'image/jpeg' : 'image/webp' }));
   }
   return store;
+}
+
+/** A closet whose doll is the parent's own picture. */
+export function withDoll(data: ClosetData, id = 'd1', ext: 'webp' | 'jpg' = 'webp'): ClosetData {
+  return { ...data, doll: { id, image: `images/doll-${id}.${ext}` } };
 }
 
 let idCounter = 0;
 export function testIds(): () => string {
   return () => `id-${++idCounter}`;
+}
+
+/** The same closet as a version 1 file wrote it: before the doll existed. */
+export function asVersion1(data: ClosetData): Record<string, unknown> {
+  const raw: Record<string, unknown> = { ...JSON.parse(JSON.stringify(data)), schemaVersion: 1 };
+  delete raw.doll;
+  return raw;
 }

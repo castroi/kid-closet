@@ -24,6 +24,8 @@ export interface ClosetApi {
   markBackedUp(): Promise<void>;
   importBackup(zip: Uint8Array): Promise<void>;
   readImage(path: string): Promise<Blob | null>;
+  setDoll(image: StoredImage): Promise<void>;
+  resetDoll(): Promise<void>;
 }
 
 const ClosetContext = createContext<ClosetApi | null>(null);
@@ -139,6 +141,14 @@ export function ClosetProvider({ repo, children, now = defaultNow, newId = defau
       markBackedUp: () => commit((d) => ({ ...d, lastBackupAt: now() })),
       importBackup: restore,
       readImage,
+      setDoll: (image) =>
+        guard(async () => {
+          setState({ kind: 'ready', data: await repo.setDoll(image) });
+        }),
+      resetDoll: () =>
+        guard(async () => {
+          setState({ kind: 'ready', data: await repo.resetDoll() });
+        }),
     };
   }, [data, repo, commit, guard, restore, readImage, now, newId]);
 

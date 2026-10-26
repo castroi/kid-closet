@@ -47,6 +47,8 @@ export function precacheFilesFromBuild(outputFiles: string[]): string[] {
     ['the file worker', (f) => /opfs\.worker.*\.js$/.test(f)],
     ['the WebP encoder (.wasm)', (f) => f.endsWith('.wasm')],
     ['the WebP encoder (its .js loader)', (f) => /webp_enc.*\.js$/.test(f)],
+    // Also proves Vite emitted it as a file: a small image inlined as a data: URL would be blocked by the CSP.
+    ['the default doll picture', (f) => /doll-default.*\.webp$/.test(f)],
   ];
   for (const [what, found] of required) {
     if (!files.some(found)) throw new Error(`The service worker would not cache ${what} for offline use`);

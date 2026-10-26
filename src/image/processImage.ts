@@ -1,6 +1,8 @@
 import type { StoredImage } from '../storage/repository';
 
 export const MAX_SIDE = 800;
+/** The doll is sent to the AI as the base picture, so it keeps more detail than a garment photo. */
+export const DOLL_MAX_SIDE = 1024;
 export const WEBP_QUALITY = 75;
 export const JPEG_QUALITY = 0.8;
 
@@ -37,10 +39,10 @@ export function fitSize(width: number, height: number, max = MAX_SIDE): Size {
  * Resizes a photo on the device and encodes it as WebP. Safari cannot encode
  * WebP itself, so a WebAssembly encoder does it; if that fails, JPEG is used.
  */
-export async function processImage(file: Blob, deps: ImageDeps): Promise<StoredImage> {
+export async function processImage(file: Blob, deps: ImageDeps, maxSide = MAX_SIDE): Promise<StoredImage> {
   const image = await deps.decode(file);
   try {
-    const frame = deps.draw(image, fitSize(image.width, image.height));
+    const frame = deps.draw(image, fitSize(image.width, image.height, maxSide));
     try {
       const buffer = await deps.encodeWebp(frame.imageData, WEBP_QUALITY);
       if (buffer.byteLength === 0) throw new Error('Empty WebP output');

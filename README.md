@@ -15,7 +15,7 @@ unless a parent exports a backup.
 | מועדפים (Favourites) | Saved looks, filter by occasion, tap to open, remove. |
 | הארון שלי (My closet) | Items by category, tap to edit, select several to move to / from "outgrown" with undo. |
 | הוספה (Add) | Take or choose a photo, pick type, occasions and colour. The name is optional. |
-| אזור הורים (Parents) | Behind a simple question: backup export / restore, storage status, permanent delete. |
+| אזור הורים (Parents) | Behind a simple question: backup export / restore, the doll (change or reset), storage status, permanent delete. |
 
 ## How data is stored
 
@@ -26,6 +26,7 @@ The app writes plain files into the browser's private folder for this site
 closet-a.json   ┐ the closet list, written alternately with an increasing
 closet-b.json   ┘ generation number, so an interrupted save never loses data
 images/<id>.webp  one photo per item (JPEG if WebP encoding fails)
+images/doll-<id>.webp  the parent's doll picture, if she replaced the bundled one
 ```
 
 - Photos are resized on the phone to at most 800 px and encoded to WebP with a WebAssembly
@@ -33,7 +34,7 @@ images/<id>.webp  one photo per item (JPEG if WebP encoding fails)
   WebP itself.
 - These files are **not visible in the Files app**, and they are deleted if the app is removed from
   the home screen or Safari's website data is cleared. Use **Parents → Export backup** regularly; it
-  creates one ZIP with `closet.json` and all photos that can be saved to iCloud Drive and restored
+  creates one ZIP with `closet.json` and all photos (including the doll) that can be saved to iCloud Drive and restored
   later.
 - On start the app asks the browser to keep its storage persistent (`navigator.storage.persist()`).
 

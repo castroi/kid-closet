@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { closetWith, makeItem, makeOutfit, NOW } from '../test/data';
+import { asVersion1, closetWith, makeItem, makeOutfit, NOW } from '../test/data';
 import {
   InvalidClosetError,
   NO_FILTER,
@@ -8,6 +8,7 @@ import {
   addOutfit,
   applyFilter,
   availableColors,
+  closetImagePaths,
   findItem,
   hasOutfit,
   isSafeImagePath,
@@ -20,7 +21,7 @@ import {
   stepSelection,
   updateItem,
 } from './closet';
-import { SCHEMA_VERSION, defaultName, emptyCloset, slotOf } from './model';
+import { DEFAULT_DOLL_ID, SCHEMA_VERSION, defaultName, dollImagePath, emptyCloset, slotOf } from './model';
 
 const items = [
   makeItem({ id: 'a', type: 'tee', colorGroup: 'blue', occasions: ['school'] }),
@@ -36,7 +37,14 @@ describe('model helpers', () => {
     expect(slotOf('sweater')).toBe('layer');
     expect(slotOf('shorts')).toBe('bottom');
     expect(defaultName('tee', 'blue')).toBe('חולצה קצרה בצבע כחול');
-    expect(emptyCloset()).toEqual({ schemaVersion: SCHEMA_VERSION, items: [], outfits: [], lastBackupAt: null });
+    expect(emptyCloset()).toEqual({
+      schemaVersion: SCHEMA_VERSION,
+      items: [],
+      outfits: [],
+      lastBackupAt: null,
+      doll: { id: DEFAULT_DOLL_ID, image: null },
+    });
+    expect(dollImagePath('d1', 'webp')).toBe('images/doll-d1.webp');
   });
 });
 
@@ -189,6 +197,49 @@ describe('parseCloset', () => {
     const good = makeOutfit({ id: 'o1', topId: 'a', bottomId: 'p' });
     const bad = typeof patch === 'string' ? patch : { ...good, ...patch };
     expect(() => parseCloset({ ...valid, outfits: [bad] })).toThrow(field);
+  });
+
+  it('loads a version 1 closet with the bundled doll and saves it as the current version', () => {
+    const v1 = asVersion1(valid);
+    const parsed = parseCloset(v1);
+    expect(parsed.schemaVersion).toBe(SCHEMA_VERSION);
+    expect(parsed.doll).toEqual({ id: DEFAULT_DOLL_ID, image: null });
+    expect(parsed.items).toHaveLength(items.length);
+  });
+
+  it("accepts the parent's doll picture named after the doll's id", () => {
+    for (const ext of ['webp', 'jpg'] as const) {
+      const doll = { id: 'd1', image: `images/doll-d1.${ext}` };
+      expect(parseCloset({ ...valid, doll }).doll).toEqual(doll);
+    }
+  });
+
+  it.each([
+    ['(doll)', undefined],
+    ['(doll)', 'x'],
+    ['id', { id: '', image: null }],
+    ['id', { id: '../x', image: null }],
+    ['id', { id: 3, image: null }],
+    ['image', { id: DEFAULT_DOLL_ID, image: 'images/doll-default.webp' }],
+    ['image', { id: 'd1', image: null }],
+    ['image', { id: 'd1', image: 'images/doll-d2.webp' }],
+    ['image', { id: 'd1', image: 'images/d1.webp' }],
+    ['image', { id: 'd1', image: 'images/doll-d1.png' }],
+  ])('rejects a doll with a bad %s', (field, doll) => {
+    expect(() => parseCloset({ ...valid, doll })).toThrow(InvalidClosetError);
+    expect(() => parseCloset({ ...valid, doll })).toThrow(`doll.${field}`);
+  });
+
+  it("rejects a doll picture that is also an item's photo", () => {
+    const item = makeItem({ id: 'doll-d1', type: 'tee' });
+    const raw = { ...valid, items: [item], outfits: [], doll: { id: 'd1', image: 'images/doll-d1.webp' } };
+    expect(() => parseCloset(raw)).toThrow('doll.image is used by an item');
+  });
+
+  it("lists every photo the closet uses, the doll's last", () => {
+    expect(closetImagePaths(closetWith([items[0]]))).toEqual(['images/a.webp']);
+    const withDoll = { ...closetWith([items[0]]), doll: { id: 'd1', image: 'images/doll-d1.jpg' } };
+    expect(closetImagePaths(withDoll)).toEqual(['images/a.webp', 'images/doll-d1.jpg']);
   });
 
   it('only allows image paths inside the images folder', () => {

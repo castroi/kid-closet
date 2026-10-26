@@ -1,5 +1,15 @@
-import { addItem as addItemTo, parseCloset, removeItems } from '../core/closet';
-import { emptyCloset, type ClosetData, type ColorGroup, type Item, type ItemType, type Occasion } from '../core/model';
+import { addItem as addItemTo, closetImagePaths, parseCloset, removeItems } from '../core/closet';
+import {
+  defaultDoll,
+  dollImagePath,
+  emptyCloset,
+  type ClosetData,
+  type ColorGroup,
+  type Doll,
+  type Item,
+  type ItemType,
+  type Occasion,
+} from '../core/model';
 import { blobToBytes, blobToText, type FileStore } from './fileStore';
 
 /**
@@ -215,12 +225,44 @@ export class ClosetRepository {
     });
   }
 
+  /** Replaces the doll with the parent's picture. The previous picture, if any, is deleted after the save. */
+  setDoll(image: StoredImage): Promise<ClosetData> {
+    return this.locked(async () => {
+      const id = this.newId();
+      const path = dollImagePath(id, image.ext);
+      // Picture first, then the list, as in addItem: a crash in between leaves only an orphan.
+      await this.store.write(path, image.blob);
+      try {
+        return await this.changeDoll({ id, image: path });
+      } catch (err) {
+        // Remove the picture only when nothing was written. Any other failure may be a save that
+        // landed (see persist), and the closet on disk would then point at a deleted picture; if it
+        // didn't land, the next load's orphan cleanup removes the picture.
+        if (err instanceof ClosetChangedElsewhereError) await this.store.remove(path).catch(() => undefined);
+        throw err;
+      }
+    });
+  }
+
+  /** Goes back to the doll bundled with the app, deleting the parent's picture after the save. */
+  resetDoll(): Promise<ClosetData> {
+    return this.locked(() => this.changeDoll(defaultDoll()));
+  }
+
+  /** Callers hold the lock. */
+  private async changeDoll(doll: Doll): Promise<ClosetData> {
+    const old = this.data.doll.image;
+    const next = await this.persist({ ...this.data, doll });
+    if (old && old !== doll.image) await this.store.remove(old).catch(() => undefined);
+    return next;
+  }
+
   readImage(path: string): Promise<Blob | null> {
     return this.store.read(path);
   }
 
   /**
-   * The closet and the bytes of every item's photo, read in the queue so no save
+   * The closet and the bytes of every photo it uses (items and doll), read in the queue so no save
    * can change them halfway. Bytes, not Blobs: a file Blob from the phone's storage
    * can become unreadable once the file is deleted.
    */
@@ -228,9 +270,9 @@ export class ClosetRepository {
     return this.locked(async () => {
       const data = this.data;
       const images = new Map<string, Uint8Array | null>();
-      for (const item of data.items) {
-        const blob = await this.store.read(item.image);
-        images.set(item.image, blob ? await blobToBytes(blob) : null);
+      for (const path of closetImagePaths(data)) {
+        const blob = await this.store.read(path);
+        images.set(path, blob ? await blobToBytes(blob) : null);
       }
       return { data, images };
     });
@@ -239,10 +281,10 @@ export class ClosetRepository {
   /** Replaces the whole closet (used by restore from backup). */
   replaceAll(next: ClosetData, images: Map<string, Blob>): Promise<ClosetData> {
     return this.locked(async () => {
-      for (const item of next.items) {
-        const blob = images.get(item.image);
-        if (!blob) throw new Error(`Missing photo ${item.image}`);
-        await this.store.write(item.image, blob);
+      for (const path of closetImagePaths(next)) {
+        const blob = images.get(path);
+        if (!blob) throw new Error(`Missing photo ${path}`);
+        await this.store.write(path, blob);
       }
       const saved = await this.persist(next, 'replace');
       await this.removeOrphanImages();
@@ -252,7 +294,7 @@ export class ClosetRepository {
 
   /** Best-effort: a cleanup failure must never fail the load or save that called it. */
   private async removeOrphanImages(): Promise<void> {
-    const referenced = new Set(this.data.items.map((it) => it.image));
+    const referenced = new Set(closetImagePaths(this.data));
     let names: string[];
     try {
       names = await this.store.list(IMAGES_DIR);

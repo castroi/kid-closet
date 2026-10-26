@@ -1,12 +1,23 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import type { ReactElement } from 'react';
-import { expect } from 'vitest';
+import { expect, vi } from 'vitest';
 import { ClosetProvider } from '../app/ClosetContext';
 import { emptyCloset, type ClosetData } from '../core/model';
+import type { ImageDeps } from '../image/processImage';
 import { ClosetRepository } from '../storage/repository';
 import { NOW, closetWith, makeItem, makeOutfit, seededStore, testIds } from './data';
 
 export * from './data';
+
+/** Image helpers that "encode" any picked file to a two-byte WebP, without a canvas. */
+export function fakeImageDeps(overrides: Partial<ImageDeps> = {}): ImageDeps {
+  return {
+    decode: vi.fn().mockResolvedValue({ width: 1000, height: 1000, release: vi.fn() }),
+    draw: vi.fn().mockReturnValue({ imageData: {} as ImageData, toJpeg: vi.fn(), release: vi.fn() }),
+    encodeWebp: vi.fn().mockResolvedValue(new Uint8Array([9, 9]).buffer),
+    ...overrides,
+  };
+}
 
 export async function renderWithCloset(ui: ReactElement, data: ClosetData = emptyCloset()) {
   const store = seededStore(data);

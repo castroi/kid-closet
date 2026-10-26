@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ShareEnv } from '../app/device';
 import { MAX_BACKUP_FILE_BYTES, backupFileName, exportBackup } from '../storage/backup';
 import { ClosetRepository } from '../storage/repository';
-import { NOW, closetWith, makeItem, renderWithCloset, sampleCloset, seededStore } from '../test/fixtures';
+import { NOW, closetWith, fakeImageDeps, makeItem, renderWithCloset, sampleCloset, seededStore } from '../test/fixtures';
 import { AboutApp, Parent, randomQuestion } from './Parent';
 
 const TODAY = () => new Date('2026-10-24T08:00:00Z');
@@ -23,13 +23,14 @@ describe('Parent', () => {
   it('asks a question before showing the tools', async () => {
     const user = userEvent.setup();
     const onBack = vi.fn();
-    await renderWithCloset(<Parent onBack={onBack} shareEnv={env()} question={[7, 8]} now={TODAY} />, sampleCloset());
+    await renderWithCloset(<Parent imageDeps={fakeImageDeps()} onBack={onBack} shareEnv={env()} question={[7, 8]} now={TODAY} />, sampleCloset());
     await user.type(screen.getByLabelText('כדי להיכנס, כמה זה 7 × 8?'), '54');
     await user.click(screen.getByRole('button', { name: 'כניסה' }));
     expect(screen.getByText('לא נכון')).toBeInTheDocument();
     await user.clear(screen.getByLabelText(/כמה זה/));
     await openTools(user);
     expect(screen.getByRole('heading', { name: 'גיבוי' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'הבובה' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'חזרה לארון' }));
     expect(onBack).toHaveBeenCalled();
   });
@@ -47,7 +48,7 @@ describe('Parent', () => {
     const user = userEvent.setup();
     const shareEnv = env();
     const { repo } = await renderWithCloset(
-      <Parent onBack={vi.fn()} shareEnv={shareEnv} question={[7, 8]} now={TODAY} />,
+      <Parent imageDeps={fakeImageDeps()} onBack={vi.fn()} shareEnv={shareEnv} question={[7, 8]} now={TODAY} />,
       sampleCloset(),
     );
     await openTools(user);
@@ -65,7 +66,7 @@ describe('Parent', () => {
     const abort = Object.assign(new Error('x'), { name: 'AbortError' });
     const shareEnv = env({ canShare: () => true, share: vi.fn().mockRejectedValue(abort) });
     const { repo } = await renderWithCloset(
-      <Parent onBack={vi.fn()} shareEnv={shareEnv} question={[7, 8]} now={TODAY} />,
+      <Parent imageDeps={fakeImageDeps()} onBack={vi.fn()} shareEnv={shareEnv} question={[7, 8]} now={TODAY} />,
       sampleCloset(),
     );
     await openTools(user);
@@ -79,7 +80,7 @@ describe('Parent', () => {
     const blocked = Object.assign(new Error('x'), { name: 'NotAllowedError' });
     const share = vi.fn().mockRejectedValueOnce(blocked).mockResolvedValueOnce(undefined);
     const { repo } = await renderWithCloset(
-      <Parent onBack={vi.fn()} shareEnv={env({ canShare: () => true, share })} question={[7, 8]} now={TODAY} />,
+      <Parent imageDeps={fakeImageDeps()} onBack={vi.fn()} shareEnv={env({ canShare: () => true, share })} question={[7, 8]} now={TODAY} />,
       sampleCloset(),
     );
     await openTools(user);
@@ -95,7 +96,7 @@ describe('Parent', () => {
     const user = userEvent.setup();
     const shareEnv = env();
     const { repo } = await renderWithCloset(
-      <Parent onBack={vi.fn()} shareEnv={shareEnv} question={[7, 8]} now={TODAY} />,
+      <Parent imageDeps={fakeImageDeps()} onBack={vi.fn()} shareEnv={shareEnv} question={[7, 8]} now={TODAY} />,
       sampleCloset(),
     );
     vi.spyOn(repo, 'update').mockRejectedValue(new Error('disk full'));
@@ -108,7 +109,7 @@ describe('Parent', () => {
 
   it('refuses a backup file too large to restore without reading it', async () => {
     const user = userEvent.setup();
-    await renderWithCloset(<Parent onBack={vi.fn()} shareEnv={env()} question={[7, 8]} now={TODAY} />, sampleCloset());
+    await renderWithCloset(<Parent imageDeps={fakeImageDeps()} onBack={vi.fn()} shareEnv={env()} question={[7, 8]} now={TODAY} />, sampleCloset());
     await openTools(user);
     const file = new File(['x'], 'huge.zip', { type: 'application/zip' });
     Object.defineProperty(file, 'size', { value: MAX_BACKUP_FILE_BYTES + 1 });
@@ -119,7 +120,7 @@ describe('Parent', () => {
 
   it('reports a backup file that cannot be read', async () => {
     const user = userEvent.setup();
-    await renderWithCloset(<Parent onBack={vi.fn()} shareEnv={env()} question={[7, 8]} now={TODAY} />, sampleCloset());
+    await renderWithCloset(<Parent imageDeps={fakeImageDeps()} onBack={vi.fn()} shareEnv={env()} question={[7, 8]} now={TODAY} />, sampleCloset());
     await openTools(user);
     const file = new File(['x'], 'b.zip', { type: 'application/zip' });
     Object.defineProperty(file, 'arrayBuffer', { value: () => Promise.reject(new Error('NotReadableError')) });
@@ -131,7 +132,7 @@ describe('Parent', () => {
   it('reports a failed export', async () => {
     const user = userEvent.setup();
     const shareEnv = env({ download: vi.fn(() => { throw new Error('no'); }) });
-    await renderWithCloset(<Parent onBack={vi.fn()} shareEnv={shareEnv} question={[7, 8]} now={TODAY} />, sampleCloset());
+    await renderWithCloset(<Parent imageDeps={fakeImageDeps()} onBack={vi.fn()} shareEnv={shareEnv} question={[7, 8]} now={TODAY} />, sampleCloset());
     await openTools(user);
     await user.click(screen.getByRole('button', { name: 'ייצוא גיבוי' }));
     expect(await screen.findByText('יצירת הגיבוי נכשלה.')).toBeInTheDocument();
@@ -144,7 +145,7 @@ describe('Parent', () => {
     const zip = await exportBackup(source, NOW);
 
     const { repo } = await renderWithCloset(
-      <Parent onBack={vi.fn()} shareEnv={env()} question={[7, 8]} now={TODAY} />,
+      <Parent imageDeps={fakeImageDeps()} onBack={vi.fn()} shareEnv={env()} question={[7, 8]} now={TODAY} />,
       sampleCloset(),
     );
     await openTools(user);
@@ -157,7 +158,7 @@ describe('Parent', () => {
 
   it('rejects a file that is not a backup', async () => {
     const user = userEvent.setup();
-    await renderWithCloset(<Parent onBack={vi.fn()} shareEnv={env()} question={[7, 8]} now={TODAY} />, sampleCloset());
+    await renderWithCloset(<Parent imageDeps={fakeImageDeps()} onBack={vi.fn()} shareEnv={env()} question={[7, 8]} now={TODAY} />, sampleCloset());
     await openTools(user);
     const notBackup = zipSync({ 'x.txt': strToU8('x') });
     await user.upload(screen.getByLabelText('שחזור מגיבוי'), new File([notBackup as BlobPart], 'x.zip', { type: 'application/zip' }));
@@ -167,7 +168,7 @@ describe('Parent', () => {
 
   it('can cancel a restore', async () => {
     const user = userEvent.setup();
-    await renderWithCloset(<Parent onBack={vi.fn()} shareEnv={env()} question={[7, 8]} now={TODAY} />, sampleCloset());
+    await renderWithCloset(<Parent imageDeps={fakeImageDeps()} onBack={vi.fn()} shareEnv={env()} question={[7, 8]} now={TODAY} />, sampleCloset());
     await openTools(user);
     await user.upload(screen.getByLabelText('שחזור מגיבוי'), new File(['x'], 'x.zip', { type: 'application/zip' }));
     await user.click(await screen.findByRole('button', { name: 'ביטול' }));
@@ -177,7 +178,7 @@ describe('Parent', () => {
   it('deletes checked items only after confirmation', async () => {
     const user = userEvent.setup();
     const { repo } = await renderWithCloset(
-      <Parent onBack={vi.fn()} shareEnv={env()} question={[7, 8]} now={TODAY} />,
+      <Parent imageDeps={fakeImageDeps()} onBack={vi.fn()} shareEnv={env()} question={[7, 8]} now={TODAY} />,
       sampleCloset(),
     );
     await openTools(user);
@@ -202,7 +203,7 @@ describe('Parent', () => {
     const user = userEvent.setup();
     const storage = { persisted: async () => true, estimate: async () => ({ usage: 1_572_864 }) };
     await renderWithCloset(
-      <Parent onBack={vi.fn()} shareEnv={env()} storage={storage} question={[7, 8]} now={TODAY} />,
+      <Parent imageDeps={fakeImageDeps()} onBack={vi.fn()} shareEnv={env()} storage={storage} question={[7, 8]} now={TODAY} />,
       sampleCloset(),
     );
     await openTools(user);
@@ -213,7 +214,7 @@ describe('Parent', () => {
 
   it('handles an empty closet', async () => {
     const user = userEvent.setup();
-    await renderWithCloset(<Parent onBack={vi.fn()} shareEnv={env()} question={[7, 8]} now={TODAY} />);
+    await renderWithCloset(<Parent imageDeps={fakeImageDeps()} onBack={vi.fn()} shareEnv={env()} question={[7, 8]} now={TODAY} />);
     await openTools(user);
     expect(screen.getByText('אין בגדים.')).toBeInTheDocument();
     expect(screen.queryByText(/עוד לא נעשה גיבוי/)).not.toBeInTheDocument();

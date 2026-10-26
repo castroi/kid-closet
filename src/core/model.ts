@@ -38,14 +38,26 @@ export interface Outfit {
   createdAt: string;
 }
 
+/** The doll the AI dresses in a look. */
+export interface Doll {
+  /** DEFAULT_DOLL_ID for the picture bundled with the app; a new id every time the parent replaces it. */
+  id: string;
+  /** The parent's picture, always "images/doll-<id>.webp" (or .jpg); null for the bundled default. */
+  image: string | null;
+}
+
+export const DEFAULT_DOLL_ID = 'default';
+
 export interface ClosetData {
   schemaVersion: number;
   items: Item[];
   outfits: Outfit[];
   lastBackupAt: string | null;
+  doll: Doll;
 }
 
-export const SCHEMA_VERSION = 1;
+/** 2 added `doll`. Version 1 files and backups still load, with the bundled doll. */
+export const SCHEMA_VERSION = 2;
 
 export const ITEM_TYPES: ItemType[] = ['tee', 'longTop', 'sweater', 'jacket', 'pants', 'shorts'];
 export const SLOTS: Slot[] = ['layer', 'top', 'bottom'];
@@ -90,7 +102,16 @@ export const COLOR_INFO: Record<ColorGroup, { label: string; hex: string }> = {
 export const COLOR_GROUPS = Object.keys(COLOR_INFO) as ColorGroup[];
 
 export function emptyCloset(): ClosetData {
-  return { schemaVersion: SCHEMA_VERSION, items: [], outfits: [], lastBackupAt: null };
+  return { schemaVersion: SCHEMA_VERSION, items: [], outfits: [], lastBackupAt: null, doll: defaultDoll() };
+}
+
+export function defaultDoll(): Doll {
+  return { id: DEFAULT_DOLL_ID, image: null };
+}
+
+/** The parent's doll picture is named after the doll's id, like an item's photo. */
+export function dollImagePath(id: string, ext: 'webp' | 'jpg'): string {
+  return `images/doll-${id}.${ext}`;
 }
 
 export function slotOf(type: ItemType): Slot {

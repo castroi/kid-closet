@@ -1,11 +1,15 @@
 import {
   COLOR_GROUPS,
+  DEFAULT_DOLL_ID,
   ITEM_TYPES,
   OCCASIONS,
   SCHEMA_VERSION,
+  defaultDoll,
+  dollImagePath,
   slotOf,
   type ClosetData,
   type ColorGroup,
+  type Doll,
   type Item,
   type ItemStatus,
   type ItemType,
@@ -224,10 +228,36 @@ function parseOutfit(raw: unknown, index: number): Outfit {
   return { id, occasion: occasion as Occasion, layerId, topId, bottomId, createdAt };
 }
 
+const DOLL_ID = /^[A-Za-z0-9-]+$/;
+
+function parseDoll(raw: unknown): Doll {
+  const fail = (field: string) => new InvalidClosetError(`doll.${field} is invalid`);
+  if (!isRecord(raw)) throw fail('(doll)');
+  const { id, image } = raw;
+  if (!isString(id) || !DOLL_ID.test(id)) throw fail('id');
+  if (id === DEFAULT_DOLL_ID) {
+    if (image !== null) throw fail('image');
+    return defaultDoll();
+  }
+  // Like an item's photo, the doll's picture is named after its id, so replacing it can't touch another file.
+  if (!isString(image) || (image !== dollImagePath(id, 'webp') && image !== dollImagePath(id, 'jpg'))) {
+    throw fail('image');
+  }
+  return { id, image };
+}
+
+/** Every photo file the closet uses: one per item, plus the parent's doll picture. */
+export function closetImagePaths(data: ClosetData): string[] {
+  const paths = data.items.map((it) => it.image);
+  if (data.doll.image) paths.push(data.doll.image);
+  return paths;
+}
+
 /** Validates data read from closet.json or a backup. Throws InvalidClosetError. */
 export function parseCloset(raw: unknown): ClosetData {
   if (!isRecord(raw)) throw new InvalidClosetError('closet is not an object');
-  if (raw.schemaVersion !== SCHEMA_VERSION) {
+  // Version 1 had no doll; it loads with the bundled one.
+  if (raw.schemaVersion !== 1 && raw.schemaVersion !== SCHEMA_VERSION) {
     throw new InvalidClosetError(`unsupported schemaVersion ${String(raw.schemaVersion)}`);
   }
   if (!Array.isArray(raw.items)) throw new InvalidClosetError('items is not a list');
@@ -242,5 +272,9 @@ export function parseCloset(raw: unknown): ClosetData {
     ids.add(it.id);
   }
   const outfits = raw.outfits.map(parseOutfit).filter((o) => outfitIsValid(o, items));
-  return { schemaVersion: SCHEMA_VERSION, items, outfits, lastBackupAt: raw.lastBackupAt };
+  const doll = raw.schemaVersion === 1 ? defaultDoll() : parseDoll(raw.doll);
+  if (doll.image && items.some((it) => it.image === doll.image)) {
+    throw new InvalidClosetError('doll.image is used by an item');
+  }
+  return { schemaVersion: SCHEMA_VERSION, items, outfits, lastBackupAt: raw.lastBackupAt, doll };
 }

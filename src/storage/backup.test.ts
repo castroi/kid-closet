@@ -2,7 +2,7 @@
 import { strToU8, zipSync } from 'fflate';
 import { describe, expect, it, vi } from 'vitest';
 import { MAX_ITEMS, MAX_NAME_LENGTH, MAX_OUTFITS } from '../core/closet';
-import { NOW, closetWith, makeItem, makeOutfit, seededStore, testPhoto } from '../test/data';
+import { NOW, asVersion1, closetWith, makeItem, makeOutfit, seededStore, testPhoto, withDoll } from '../test/data';
 import { gpsJpeg } from '../test/photos';
 import {
   BACKUP_FORMAT,
@@ -47,6 +47,50 @@ describe('backup', () => {
     expect(await blobToBytes((await targetStore.read('images/t.webp'))!)).toEqual(testPhoto('webp'));
     expect(await blobToBytes((await targetStore.read('images/b.jpg'))!)).toEqual(testPhoto('jpg'));
     expect((await targetStore.read('images/b.jpg'))!.type).toBe('image/jpeg');
+  });
+
+  it("round-trips the parent's doll picture", async () => {
+    const source = new ClosetRepository(seededStore(withDoll(sample(), 'd1', 'jpg')), () => NOW);
+    await source.load();
+    const zip = await exportBackup(source, NOW);
+
+    const targetStore = new MemoryFileStore();
+    const target = new ClosetRepository(targetStore, () => NOW);
+    await target.load();
+    const restored = await importBackup(target, zip);
+
+    expect(restored.doll).toEqual({ id: 'd1', image: 'images/doll-d1.jpg' });
+    expect(await blobToBytes((await targetStore.read('images/doll-d1.jpg'))!)).toEqual(testPhoto('jpg'));
+  });
+
+  it('restores a version 1 backup with the bundled doll', () => {
+    const v1 = asVersion1(sample());
+    const zip = manifestZip(
+      { format: BACKUP_FORMAT, exportedAt: NOW, closet: v1 },
+      { 'images/t.webp': testPhoto('webp'), 'images/b.jpg': testPhoto('jpg') },
+    );
+    const { closet, images } = readBackup(zip);
+    expect(closet.doll.image).toBeNull();
+    expect([...images.keys()]).toEqual(['images/t.webp', 'images/b.jpg']);
+  });
+
+  it('rejects a backup whose doll picture is missing', () => {
+    const zip = manifestZip(
+      { format: BACKUP_FORMAT, exportedAt: NOW, closet: withDoll(sample()) },
+      { 'images/t.webp': testPhoto('webp'), 'images/b.jpg': testPhoto('jpg') },
+    );
+    expect(() => readBackup(zip)).toThrow('images/doll-d1.webp');
+  });
+
+  it('still backs up the clothes when the doll picture is lost, with the bundled doll', async () => {
+    const store = seededStore(withDoll(sample()));
+    store.files.delete('images/doll-d1.webp');
+    const repo = new ClosetRepository(store, () => NOW);
+    await repo.load();
+    const { closet, images } = readBackup(await exportBackup(repo, NOW));
+    expect(closet.doll).toEqual({ id: 'default', image: null });
+    expect(closet.items.map((i) => i.id)).toEqual(['t', 'b']);
+    expect([...images.keys()]).toEqual(['images/t.webp', 'images/b.jpg']);
   });
 
   it('removes location and other metadata from restored photos', () => {
