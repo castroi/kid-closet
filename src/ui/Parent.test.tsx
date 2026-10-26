@@ -3,7 +3,8 @@ import userEvent from '@testing-library/user-event';
 import { strToU8, zipSync } from 'fflate';
 import { describe, expect, it, vi } from 'vitest';
 import type { ShareEnv } from '../app/device';
-import { MAX_BACKUP_FILE_BYTES, backupFileName, exportBackup } from '../storage/backup';
+import { BACKUP_FORMAT, MAX_BACKUP_FILE_BYTES, backupFileName, exportBackup } from '../storage/backup';
+import { closetImagePaths } from '../core/closet';
 import { ClosetRepository } from '../storage/repository';
 import { NOW, closetWith, fakeImageDeps, makeItem, makeLook, renderWithCloset, sampleCloset, seededStore, testPhoto } from '../test/fixtures';
 import { AboutApp, Parent, randomQuestion } from './Parent';
@@ -272,7 +273,28 @@ describe('Parent: AI looks and backups', () => {
     await openTools(user);
     expect(screen.getByText(/כולל הבובה ותמונות ה־AI/)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'ייצוא גיבוי' }));
-    expect(await screen.findByText(/תמונת AI ישנה אחת לא נכנסה לגיבוי/)).toBeInTheDocument();
+    expect(await screen.findByText(/תמונת AI אחת לא נכנסה לגיבוי/)).toBeInTheDocument();
     expect(shareEnv.download).toHaveBeenCalled();
+  });
+
+  it('restores the clothes from a backup with a broken AI picture, and says it was left out', async () => {
+    const user = userEvent.setup();
+    const backup = { ...sampleCloset(), aiLooks: [makeLook({ id: 'l1' })] };
+    const photos = Object.fromEntries(closetImagePaths(backup).map((p) => [p, testPhoto('webp')]));
+    const zip = zipSync({
+      'closet.json': strToU8(JSON.stringify({ format: BACKUP_FORMAT, exportedAt: NOW, closet: backup })),
+      ...photos,
+      'images/look-l1.webp': strToU8('broken'),
+    });
+    const { repo } = await renderWithCloset(
+      <Parent imageDeps={fakeImageDeps()} onBack={vi.fn()} shareEnv={env()} question={[7, 8]} now={TODAY} />,
+      closetWith([]),
+    );
+    await openTools(user);
+    await user.upload(screen.getByLabelText('שחזור מגיבוי'), new File([zip as BlobPart], 'b.zip', { type: 'application/zip' }));
+    await user.click(within(await screen.findByRole('dialog', { name: 'לשחזר מהגיבוי?' })).getByRole('button', { name: 'כן, לשחזר' }));
+    expect(await screen.findByText('השחזור הושלם. תמונת AI אחת לא שוחזרה. אפשר ליצור אותה שוב.')).toBeInTheDocument();
+    expect(repo.getData().items).toHaveLength(backup.items.length);
+    expect(repo.getData().aiLooks).toEqual([]);
   });
 });

@@ -1,5 +1,6 @@
 import {
   addItem as addItemTo,
+  closetImagePaths,
   parseCloset,
   putLook,
   removeItems,
@@ -308,17 +309,30 @@ export class ClosetRepository {
   }
 
   /**
-   * The closet and the bytes of every photo it uses (items and doll), read in the queue so no save
-   * can change them halfway. Bytes, not Blobs: a file Blob from the phone's storage
-   * can become unreadable once the file is deleted.
+   * The closet and the bytes of every photo it uses (items and doll), plus the AI looks `chooseLooks`
+   * picks from their file sizes (null: the picture is lost), read in the queue so no save can change
+   * them halfway. Only the chosen looks are read, so leaving looks out also saves the phone's memory.
+   * Bytes, not Blobs: a file Blob from the phone's storage can become unreadable once the file is deleted.
    */
-  snapshot(): Promise<{ data: ClosetData; images: Map<string, Uint8Array | null> }> {
+  snapshot(
+    chooseLooks: (data: ClosetData, sizes: ReadonlyMap<string, number | null>) => ReadonlySet<string> = (d) =>
+      new Set(d.aiLooks.map((l) => l.id)),
+  ): Promise<{ data: ClosetData; images: Map<string, Uint8Array | null> }> {
     return this.locked(async () => {
       const data = this.data;
+      // Getting a file is cheap; its contents are read only when needed.
+      const files = new Map<string, Blob | null>();
+      for (const path of storedImagePaths(data)) files.set(path, await this.store.read(path));
+      const sizes = new Map([...files].map(([path, blob]) => [path, blob ? blob.size : null]));
+      const chosen = chooseLooks(data, sizes);
       const images = new Map<string, Uint8Array | null>();
-      for (const path of storedImagePaths(data)) {
-        const blob = await this.store.read(path);
+      for (const path of closetImagePaths(data)) {
+        const blob = files.get(path);
         images.set(path, blob ? await blobToBytes(blob) : null);
+      }
+      for (const look of data.aiLooks) {
+        const blob = files.get(look.image);
+        if (chosen.has(look.id) && blob) images.set(look.image, await blobToBytes(blob));
       }
       return { data, images };
     });

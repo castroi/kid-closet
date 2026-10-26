@@ -49,7 +49,7 @@ describe('backup', () => {
     const targetStore = new MemoryFileStore();
     const target = new ClosetRepository(targetStore, () => NOW);
     await target.load();
-    const restored = await importBackup(target, zip);
+    const { closet: restored } = await importBackup(target, zip);
 
     expect(restored.items.map((i) => i.id)).toEqual(['t', 'b']);
     expect(restored.outfits).toHaveLength(1);
@@ -67,7 +67,7 @@ describe('backup', () => {
     const targetStore = new MemoryFileStore();
     const target = new ClosetRepository(targetStore, () => NOW);
     await target.load();
-    const restored = await importBackup(target, zip);
+    const { closet: restored } = await importBackup(target, zip);
 
     expect(restored.doll).toEqual({ id: 'd1', image: 'images/doll-d1.jpg' });
     expect(await blobToBytes((await targetStore.read('images/doll-d1.jpg'))!)).toEqual(testPhoto('jpg'));
@@ -85,14 +85,14 @@ describe('backup', () => {
     targetStore.files.set('images/look-old.webp', new Blob(['old']));
     const target = new ClosetRepository(targetStore, () => NOW);
     await target.load();
-    const restored = await importBackup(target, zip);
+    const { closet: restored } = await importBackup(target, zip);
     expect(restored.aiLooks.map((l) => l.id)).toEqual(['l1', 'l2']);
     expect(await blobToBytes((await targetStore.read('images/look-l2.webp'))!)).toEqual(testPhoto('webp'));
     expect(targetStore.files.has('images/look-old.webp')).toBe(false);
   });
 
   it('leaves out the oldest AI looks so the backup stays restorable, never the clothes', async () => {
-    const { repo } = await repoWithLooks([
+    const { repo, store } = await repoWithLooks([
       ['old', '2026-10-01T08:00:00.000Z'],
       ['new', '2026-10-25T08:00:00.000Z'],
       ['mid', '2026-10-10T08:00:00.000Z'],
@@ -103,8 +103,12 @@ describe('backup', () => {
     // Room for the clothes, the full closet.json and one and a half looks.
     const limit = clothes + full['closet.json'].length + look + Math.floor(look / 2);
 
+    // A look left out is never read into memory.
+    const oldPicture = store.files.get('images/look-old.webp')!;
+    const readOld = vi.spyOn(oldPicture, 'arrayBuffer');
     const { zip, skippedLooks } = await exportBackup(repo, NOW, limit);
     expect(skippedLooks).toBe(2);
+    expect(readOld).not.toHaveBeenCalled();
     const { closet, images } = readBackup(zip);
     expect(closet.aiLooks.map((l) => l.id)).toEqual(['new']);
     expect([...images.keys()].sort()).toEqual(['images/b.jpg', 'images/look-new.webp', 'images/t.webp']);
@@ -128,7 +132,7 @@ describe('backup', () => {
     expect(readBackup(zip).closet.aiLooks.map((l) => l.id)).toEqual(['ok']);
   });
 
-  it('restores a backup without a look picture by leaving that look out, and refuses a broken one', async () => {
+  it('restores the clothes when a look picture is missing or broken, leaving that look out', async () => {
     const { repo } = await repoWithLooks([['l1', NOW]]);
     const photos = { 'images/t.webp': testPhoto('webp'), 'images/b.jpg': testPhoto('jpg') };
     const manifest = { format: BACKUP_FORMAT, exportedAt: NOW, closet: repo.getData() };
@@ -136,8 +140,13 @@ describe('backup', () => {
     expect(missing.closet.aiLooks).toEqual([]);
     expect([...missing.images.keys()]).not.toContain('images/look-l1.webp');
 
-    const broken = manifestZip(manifest, { ...photos, 'images/look-l1.webp': strToU8('not a picture') });
-    expect(() => readBackup(broken)).toThrow(InvalidBackupError);
+    expect(missing.skippedLooks).toBe(1);
+
+    const broken = readBackup(manifestZip(manifest, { ...photos, 'images/look-l1.webp': strToU8('not a picture') }));
+    expect(broken.closet.aiLooks).toEqual([]);
+    expect(broken.closet.items).toHaveLength(2);
+    expect(broken.skippedLooks).toBe(1);
+    expect([...broken.images.keys()]).not.toContain('images/look-l1.webp');
   });
 
   it('keeps the AI settings in the backup', async () => {

@@ -16,12 +16,10 @@ import { backupFileName, readBackupFile, type BackupResult } from '../storage/ba
 import { browserDeviceStorage, type DeviceStorage } from '../app/aiDevice';
 import { AiPanel, AiSettingsScreen } from './AiSettings';
 import { LooksToFix } from './LooksToFix';
-import { skippedLooksText } from '../core/gallery';
+import { notRestoredLooksText, skippedLooksText } from '../core/gallery';
 import { Icon, Sheet, Swatch, restoreErrorText } from './common';
 
 export const BACKUP_REMINDER_DAYS = 14;
-
-
 
 export function randomQuestion(): [number, number] {
   const pick = () => 6 + Math.floor(Math.random() * 4); // 6..9
@@ -201,8 +199,8 @@ function ParentTools({
     setMessage(null);
     setPendingImport(null);
     try {
-      await api.importBackup(zip);
-      setMessage({ text: 'השחזור הושלם.', error: false });
+      const skipped = await api.importBackup(zip);
+      setMessage({ text: skipped > 0 ? `השחזור הושלם. ${notRestoredLooksText(skipped)}` : 'השחזור הושלם.', error: false });
     } catch (err) {
       setMessage({ text: restoreErrorText(err), error: true });
     } finally {

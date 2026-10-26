@@ -24,7 +24,8 @@ export interface ClosetApi {
   removeOutfit(id: string): Promise<void>;
   exportBackup(): Promise<BackupResult>;
   markBackedUp(): Promise<void>;
-  importBackup(zip: Uint8Array): Promise<void>;
+  /** Resolves to the number of AI looks the backup couldn't bring back. */
+  importBackup(zip: Uint8Array): Promise<number>;
   readImage(path: string): Promise<Blob | null>;
   setDoll(image: StoredImage): Promise<void>;
   resetDoll(): Promise<void>;
@@ -113,9 +114,10 @@ export function ClosetProvider({ repo, children, now = defaultNow, newId = defau
 
   const restore = useCallback(
     async (zip: Uint8Array) => {
-      const data = await importBackup(repo, zip);
+      const { closet, skippedLooks } = await importBackup(repo, zip);
       setChangedElsewhere(false);
-      setState({ kind: 'ready', data });
+      setState({ kind: 'ready', data: closet });
+      return skippedLooks;
     },
     [repo],
   );

@@ -12,7 +12,7 @@ import {
   setLookFlagged,
   storedImagePaths,
 } from './closet';
-import { aiPicturesText, deletedPicturesText, dollsLeftText } from './gallery';
+import { aiPicturesText, deletedPicturesText, dollsLeftText, notRestoredLooksText, skippedLooksText } from './gallery';
 import { lookImagePath, type AiLook } from './model';
 
 const items = [
@@ -107,6 +107,10 @@ describe('reading looks from closet.json', () => {
     expect(aiPicturesText(3)).toBe('3 תמונות AI');
     expect(deletedPicturesText(1)).toBe('נמחקה תמונה אחת.');
     expect(deletedPicturesText(3)).toBe('נמחקו 3 תמונות.');
+    expect(skippedLooksText(1)).toMatch(/^תמונת AI אחת לא נכנסה לגיבוי.*אותה שוב\.$/);
+    expect(skippedLooksText(2)).toMatch(/^2 תמונות AI לא נכנסו לגיבוי.*אותן שוב\.$/);
+    expect(notRestoredLooksText(1)).toBe('תמונת AI אחת לא שוחזרה. אפשר ליצור אותה שוב.');
+    expect(notRestoredLooksText(4)).toBe('4 תמונות AI לא שוחזרו. אפשר ליצור אותן שוב.');
   });
 
   it('loads a version 3 file with no looks', () => {

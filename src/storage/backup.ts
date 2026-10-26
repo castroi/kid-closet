@@ -1,6 +1,5 @@
 import { strFromU8, strToU8, unzipSync, zipSync, type Zippable } from 'fflate';
 import { InvalidClosetError, assertWithinRestoreLimits, closetImagePaths, isSafeImagePath, parseCloset } from '../core/closet';
-import type { AiLook } from '../core/model';
 import { defaultDoll, type ClosetData } from '../core/model';
 import { InvalidPhotoError, stripPhotoMetadata } from '../image/metadata';
 import { blobToBytes } from './fileStore';
@@ -61,41 +60,37 @@ export async function exportBackup(
   /** Only tests pass a smaller limit. */
   maxTotalBytes = MAX_TOTAL_BYTES,
 ): Promise<BackupResult> {
+  const manifestOf = (closet: ClosetData) =>
+    strToU8(JSON.stringify({ format: BACKUP_FORMAT, exportedAt, closet } satisfies Manifest, null, 2));
   // Read the list and the photos together, so a save running at the same time can't change them halfway.
-  const { data, images } = await repo.snapshot();
+  const { data, images } = await repo.snapshot((closet, sizes) => {
+    // closet.json listing every look is the largest it can get (the bundled-doll fallback only shortens it).
+    let room = maxTotalBytes - manifestOf(closet).length;
+    for (const path of closetImagePaths(closet)) room -= sizes.get(path) ?? 0;
+    const kept = new Set<string>();
+    for (const look of [...closet.aiLooks].sort((a, b) => b.createdAt.localeCompare(a.createdAt))) {
+      const size = sizes.get(look.image);
+      if (size == null || size > MAX_ENTRY_BYTES || size > room) continue;
+      room -= size;
+      kept.add(look.id);
+    }
+    return kept;
+  });
   const files: Zippable = {};
-  let total = 0;
   for (const item of data.items) {
     const bytes = images.get(item.image);
     if (!bytes) throw new Error(`Photo missing for ${item.name}`);
     // Photos are already compressed; storing them avoids wasting time on the phone.
     files[item.image] = [bytes, { level: 0 }];
-    total += bytes.length;
   }
   let closet: ClosetData = data;
   const dollBytes = data.doll.image ? images.get(data.doll.image) : null;
-  if (data.doll.image && dollBytes) {
-    files[data.doll.image] = [dollBytes, { level: 0 }];
-    total += dollBytes.length;
-  }
+  if (data.doll.image && dollBytes) files[data.doll.image] = [dollBytes, { level: 0 }];
   // A lost doll picture must never block the backup of her clothes: back up the bundled doll instead.
   else if (data.doll.image) closet = { ...closet, doll: defaultDoll() };
-
-  // closet.json with every look is the largest it can get, so leaving looks out only makes room.
-  const manifestOf = (aiLooks: AiLook[]) =>
-    strToU8(JSON.stringify({ format: BACKUP_FORMAT, exportedAt, closet: { ...closet, aiLooks } } satisfies Manifest, null, 2));
-  let room = maxTotalBytes - total - manifestOf(data.aiLooks).length;
-  const kept = new Set<string>();
-  const newestFirst = [...data.aiLooks].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  for (const look of newestFirst) {
-    const bytes = images.get(look.image);
-    if (!bytes || bytes.length > MAX_ENTRY_BYTES || bytes.length > room) continue;
-    files[look.image] = [bytes, { level: 0 }];
-    room -= bytes.length;
-    kept.add(look.id);
-  }
-  const aiLooks = data.aiLooks.filter((l) => kept.has(l.id));
-  files[BACKUP_MANIFEST] = manifestOf(aiLooks);
+  const aiLooks = data.aiLooks.filter((l) => images.get(l.image));
+  for (const look of aiLooks) files[look.image] = [images.get(look.image)!, { level: 0 }];
+  files[BACKUP_MANIFEST] = manifestOf({ ...closet, aiLooks });
   return { zip: zipSync(files), skippedLooks: data.aiLooks.length - aiLooks.length };
 }
 
@@ -105,8 +100,11 @@ export function backupFileName(date: Date): string {
   return `kid-closet-backup-${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}.zip`;
 }
 
-/** Reads a backup ZIP. Throws InvalidBackupError when it is not a usable backup. */
-export function readBackup(zip: Uint8Array): { closet: ClosetData; images: Map<string, Blob> } {
+/**
+ * Reads a backup ZIP. Throws InvalidBackupError when it is not a usable backup. `skippedLooks`: AI looks
+ * left out because their picture is missing or broken; they can be made again, the clothes can't.
+ */
+export function readBackup(zip: Uint8Array): { closet: ClosetData; images: Map<string, Blob>; skippedLooks: number } {
   let entries: Record<string, Uint8Array>;
   let total = 0;
   try {
@@ -146,10 +144,19 @@ export function readBackup(zip: Uint8Array): { closet: ClosetData; images: Map<s
     if (!bytes) throw new InvalidBackupError(`Photo ${path} is missing from the backup`);
     images.set(path, cleanPhoto(path, bytes));
   }
-  // A look whose picture isn't in the backup is left out: it can be made again. A broken picture still fails the restore.
-  const aiLooks = closet.aiLooks.filter((l) => entries[l.image]);
-  for (const look of aiLooks) images.set(look.image, cleanPhoto(look.image, entries[look.image]));
-  return { closet: { ...closet, aiLooks }, images };
+  // A look whose picture is missing or broken is left out, and its bytes are never written to the phone.
+  const aiLooks = closet.aiLooks.filter((look) => {
+    const bytes = entries[look.image];
+    if (!bytes) return false;
+    try {
+      images.set(look.image, cleanPhoto(look.image, bytes));
+      return true;
+    } catch (err) {
+      if (err instanceof InvalidBackupError) return false;
+      throw err;
+    }
+  });
+  return { closet: { ...closet, aiLooks }, images, skippedLooks: closet.aiLooks.length - aiLooks.length };
 }
 
 /** A backup can come from anywhere: check the photo is what its name says, and drop location and other metadata. */
@@ -165,7 +172,7 @@ function cleanPhoto(path: string, bytes: Uint8Array): Blob {
   return new Blob([clean as BlobPart], { type: ext === 'webp' ? 'image/webp' : 'image/jpeg' });
 }
 
-export async function importBackup(repo: ClosetRepository, zip: Uint8Array): Promise<ClosetData> {
-  const { closet, images } = readBackup(zip);
-  return repo.replaceAll(closet, images);
+export async function importBackup(repo: ClosetRepository, zip: Uint8Array): Promise<{ closet: ClosetData; skippedLooks: number }> {
+  const { closet, images, skippedLooks } = readBackup(zip);
+  return { closet: await repo.replaceAll(closet, images), skippedLooks };
 }
