@@ -12,16 +12,16 @@ import {
 } from '../app/device';
 import { COLOR_INFO } from '../core/model';
 import type { ImageDeps } from '../image/processImage';
-import { backupFileName, readBackupFile } from '../storage/backup';
+import { backupFileName, readBackupFile, type BackupResult } from '../storage/backup';
 import { browserDeviceStorage, type DeviceStorage } from '../app/aiDevice';
 import { AiPanel, AiSettingsScreen } from './AiSettings';
 import { LooksToFix } from './LooksToFix';
+import { skippedLooksText } from '../core/gallery';
 import { Icon, Sheet, Swatch, restoreErrorText } from './common';
 
 export const BACKUP_REMINDER_DAYS = 14;
 
-/** Until AI looks are in backups (PR 6 of docs/ai-doll-look.md), say so where it matters: each one was paid for. */
-const LOOKS_NOT_IN_BACKUP = 'תמונות הבובה מה־AI עוד לא נשמרות בגיבוי, ושחזור ימחק אותן מהטלפון. אפשר ליצור אותן שוב.';
+
 
 export function randomQuestion(): [number, number] {
   const pick = () => 6 + Math.floor(Math.random() * 4); // 6..9
@@ -149,7 +149,7 @@ function ParentTools({
   const [toDelete, setToDelete] = useState<Set<string>>(new Set());
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [pendingImport, setPendingImport] = useState<Uint8Array | null>(null);
-  const [prepared, setPrepared] = useState<Uint8Array | null>(null);
+  const [prepared, setPrepared] = useState<BackupResult | null>(null);
   const importId = useId();
 
   useEffect(() => {
@@ -163,19 +163,20 @@ function ParentTools({
   const age = daysSince(data.lastBackupAt, now());
   const needsBackup = data.items.length > 0 && (age === null || age >= BACKUP_REMINDER_DAYS);
 
-  const deliver = async (bytes: Uint8Array) => {
+  const deliver = async (backup: BackupResult) => {
     try {
-      const done = await shareOrDownload(bytes, backupFileName(now()), shareEnv);
+      const done = await shareOrDownload(backup.zip, backupFileName(now()), shareEnv);
       setPrepared(null);
       if (done) {
         // The backup already exists at this point; failing to record its date only affects the reminder.
         await api.markBackedUp().catch(() => undefined);
-        setMessage({ text: 'הגיבוי נוצר. כדאי לשמור אותו ב־iCloud Drive.', error: false });
+        const skipped = backup.skippedLooks > 0 ? ` ${skippedLooksText(backup.skippedLooks)}` : '';
+        setMessage({ text: `הגיבוי נוצר. כדאי לשמור אותו ב־iCloud Drive.${skipped}`, error: false });
       }
     } catch (err) {
       // Safari only opens the share sheet right after a tap; preparing many photos can take too long.
       if ((err as { name?: string })?.name === 'NotAllowedError') {
-        setPrepared(bytes);
+        setPrepared(backup);
         setMessage({ text: 'הגיבוי מוכן. לחצי "שיתוף הגיבוי" כדי לשמור אותו.', error: false });
       } else {
         setMessage({ text: 'יצירת הגיבוי נכשלה.', error: true });
@@ -241,9 +242,8 @@ function ParentTools({
           </div>
         )}
         <p className="muted">
-          הגיבוי הוא קובץ אחד עם כל התמונות והפרטים, כולל הבובה. אם האפליקציה תימחק מהמסך הראשי, אפשר לשחזר ממנו הכל.
+          הגיבוי הוא קובץ אחד עם כל התמונות והפרטים, כולל הבובה ותמונות ה־AI. אם האפליקציה תימחק מהמסך הראשי, אפשר לשחזר ממנו הכל.
         </p>
-        {data.aiLooks.length > 0 && <p className="muted">{LOOKS_NOT_IN_BACKUP}</p>}
         {prepared && (
           <button type="button" className="btn btn-primary" onClick={() => deliver(prepared)}>
             שיתוף הגיבוי
@@ -351,7 +351,6 @@ function ParentTools({
       {pendingImport && (
         <Sheet title="לשחזר מהגיבוי?" onClose={() => setPendingImport(null)}>
           <p className="muted">השחזור מחליף את כל הארון הנוכחי בתוכן הגיבוי.</p>
-          {data.aiLooks.length > 0 && <p className="warn">{LOOKS_NOT_IN_BACKUP}</p>}
           <button type="button" className="btn btn-danger" onClick={() => doImport(pendingImport)}>
             כן, לשחזר
           </button>

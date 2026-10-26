@@ -1,5 +1,6 @@
 import { strFromU8, strToU8, unzipSync, zipSync, type Zippable } from 'fflate';
 import { InvalidClosetError, assertWithinRestoreLimits, closetImagePaths, isSafeImagePath, parseCloset } from '../core/closet';
+import type { AiLook } from '../core/model';
 import { defaultDoll, type ClosetData } from '../core/model';
 import { InvalidPhotoError, stripPhotoMetadata } from '../image/metadata';
 import { blobToBytes } from './fileStore';
@@ -43,26 +44,59 @@ export async function readBackupFile(file: Blob): Promise<Uint8Array> {
   return blobToBytes(file);
 }
 
-/** Builds one ZIP file holding closet.json and every photo (items and the parent's doll). */
-export async function exportBackup(repo: ClosetRepository, exportedAt: string): Promise<Uint8Array> {
+export interface BackupResult {
+  zip: Uint8Array;
+  /** AI looks left out so the backup stays restorable (oldest first), or whose picture was lost. They can be made again. */
+  skippedLooks: number;
+}
+
+/**
+ * Builds one ZIP file holding closet.json and every photo: items, the parent's doll and the AI looks.
+ * Clothes and the doll always go in. AI looks go in newest first while the backup stays within what
+ * a restore accepts; the oldest ones are left out (they can be made again, the clothes can't).
+ */
+export async function exportBackup(
+  repo: ClosetRepository,
+  exportedAt: string,
+  /** Only tests pass a smaller limit. */
+  maxTotalBytes = MAX_TOTAL_BYTES,
+): Promise<BackupResult> {
   // Read the list and the photos together, so a save running at the same time can't change them halfway.
   const { data, images } = await repo.snapshot();
   const files: Zippable = {};
+  let total = 0;
   for (const item of data.items) {
     const bytes = images.get(item.image);
     if (!bytes) throw new Error(`Photo missing for ${item.name}`);
     // Photos are already compressed; storing them avoids wasting time on the phone.
     files[item.image] = [bytes, { level: 0 }];
+    total += bytes.length;
   }
-  // AI looks aren't in backups yet (PR 6 of docs/ai-doll-look.md); they can be made again.
-  let closet: ClosetData = { ...data, aiLooks: [] };
+  let closet: ClosetData = data;
   const dollBytes = data.doll.image ? images.get(data.doll.image) : null;
-  if (data.doll.image && dollBytes) files[data.doll.image] = [dollBytes, { level: 0 }];
+  if (data.doll.image && dollBytes) {
+    files[data.doll.image] = [dollBytes, { level: 0 }];
+    total += dollBytes.length;
+  }
   // A lost doll picture must never block the backup of her clothes: back up the bundled doll instead.
   else if (data.doll.image) closet = { ...closet, doll: defaultDoll() };
-  const manifest: Manifest = { format: BACKUP_FORMAT, exportedAt, closet };
-  files[BACKUP_MANIFEST] = strToU8(JSON.stringify(manifest, null, 2));
-  return zipSync(files);
+
+  // closet.json with every look is the largest it can get, so leaving looks out only makes room.
+  const manifestOf = (aiLooks: AiLook[]) =>
+    strToU8(JSON.stringify({ format: BACKUP_FORMAT, exportedAt, closet: { ...closet, aiLooks } } satisfies Manifest, null, 2));
+  let room = maxTotalBytes - total - manifestOf(data.aiLooks).length;
+  const kept = new Set<string>();
+  const newestFirst = [...data.aiLooks].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  for (const look of newestFirst) {
+    const bytes = images.get(look.image);
+    if (!bytes || bytes.length > MAX_ENTRY_BYTES || bytes.length > room) continue;
+    files[look.image] = [bytes, { level: 0 }];
+    room -= bytes.length;
+    kept.add(look.id);
+  }
+  const aiLooks = data.aiLooks.filter((l) => kept.has(l.id));
+  files[BACKUP_MANIFEST] = manifestOf(aiLooks);
+  return { zip: zipSync(files), skippedLooks: data.aiLooks.length - aiLooks.length };
 }
 
 /** Names the file by the phone's local date, so a backup made just after midnight gets that day. */
@@ -106,24 +140,29 @@ export function readBackup(zip: Uint8Array): { closet: ClosetData; images: Map<s
     if (err instanceof InvalidClosetError) throw new InvalidBackupError(err.message);
     throw err;
   }
-  // Looks aren't in backups yet, so a backup can't bring pictures for them.
-  closet = { ...closet, aiLooks: [] };
   const images = new Map<string, Blob>();
   for (const path of closetImagePaths(closet)) {
     const bytes = entries[path];
     if (!bytes) throw new InvalidBackupError(`Photo ${path} is missing from the backup`);
-    const ext = path.endsWith('.webp') ? 'webp' : 'jpg';
-    let clean: Uint8Array;
-    try {
-      // A backup can come from anywhere: check the photo is what its name says, and drop location and other metadata.
-      clean = stripPhotoMetadata(bytes, ext);
-    } catch (err) {
-      if (err instanceof InvalidPhotoError) throw new InvalidBackupError(`Photo ${path}: ${err.message}`);
-      throw err;
-    }
-    images.set(path, new Blob([clean as BlobPart], { type: ext === 'webp' ? 'image/webp' : 'image/jpeg' }));
+    images.set(path, cleanPhoto(path, bytes));
   }
-  return { closet, images };
+  // A look whose picture isn't in the backup is left out: it can be made again. A broken picture still fails the restore.
+  const aiLooks = closet.aiLooks.filter((l) => entries[l.image]);
+  for (const look of aiLooks) images.set(look.image, cleanPhoto(look.image, entries[look.image]));
+  return { closet: { ...closet, aiLooks }, images };
+}
+
+/** A backup can come from anywhere: check the photo is what its name says, and drop location and other metadata. */
+function cleanPhoto(path: string, bytes: Uint8Array): Blob {
+  const ext = path.endsWith('.webp') ? 'webp' : 'jpg';
+  let clean: Uint8Array;
+  try {
+    clean = stripPhotoMetadata(bytes, ext);
+  } catch (err) {
+    if (err instanceof InvalidPhotoError) throw new InvalidBackupError(`Photo ${path}: ${err.message}`);
+    throw err;
+  }
+  return new Blob([clean as BlobPart], { type: ext === 'webp' ? 'image/webp' : 'image/jpeg' });
 }
 
 export async function importBackup(repo: ClosetRepository, zip: Uint8Array): Promise<ClosetData> {

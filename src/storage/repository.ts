@@ -1,6 +1,5 @@
 import {
   addItem as addItemTo,
-  closetImagePaths,
   parseCloset,
   putLook,
   removeItems,
@@ -317,7 +316,7 @@ export class ClosetRepository {
     return this.locked(async () => {
       const data = this.data;
       const images = new Map<string, Uint8Array | null>();
-      for (const path of closetImagePaths(data)) {
+      for (const path of storedImagePaths(data)) {
         const blob = await this.store.read(path);
         images.set(path, blob ? await blobToBytes(blob) : null);
       }
@@ -328,7 +327,7 @@ export class ClosetRepository {
   /** Replaces the whole closet (used by restore from backup). */
   replaceAll(next: ClosetData, images: Map<string, Blob>): Promise<ClosetData> {
     return this.locked(async () => {
-      for (const path of closetImagePaths(next)) {
+      for (const path of storedImagePaths(next)) {
         const blob = images.get(path);
         if (!blob) throw new Error(`Missing photo ${path}`);
         await this.store.write(path, blob);

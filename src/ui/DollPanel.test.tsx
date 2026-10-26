@@ -47,7 +47,7 @@ describe('DollPanel', () => {
     expect(await screen.findByRole('heading', { name: 'למחוק תמונת AI אחת של הבובה הקודמת?' })).toBeInTheDocument();
     expect(screen.getByText(/אם תחזרי לבובה הרגילה, הן יחזרו/)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'כן, למחוק' }));
-    expect(await screen.findByText('התמונות הישנות נמחקו.')).toBeInTheDocument();
+    expect(await screen.findByText('נמחקה תמונה אחת.')).toBeInTheDocument();
     expect(repo.getData().aiLooks.map((l) => l.id)).toEqual(['b']);
     expect(store.files.has('images/look-a.webp')).toBe(false);
   });

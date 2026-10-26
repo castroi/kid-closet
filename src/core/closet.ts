@@ -212,6 +212,7 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 export const MAX_ITEMS = 5000;
 export const MAX_OUTFITS = 5000;
 export const MAX_NAME_LENGTH = 200;
+export const MAX_LOOKS = 5000;
 
 export function setAiSettings(data: ClosetData, patch: Partial<AiSettings>): ClosetData {
   return { ...data, ai: { ...data.ai, ...patch } };
@@ -220,7 +221,7 @@ export function setAiSettings(data: ClosetData, patch: Partial<AiSettings>): Clo
 /** Throws InvalidClosetError when restore data is far larger than any real closet. */
 export function assertWithinRestoreLimits(raw: unknown): void {
   if (!isRecord(raw)) return; // parseCloset reports the shape error
-  const { items, outfits } = raw;
+  const { items, outfits, aiLooks } = raw;
   if (Array.isArray(items)) {
     if (items.length > MAX_ITEMS) throw new InvalidClosetError(`more than ${MAX_ITEMS} items`);
     items.forEach((it, i) => {
@@ -231,6 +232,9 @@ export function assertWithinRestoreLimits(raw: unknown): void {
   }
   if (Array.isArray(outfits) && outfits.length > MAX_OUTFITS) {
     throw new InvalidClosetError(`more than ${MAX_OUTFITS} outfits`);
+  }
+  if (Array.isArray(aiLooks) && aiLooks.length > MAX_LOOKS) {
+    throw new InvalidClosetError(`more than ${MAX_LOOKS} AI looks`);
   }
 }
 
@@ -341,14 +345,14 @@ function parseLook(raw: unknown, index: number): AiLook {
   return { id, dollId, upperId, upperSlot, bottomId, image, provider: provider as AiProviderId, model, promptHash: hash, flagged, createdAt };
 }
 
-/** Every photo file the closet keeps in backups: one per item, plus the parent's doll picture. */
+/** The photos a closet can't do without, so every backup has them: one per item, plus the parent's doll picture. */
 export function closetImagePaths(data: ClosetData): string[] {
   const paths = data.items.map((it) => it.image);
   if (data.doll.image) paths.push(data.doll.image);
   return paths;
 }
 
-/** Every picture file on the phone the closet uses: the backed-up photos plus the AI looks (not yet in backups). */
+/** Every picture file the closet uses: the photos it can't do without plus the AI looks (which a backup may leave out). */
 export function storedImagePaths(data: ClosetData): string[] {
   return [...closetImagePaths(data), ...data.aiLooks.map((l) => l.image)];
 }

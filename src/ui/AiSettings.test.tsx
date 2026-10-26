@@ -105,7 +105,7 @@ describe('AiSettingsScreen', () => {
 
     expect(storage.data.get(`${AI_KEY_PREFIX}venice`)).toBe('sk-secret-1234');
     expect(JSON.stringify(repo.getData())).not.toContain('sk-secret');
-    const backup = unzipSync(await exportBackup(repo, NOW));
+    const backup = unzipSync((await exportBackup(repo, NOW)).zip);
     expect(Object.values(backup).some((bytes) => strFromU8(bytes).includes('sk-secret'))).toBe(false);
     expect(screen.getByText('••••1234')).toBeInTheDocument();
     expect(screen.queryByDisplayValue('sk-secret-1234')).not.toBeInTheDocument();

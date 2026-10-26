@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useCloset } from '../app/ClosetContext';
 import { DEFAULT_DOLL_URL } from '../app/doll';
-import { aiPicturesText } from '../core/gallery';
+import { aiPicturesText, deletedPicturesText } from '../core/gallery';
 import { DOLL_MAX_SIDE, processImage, type ImageDeps } from '../image/processImage';
 import type { StoredImage } from '../storage/repository';
 import { Sheet, explainedElsewhere, useImageUrl } from './common';
@@ -190,7 +190,7 @@ export function DollPanel({ imageDeps }: { imageDeps: ImageDeps }) {
             onClick={async () => {
               const { ids } = oldLooks;
               setOldLooks(null);
-              await run(() => deleteLooks(ids), 'התמונות הישנות נמחקו.');
+              await run(() => deleteLooks(ids), deletedPicturesText(ids.length));
             }}
           >
             כן, למחוק

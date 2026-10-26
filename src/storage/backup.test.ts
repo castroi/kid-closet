@@ -1,8 +1,8 @@
 // @vitest-environment node
-import { strToU8, zipSync } from 'fflate';
+import { strToU8, unzipSync, zipSync } from 'fflate';
 import { describe, expect, it, vi } from 'vitest';
-import { MAX_ITEMS, MAX_NAME_LENGTH, MAX_OUTFITS } from '../core/closet';
-import { NOW, asVersion1, closetWith, makeItem, makeOutfit, seededStore, testPhoto, withDoll } from '../test/data';
+import { MAX_ITEMS, MAX_LOOKS, MAX_NAME_LENGTH, MAX_OUTFITS } from '../core/closet';
+import { NOW, asVersion1, closetWith, makeItem, makeLook, makeOutfit, seededStore, testPhoto, withDoll } from '../test/data';
 import { gpsJpeg } from '../test/photos';
 import {
   BACKUP_FORMAT,
@@ -26,6 +26,16 @@ function sample() {
   );
 }
 
+/** A closet with one AI look (shirt t + trousers b) per [id, createdAt]; each look has its own doll so they don't share parts. */
+async function repoWithLooks(looks: [string, string][]) {
+  const data = { ...sample(), aiLooks: looks.map(([id, createdAt]) => makeLook({ id, createdAt, dollId: `doll-${id}`, upperId: 't', bottomId: 'b' })) };
+  const store = seededStore(data);
+  for (const [id] of looks) store.files.set(`images/look-${id}.webp`, new Blob([testPhoto('webp') as BlobPart], { type: 'image/webp' }));
+  const repo = new ClosetRepository(store, () => NOW);
+  await repo.load();
+  return { repo, store };
+}
+
 function manifestZip(manifest: unknown, extra: Record<string, Uint8Array> = {}) {
   return zipSync({ 'closet.json': strToU8(JSON.stringify(manifest)), ...extra });
 }
@@ -34,7 +44,7 @@ describe('backup', () => {
   it('round-trips the closet and every photo', async () => {
     const source = new ClosetRepository(seededStore(sample()), () => NOW);
     await source.load();
-    const zip = await exportBackup(source, NOW);
+    const zip = (await exportBackup(source, NOW)).zip;
 
     const targetStore = new MemoryFileStore();
     const target = new ClosetRepository(targetStore, () => NOW);
@@ -52,7 +62,7 @@ describe('backup', () => {
   it("round-trips the parent's doll picture", async () => {
     const source = new ClosetRepository(seededStore(withDoll(sample(), 'd1', 'jpg')), () => NOW);
     await source.load();
-    const zip = await exportBackup(source, NOW);
+    const zip = (await exportBackup(source, NOW)).zip;
 
     const targetStore = new MemoryFileStore();
     const target = new ClosetRepository(targetStore, () => NOW);
@@ -63,31 +73,78 @@ describe('backup', () => {
     expect(await blobToBytes((await targetStore.read('images/doll-d1.jpg'))!)).toEqual(testPhoto('jpg'));
   });
 
-  it('leaves AI looks out of backups for now, and a restore brings none', async () => {
-    const store = seededStore(sample());
-    const repo = new ClosetRepository(store, () => NOW, () => 'l1');
-    await repo.load();
-    await repo.addLook(
-      { dollId: 'default', upperId: 't', upperSlot: 'top', bottomId: 'b', provider: 'venice', model: 'm', promptHash: 'h' },
-      { blob: new Blob([testPhoto('webp') as BlobPart], { type: 'image/webp' }), ext: 'webp' },
-    );
-    const zip = await exportBackup(repo, NOW);
-    const { closet, images } = readBackup(zip);
-    expect(closet.aiLooks).toEqual([]);
-    expect([...images.keys()]).not.toContain('images/look-l1.webp');
+  it('round-trips AI looks and their pictures, replacing the looks on the phone', async () => {
+    const { repo } = await repoWithLooks([
+      ['l1', '2026-10-20T08:00:00.000Z'],
+      ['l2', '2026-10-21T08:00:00.000Z'],
+    ]);
+    const { zip, skippedLooks } = await exportBackup(repo, NOW);
+    expect(skippedLooks).toBe(0);
 
-    const lying = manifestZip(
-      { format: BACKUP_FORMAT, exportedAt: NOW, closet: { ...repo.getData() } },
-      { 'images/t.webp': testPhoto('webp'), 'images/b.jpg': testPhoto('jpg') },
-    );
-    expect(readBackup(lying).closet.aiLooks).toEqual([]);
+    const targetStore = seededStore(sample());
+    targetStore.files.set('images/look-old.webp', new Blob(['old']));
+    const target = new ClosetRepository(targetStore, () => NOW);
+    await target.load();
+    const restored = await importBackup(target, zip);
+    expect(restored.aiLooks.map((l) => l.id)).toEqual(['l1', 'l2']);
+    expect(await blobToBytes((await targetStore.read('images/look-l2.webp'))!)).toEqual(testPhoto('webp'));
+    expect(targetStore.files.has('images/look-old.webp')).toBe(false);
+  });
+
+  it('leaves out the oldest AI looks so the backup stays restorable, never the clothes', async () => {
+    const { repo } = await repoWithLooks([
+      ['old', '2026-10-01T08:00:00.000Z'],
+      ['new', '2026-10-25T08:00:00.000Z'],
+      ['mid', '2026-10-10T08:00:00.000Z'],
+    ]);
+    const full = unzipSync((await exportBackup(repo, NOW)).zip);
+    const clothes = full['images/t.webp'].length + full['images/b.jpg'].length;
+    const look = full['images/look-new.webp'].length;
+    // Room for the clothes, the full closet.json and one and a half looks.
+    const limit = clothes + full['closet.json'].length + look + Math.floor(look / 2);
+
+    const { zip, skippedLooks } = await exportBackup(repo, NOW, limit);
+    expect(skippedLooks).toBe(2);
+    const { closet, images } = readBackup(zip);
+    expect(closet.aiLooks.map((l) => l.id)).toEqual(['new']);
+    expect([...images.keys()].sort()).toEqual(['images/b.jpg', 'images/look-new.webp', 'images/t.webp']);
+
+    // With no room for any look, the clothes still go in.
+    const tight = await exportBackup(repo, NOW, 1);
+    expect(tight.skippedLooks).toBe(3);
+    expect(readBackup(tight.zip).closet.items).toHaveLength(2);
+  });
+
+  it('leaves out a look whose picture is lost or too large to restore', async () => {
+    const { repo, store } = await repoWithLooks([
+      ['lost', '2026-10-01T08:00:00.000Z'],
+      ['huge', '2026-10-02T08:00:00.000Z'],
+      ['ok', '2026-10-03T08:00:00.000Z'],
+    ]);
+    store.files.delete('images/look-lost.webp');
+    store.files.set('images/look-huge.webp', new Blob([new Uint8Array(MAX_ENTRY_BYTES + 1)]));
+    const { zip, skippedLooks } = await exportBackup(repo, NOW);
+    expect(skippedLooks).toBe(2);
+    expect(readBackup(zip).closet.aiLooks.map((l) => l.id)).toEqual(['ok']);
+  });
+
+  it('restores a backup without a look picture by leaving that look out, and refuses a broken one', async () => {
+    const { repo } = await repoWithLooks([['l1', NOW]]);
+    const photos = { 'images/t.webp': testPhoto('webp'), 'images/b.jpg': testPhoto('jpg') };
+    const manifest = { format: BACKUP_FORMAT, exportedAt: NOW, closet: repo.getData() };
+    const missing = readBackup(manifestZip(manifest, photos));
+    expect(missing.closet.aiLooks).toEqual([]);
+    expect([...missing.images.keys()]).not.toContain('images/look-l1.webp');
+
+    const broken = manifestZip(manifest, { ...photos, 'images/look-l1.webp': strToU8('not a picture') });
+    expect(() => readBackup(broken)).toThrow(InvalidBackupError);
   });
 
   it('keeps the AI settings in the backup', async () => {
     const ai = { provider: 'venice' as const, model: 'm', prompt: 'p', monthlyCap: 7 };
     const repo = new ClosetRepository(seededStore({ ...sample(), ai }), () => NOW);
     await repo.load();
-    expect(readBackup(await exportBackup(repo, NOW)).closet.ai).toEqual(ai);
+    expect(readBackup((await exportBackup(repo, NOW)).zip).closet.ai).toEqual(ai);
   });
 
   it('restores a version 1 backup with the bundled doll', () => {
@@ -114,7 +171,7 @@ describe('backup', () => {
     store.files.delete('images/doll-d1.webp');
     const repo = new ClosetRepository(store, () => NOW);
     await repo.load();
-    const { closet, images } = readBackup(await exportBackup(repo, NOW));
+    const { closet, images } = readBackup((await exportBackup(repo, NOW)).zip);
     expect(closet.doll).toEqual({ id: 'default', image: null });
     expect(closet.items.map((i) => i.id)).toEqual(['t', 'b']);
     expect([...images.keys()]).toEqual(['images/t.webp', 'images/b.jpg']);
@@ -178,7 +235,7 @@ describe('backup', () => {
     });
     const exporting = exportBackup(repo, NOW); // queued first, so it sees the closet before the delete
     const deleting = repo.deleteItems(['b']).then(() => releaseRead());
-    const zip = await exporting;
+    const { zip } = await exporting;
     await deleting;
     const { closet, images } = readBackup(zip);
     expect(closet.items.map((i) => i.id)).toEqual(['t', 'b']);
@@ -211,6 +268,9 @@ describe('backup', () => {
 
     const tooManyOutfits = { ...many, outfits: Array.from({ length: MAX_OUTFITS + 1 }, () => ({})) };
     expect(() => readBackup(manifestZip({ format: BACKUP_FORMAT, closet: tooManyOutfits }))).toThrow('outfits');
+
+    const tooManyLooks = { ...many, aiLooks: Array.from({ length: MAX_LOOKS + 1 }, () => ({})) };
+    expect(() => readBackup(manifestZip({ format: BACKUP_FORMAT, closet: tooManyLooks }))).toThrow('AI looks');
   });
 
   it('ignores unrelated files and rejects oversized entries', () => {
