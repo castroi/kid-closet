@@ -203,19 +203,50 @@ describe('ClosetRepository', () => {
     expect(store.files.has('images/orphan.webp')).toBe(false);
   });
 
-  it('keeps the old doll and removes the new picture when saving fails', async () => {
+  it('keeps the old doll when saving fails, leaving the new picture to the next cleanup', async () => {
+    const store = seededStore(withDoll(closetWith([]), 'old'));
+    const repo = new ClosetRepository(store, () => NOW, () => 'new');
+    await repo.load();
+    const write = store.write.bind(store);
+    const spy = vi.spyOn(store, 'write').mockImplementation(async (path, data) => {
+      if (path.endsWith('.json')) throw new Error('disk full');
+      return write(path, data);
+    });
+    await expect(repo.setDoll(image)).rejects.toThrow('disk full');
+    expect(store.files.has('images/doll-old.webp')).toBe(true);
+    expect(repo.getData().doll.id).toBe('old');
+    // The failed write might have landed, so the new picture stays until a load shows it is unused.
+    expect(store.files.has('images/doll-new.webp')).toBe(true);
+    spy.mockRestore();
+    await new ClosetRepository(store, () => NOW).load();
+    expect(store.files.has('images/doll-new.webp')).toBe(false);
+    expect(store.files.has('images/doll-old.webp')).toBe(true);
+  });
+
+  it('never leaves the closet pointing at a deleted picture when a failed save did land', async () => {
     const store = seededStore(withDoll(closetWith([]), 'old'));
     const repo = new ClosetRepository(store, () => NOW, () => 'new');
     await repo.load();
     const write = store.write.bind(store);
     vi.spyOn(store, 'write').mockImplementation(async (path, data) => {
-      if (path.endsWith('.json')) throw new Error('disk full');
-      return write(path, data);
+      await write(path, data);
+      if (path.endsWith('.json')) throw new Error('timed out'); // written, but reported as failed
     });
-    await expect(repo.setDoll(image)).rejects.toThrow('disk full');
+    await expect(repo.setDoll(image)).rejects.toThrow('timed out');
+    const onDisk = await new ClosetRepository(store, () => NOW).load();
+    expect(onDisk.doll.image).toBe('images/doll-new.webp');
+    expect(store.files.has('images/doll-new.webp')).toBe(true);
+  });
+
+  it('removes the new doll picture when another copy saved first', async () => {
+    const store = seededStore(closetWith([]));
+    const first = new ClosetRepository(store, () => NOW, () => 'new');
+    const second = new ClosetRepository(store, () => NOW);
+    await first.load();
+    await second.load();
+    await second.update((d) => d);
+    await expect(first.setDoll(image)).rejects.toBeInstanceOf(ClosetChangedElsewhereError);
     expect(store.files.has('images/doll-new.webp')).toBe(false);
-    expect(store.files.has('images/doll-old.webp')).toBe(true);
-    expect(repo.getData().doll.id).toBe('old');
   });
 
   it('saves a version 1 closet as the current version, keeping everything', async () => {

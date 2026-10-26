@@ -82,12 +82,15 @@ describe('backup', () => {
     expect(() => readBackup(zip)).toThrow('images/doll-d1.webp');
   });
 
-  it('fails the export when the doll picture is missing', async () => {
+  it('still backs up the clothes when the doll picture is lost, with the bundled doll', async () => {
     const store = seededStore(withDoll(sample()));
     store.files.delete('images/doll-d1.webp');
     const repo = new ClosetRepository(store, () => NOW);
     await repo.load();
-    await expect(exportBackup(repo, NOW)).rejects.toThrow('doll picture is missing');
+    const { closet, images } = readBackup(await exportBackup(repo, NOW));
+    expect(closet.doll).toEqual({ id: 'default', image: null });
+    expect(closet.items.map((i) => i.id)).toEqual(['t', 'b']);
+    expect([...images.keys()]).toEqual(['images/t.webp', 'images/b.jpg']);
   });
 
   it('removes location and other metadata from restored photos', () => {

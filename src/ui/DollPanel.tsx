@@ -13,10 +13,25 @@ type Pending = { image: StoredImage; url: string };
  * picture is deleted.
  */
 export function DollPanel({ imageDeps }: { imageDeps: ImageDeps }) {
-  const { data, setDoll, resetDoll } = useCloset();
+  const { data, setDoll, resetDoll, readImage } = useCloset();
   const custom = data.doll.image;
   const storedUrl = useImageUrl(custom);
   const shownUrl = custom ? storedUrl : DEFAULT_DOLL_URL;
+
+  // The picture should always be there; if it got lost, say so instead of loading forever.
+  const [missingPath, setMissingPath] = useState<string | null>(null);
+  useEffect(() => {
+    if (!custom) return;
+    let active = true;
+    const lost = () => {
+      if (active) setMissingPath(custom);
+    };
+    readImage(custom).then((blob) => !blob && lost(), lost);
+    return () => {
+      active = false;
+    };
+  }, [custom, readImage]);
+  const missing = custom !== null && missingPath === custom;
 
   const [working, setWorking] = useState(false);
   const [pending, setPending] = useState<Pending | null>(null);
@@ -93,6 +108,8 @@ export function DollPanel({ imageDeps }: { imageDeps: ImageDeps }) {
         <div className="thumb doll-thumb">
           {shownUrl ? (
             <img src={shownUrl} alt={custom ? 'הבובה שבחרת' : 'הבובה הרגילה'} />
+          ) : missing ? (
+            <span>התמונה לא נמצאה</span>
           ) : (
             <span role="status">טוען…</span>
           )}
@@ -124,6 +141,11 @@ export function DollPanel({ imageDeps }: { imageDeps: ImageDeps }) {
           )}
         </div>
       </div>
+      {missing && !message && (
+        <p role="status" className="error">
+          לא מצאנו את תמונת הבובה. אפשר לבחור תמונה חדשה או לחזור לבובה הרגילה.
+        </p>
+      )}
       {message && (
         <p role="status" className={message.error ? 'error' : 'muted'}>
           {message.text}

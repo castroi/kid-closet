@@ -235,7 +235,10 @@ export class ClosetRepository {
       try {
         return await this.changeDoll({ id, image: path });
       } catch (err) {
-        await this.store.remove(path).catch(() => undefined);
+        // Remove the picture only when nothing was written. Any other failure may be a save that
+        // landed (see persist), and the closet on disk would then point at a deleted picture; if it
+        // didn't land, the next load's orphan cleanup removes the picture.
+        if (err instanceof ClosetChangedElsewhereError) await this.store.remove(path).catch(() => undefined);
         throw err;
       }
     });

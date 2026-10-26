@@ -1,9 +1,10 @@
-import { screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import { ClosetProvider } from '../app/ClosetContext';
 import { DEFAULT_DOLL_URL } from '../app/doll';
-import { ClosetChangedElsewhereError } from '../storage/repository';
-import { closetWith, fakeImageDeps, renderWithCloset, withDoll } from '../test/fixtures';
+import { ClosetChangedElsewhereError, ClosetRepository } from '../storage/repository';
+import { NOW, closetWith, fakeImageDeps, renderWithCloset, seededStore, testIds, withDoll } from '../test/fixtures';
 import { DollPanel } from './DollPanel';
 
 const picture = () => new File(['raw'], 'doll.png', { type: 'image/png' });
@@ -67,6 +68,21 @@ describe('DollPanel', () => {
     expect(repo.getData().doll.image).toBeNull();
     expect(dollFiles(store)).toEqual([]);
     expect(screen.getByRole('img', { name: 'הבובה הרגילה' })).toBeInTheDocument();
+  });
+
+  it('says the picture is lost instead of loading forever, and offers the way back', async () => {
+    const store = seededStore(withDoll(closetWith([])));
+    store.files.delete('images/doll-d1.webp');
+    const repo = new ClosetRepository(store, () => NOW, testIds());
+    render(
+      <ClosetProvider repo={repo} now={() => NOW}>
+        <DollPanel imageDeps={fakeImageDeps()} />
+      </ClosetProvider>,
+    );
+    expect(await screen.findByText('התמונה לא נמצאה')).toBeInTheDocument();
+    expect(screen.getByText(/לא מצאנו את תמונת הבובה/)).toBeInTheDocument();
+    expect(screen.queryByText('טוען…')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'לבובה הרגילה' })).toBeInTheDocument();
   });
 
   it('says so when the picture cannot be read', async () => {
