@@ -52,8 +52,7 @@ Old `closet.json` files and backups (v1) must keep loading; they read as v2 with
 interface Doll {
   id: string;            // new id on every replacement; 'default' for the bundled one
   image: string | null;  // 'images/doll-<id>.webp', or null = bundled default
-  updatedAt: string;
-}
+}                        // no date: the id alone tells which doll made a look
 
 type UpperSlot = 'top' | 'layer';
 
