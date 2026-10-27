@@ -23,7 +23,7 @@ export function aiErrorText(err: unknown): string {
     case 'cancelled':
       return 'בוטל.';
     case 'bad-response':
-      return 'הספק החזיר תשובה שאינה תמונה.';
+      return 'הספק החזיר תשובה שאי אפשר להשתמש בה.';
     case 'bad-photo':
       return 'לא הצלחנו לקרוא את אחת התמונות לפני השליחה.';
     default:

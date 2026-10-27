@@ -49,6 +49,8 @@ export function precacheFilesFromBuild(outputFiles: string[]): string[] {
     ['the WebP encoder (its .js loader)', (f) => /webp_enc.*\.js$/.test(f)],
     // Also proves Vite emitted it as a file: a small image inlined as a data: URL would be blocked by the CSP.
     ['the default doll picture', (f) => /doll-default.*\.webp$/.test(f)],
+    // The sample photo "בדיקת זיהוי" sends (docs/ai-item-attributes.md §7); same reason as the doll.
+    ['the sample garment photo', (f) => /sample-garment.*\.webp$/.test(f)],
   ];
   for (const [what, found] of required) {
     if (!files.some(found)) throw new Error(`The service worker would not cache ${what} for offline use`);

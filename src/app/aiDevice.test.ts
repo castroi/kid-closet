@@ -3,15 +3,19 @@ import { describe, expect, it } from 'vitest';
 import {
   AI_CHECK_KEY,
   AI_KEY_PREFIX,
+  AI_ANALYSIS_USAGE_KEY,
   AI_USAGE_KEY,
   aiReady,
+  analysisReady,
   isValidApiKey,
   maskKey,
   monthOf,
   nextResetDate,
+  readAnalysisUse,
   readApiKey,
   readLastCheck,
   readMonthlyUse,
+  recordAnalysisUse,
   recordUse,
   removeApiKey,
   saveApiKey,
@@ -66,6 +70,15 @@ describe('API keys on the device', () => {
     }
   });
 
+  it('sends garment photos only when AI is ready and the parent turned analysis on', () => {
+    const storage = memoryStorage({ [`${AI_KEY_PREFIX}venice`]: 'sk-venice-123' });
+    const ai = { ...defaultAiSettings(), provider: 'venice' as const };
+    expect(analysisReady(ai, storage)).toBe(false);
+    const on = { ...ai, analysis: { ...ai.analysis, enabled: true } };
+    expect(analysisReady(on, storage)).toBe(true);
+    expect(analysisReady({ ...on, provider: 'openrouter' }, storage)).toBe(false);
+  });
+
   it('is ready only with a provider and its key on this phone', () => {
     const storage = memoryStorage({ [`${AI_KEY_PREFIX}venice`]: 'sk-venice-123' });
     const ai = { ...defaultAiSettings(), provider: null };
@@ -90,6 +103,17 @@ describe('monthly use', () => {
     }
     expect(readMonthlyUse(null, oct)).toBe(0);
     expect(readMonthlyUse(broken, oct)).toBe(0);
+  });
+
+  it('counts garment analyses apart from the dolls, never in the backup', () => {
+    const storage = memoryStorage({ [AI_USAGE_KEY]: '{"month":"2026-10","count":5}' });
+    recordAnalysisUse(storage, oct);
+    recordAnalysisUse(storage, oct);
+    expect(readAnalysisUse(storage, oct)).toBe(2);
+    expect(readMonthlyUse(storage, oct)).toBe(5);
+    expect(JSON.parse(storage.data.get(AI_ANALYSIS_USAGE_KEY)!)).toEqual({ month: '2026-10', count: 2 });
+    recordUse(storage, oct);
+    expect(readAnalysisUse(storage, oct)).toBe(2);
   });
 
   it('starts again on the 1st of next month, also across the year', () => {

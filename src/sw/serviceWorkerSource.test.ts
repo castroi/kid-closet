@@ -246,6 +246,7 @@ describe('precacheFilesFromBuild', () => {
         'assets/webp_enc-123.wasm',
         'assets/webp_enc-456.js',
         'assets/doll-default-789.webp',
+        'assets/sample-garment-012.webp',
         'index.html',
         'sw.js',
       ]),
@@ -255,17 +256,19 @@ describe('precacheFilesFromBuild', () => {
       '/assets/webp_enc-123.wasm',
       '/assets/webp_enc-456.js',
       '/assets/doll-default-789.webp',
+      '/assets/sample-garment-012.webp',
     ]);
   });
 
+  const all = ['assets/index.js', 'assets/opfs.worker-1.js', 'assets/webp_enc.wasm', 'assets/webp_enc.js', 'assets/doll-default.webp', 'assets/sample-garment.webp'];
+  const without = (file: string) => all.filter((f) => f !== file);
+
   it.each([
-    ['the file worker', ['assets/index.js', 'assets/webp_enc.wasm', 'assets/webp_enc.js', 'assets/doll-default.webp']],
-    ['the WebP encoder (.wasm)', ['assets/index.js', 'assets/opfs.worker-1.js', 'assets/webp_enc.js', 'assets/doll-default.webp']],
-    [
-      'the WebP encoder (its .js loader)',
-      ['assets/index.js', 'assets/opfs.worker-1.js', 'assets/webp_enc.wasm', 'assets/doll-default.webp'],
-    ],
-    ['the default doll picture', ['assets/index.js', 'assets/opfs.worker-1.js', 'assets/webp_enc.wasm', 'assets/webp_enc.js']],
+    ['the file worker', without('assets/opfs.worker-1.js')],
+    ['the WebP encoder (.wasm)', without('assets/webp_enc.wasm')],
+    ['the WebP encoder (its .js loader)', without('assets/webp_enc.js')],
+    ['the default doll picture', without('assets/doll-default.webp')],
+    ['the sample garment photo', without('assets/sample-garment.webp')],
   ])('stops the build when %s is missing', (what, files) => {
     expect(() => precacheFilesFromBuild(files)).toThrow(what);
   });

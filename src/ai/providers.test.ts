@@ -1,7 +1,17 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
 import { AI_PROVIDERS } from './catalog';
-import { ADAPTERS, AiError, MAX_RESULT_BYTES, base64ToBytes, type FetchLike, type LookCall } from './providers';
+import {
+  ADAPTERS,
+  AiError,
+  MAX_CHAT_RESPONSE_BYTES,
+  MAX_RESULT_BYTES,
+  base64ToBytes,
+  countsTowardCap,
+  type AnalyzeCall,
+  type FetchLike,
+  type LookCall,
+} from './providers';
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
 const images = { doll: 'data:image/webp;base64,RE9MTA==', upper: 'data:image/jpeg;base64,VE9Q', bottom: 'data:image/webp;base64,Qk9U' };
@@ -162,5 +172,97 @@ describe('base64ToBytes', () => {
   it('decodes plain base64 and data URLs, ignoring line breaks', () => {
     expect(base64ToBytes('AQID')).toEqual(new Uint8Array([1, 2, 3]));
     expect(base64ToBytes('data:image/png;base64,AQ\nID')).toEqual(new Uint8Array([1, 2, 3]));
+  });
+});
+
+describe('garment analysis (chat completions)', () => {
+  const photo = 'data:image/webp;base64,U0hJUlQ=';
+  const schema = { name: 'garment', schema: { type: 'object' } };
+
+  function analyzeCall(fetch: FetchLike, overrides: Partial<AnalyzeCall> = {}): AnalyzeCall {
+    return { photo, prompt: 'Describe it.', schema, model: 'deepseek', apiKey: 'sk-test-123', signal: new AbortController().signal, fetch, ...overrides };
+  }
+
+  function answering(content: unknown, extra: Record<string, unknown> = {}) {
+    return fetchReturning(Response.json({ choices: [{ message: { role: 'assistant', content, ...extra } }] }));
+  }
+
+  it('sends the prompt, then the photo, with the strict schema and temperature 0, plus each provider\'s own option', async () => {
+    const extras = {
+      venice: { venice_parameters: { include_venice_system_prompt: false } },
+      openrouter: { provider: { require_parameters: true } },
+    };
+    for (const id of ['venice', 'openrouter'] as const) {
+      const fetch = answering('{"valid_image":true}');
+      await expect(ADAPTERS[id].analyzeItem(analyzeCall(fetch))).resolves.toBe('{"valid_image":true}');
+      const [url, init] = fetch.mock.calls[0];
+      expect(url).toBe(AI_PROVIDERS[id].endpoints.analyze);
+      expect(init.method).toBe('POST');
+      expect(init.headers).toEqual({ Authorization: 'Bearer sk-test-123', 'Content-Type': 'application/json' });
+      expect(sentBody(fetch)).toEqual({
+        model: 'deepseek',
+        messages: [
+          { role: 'system', content: 'Describe it.' },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Describe the clothing item in this photo.' },
+              { type: 'image_url', image_url: { url: photo } },
+            ],
+          },
+        ],
+        temperature: 0,
+        response_format: { type: 'json_schema', json_schema: { name: 'garment', strict: true, schema: { type: 'object' } } },
+        ...extras[id],
+      });
+    }
+  });
+
+  it("reports the model's refusal, without the key", async () => {
+    const fetch = answering(null, { refusal: 'I cannot help with sk-test-123.' });
+    await expect(ADAPTERS.venice.analyzeItem(analyzeCall(fetch))).rejects.toMatchObject({ reason: 'refused', detail: 'I cannot help with ••••.' });
+  });
+
+  it.each([
+    ['no answer text', Response.json({ choices: [{ message: { content: '' } }] })],
+    ['no choices', Response.json({ choices: [] })],
+    ['not JSON', new Response('oops', { status: 200 })],
+  ])('reports an answer with %s as a bad response', async (_label, response) => {
+    await expect(ADAPTERS.openrouter.analyzeItem(analyzeCall(fetchReturning(response)))).rejects.toMatchObject({ reason: 'bad-response' });
+  });
+
+  it('maps HTTP errors like a look does', async () => {
+    const fetch = fetchReturning(Response.json({ error: { message: 'No endpoints support response_format' } }, { status: 404 }));
+    await expect(ADAPTERS.openrouter.analyzeItem(analyzeCall(fetch))).rejects.toMatchObject({
+      reason: 'bad-request',
+      detail: '404 No endpoints support response_format',
+    });
+  });
+
+  it('refuses an answer that says it is too large before downloading it', async () => {
+    const fetch = fetchReturning(new Response('{}', { headers: { 'Content-Length': String(MAX_CHAT_RESPONSE_BYTES + 1) } }));
+    await expect(ADAPTERS.venice.analyzeItem(analyzeCall(fetch))).rejects.toMatchObject({ reason: 'bad-response', detail: 'answer too large' });
+  });
+
+  it('reports a download cut off by the deadline as an abort', async () => {
+    const controller = new AbortController();
+    const abort = new DOMException('aborted', 'AbortError');
+    const response = Response.json({});
+    vi.spyOn(response, 'json').mockImplementation(() => {
+      controller.abort();
+      return Promise.reject(abort);
+    });
+    const fetch = vi.fn<FetchLike>().mockResolvedValue(response);
+    await expect(ADAPTERS.venice.analyzeItem(analyzeCall(fetch, { signal: controller.signal }))).rejects.toBe(abort);
+  });
+});
+
+describe('countsTowardCap', () => {
+  it('counts calls that reached the provider and may cost money, nothing else', () => {
+    for (const reason of ['timeout', 'refused', 'provider-down', 'bad-response'] as const) expect(countsTowardCap(new AiError(reason))).toBe(true);
+    for (const reason of ['unauthorized', 'no-credit', 'rate-limited', 'bad-request', 'network', 'cancelled', 'bad-photo'] as const) {
+      expect(countsTowardCap(new AiError(reason))).toBe(false);
+    }
+    expect(countsTowardCap(new Error('x'))).toBe(false);
   });
 });

@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { requestLook, type LookResult } from '../ai/send';
-import { AiError, type FetchLike } from '../ai/providers';
+import { AiError, countsTowardCap, type FetchLike } from '../ai/providers';
 import { findLook, lookPartsFor, promptHash, type LookParts } from '../core/closet';
 import type { Occasion } from '../core/model';
 import { stripPhotoMetadata } from '../image/metadata';
@@ -60,10 +60,6 @@ export function lookKey(parts: LookParts): string {
   return `${parts.dollId}|${parts.upperId}|${parts.bottomId}`;
 }
 
-/** Plan §8: a call counts when it reached the provider and may cost money. */
-function counts(err: unknown): boolean {
-  return err instanceof AiError && ['timeout', 'refused', 'provider-down', 'bad-response'].includes(err.reason);
-}
 
 /** How long "הבובה מוכנה" stays when she doesn't tap it. */
 export const FINISHED_TOAST_MS = 10_000;
@@ -188,7 +184,7 @@ export function AiLookProvider({ deviceStorage, imageDeps, children, now = defau
           try {
             result = await requestLook({ provider, settings: closet.ai, apiKey, doll, upper, bottom, fetch: fetchFn });
           } catch (err) {
-            if (counts(err)) count();
+            if (countsTowardCap(err)) count();
             throw err;
           }
           count();

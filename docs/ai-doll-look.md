@@ -38,9 +38,9 @@ In the outfit preview ("לראות את הלוק"), she can press one button and
 
 ## 4. Privacy and security changes
 
-- **CSP** (`vercel.json`): `connect-src` lists `'self'` and the four exact endpoint URLs (Venice multi-edit and rate_limits, OpenRouter images and key). Nothing else, not even other paths on those sites. `securityHeaders.test.ts` checks the exact list.
+- **CSP** (`vercel.json`): `connect-src` lists `'self'` and the exact endpoint URLs (Venice multi-edit and rate_limits, OpenRouter images and key; since `docs/ai-item-attributes.md` PR 2 also both providers' chat completions, for garment analysis). Nothing else, not even other paths on those sites. `securityHeaders.test.ts` checks the exact list.
 - **Adding a provider** = one adapter file + one host in the CSP + its test. That is intentional: a hacked dependency still can't send photos to an arbitrary site.
-- **What the CSP does and doesn't guarantee:** both provider origins are open all the time, whichever one the parent picked. The app's code sends only to the picked provider with her key; a compromised dependency could still send to the other provider's origin (with its own key, so to its own account). Accepted risk, made smaller in PR 3: `connect-src` lists only the four exact endpoint URLs.
+- **What the CSP does and doesn't guarantee:** both provider origins are open all the time, whichever one the parent picked. The app's code sends only to the picked provider with her key; a compromised dependency could still send to the other provider's origin (with its own key, so to its own account). Accepted risk, made smaller in PR 3: `connect-src` lists only the exact endpoint URLs.
 - **API key storage**: device only (`localStorage`, like the theme), never in `closet.json` or the backup. Shown masked (last 4 characters, nothing for keys under 12). Entered in a text field drawn as dots, so Safari doesn't offer to save it to iCloud Keychain. Checked on entry: 8–512 printable characters, no spaces.
 - **Sent data**: only the three images and the prompt. No names, colours or occasions.
 - **Recommendation for the parent**: set a spending limit on the provider key itself where the provider supports it (OpenRouter does; Venice unverified).
@@ -259,7 +259,7 @@ Coverage thresholds stay: 80 % lines/statements/functions, 75 % branches. Run `n
 - Parent panel: key masked, prompt reset, test connection success/failure.
 
 **Security**
-- `securityHeaders.test.ts`: `connect-src` lists exactly `'self'` and the four endpoint URLs from `src/ai/catalog.ts`.
+- `securityHeaders.test.ts`: `connect-src` lists exactly `'self'` and the endpoint URLs from `src/ai/catalog.ts`.
 
 **Manual, on her iPhone (PR 3 and PR 4)**
 - After PR 3: "בדיקת חיבור" through each provider from the home-screen app (CORS).
