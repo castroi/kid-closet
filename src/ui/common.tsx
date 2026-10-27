@@ -20,10 +20,13 @@ export function restoreErrorText(err: unknown): string {
   return 'השחזור נכשל.';
 }
 
-/** Object URL for a stored photo; revoked when the component unmounts or the path changes. */
-export function useImageUrl(path: string | null): string | null {
+/**
+ * Object URL for a stored photo; revoked when the component unmounts or the path changes.
+ * `version` reads it again when the file at the same path was replaced (an item's photoRevision).
+ */
+export function useImageUrl(path: string | null, version = 0): string | null {
   const { readImage } = useCloset();
-  const [loaded, setLoaded] = useState<{ path: string; url: string } | null>(null);
+  const [loaded, setLoaded] = useState<{ path: string; version: number; url: string } | null>(null);
 
   useEffect(() => {
     if (!path) return;
@@ -33,7 +36,7 @@ export function useImageUrl(path: string | null): string | null {
       (blob) => {
         if (!active || !blob) return;
         created = URL.createObjectURL(blob);
-        setLoaded({ path, url: created });
+        setLoaded({ path, version, url: created });
       },
       () => undefined,
     );
@@ -41,13 +44,13 @@ export function useImageUrl(path: string | null): string | null {
       active = false;
       if (created) URL.revokeObjectURL(created);
     };
-  }, [path, readImage]);
+  }, [path, version, readImage]);
 
-  return loaded && loaded.path === path ? loaded.url : null;
+  return loaded && loaded.path === path && loaded.version === version ? loaded.url : null;
 }
 
 export function Garment({ item, height }: { item: Item; height: number }) {
-  const url = useImageUrl(item.image);
+  const url = useImageUrl(item.image, item.photoRevision);
   if (!url) {
     return (
       <div

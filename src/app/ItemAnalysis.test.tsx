@@ -397,3 +397,18 @@ describe('review fixes', () => {
     await waitFor(() => expect(repo.getData().items[0].analysis?.result).toBe('ok'));
   });
 });
+
+describe('replaced photo', () => {
+  it('sends a replaced photo right away, before the screen has the new closet', async () => {
+    const fetchFn = vi.fn<FetchLike>().mockImplementation(async () => goodAnswer());
+    const { repo } = await setup(closetWithAnalysis([makeItem({ id: 'a', analysis: makeAnalysis() })]), fetchFn);
+    await act(async () => {
+      const image = { blob: new Blob([testPhoto('webp') as BlobPart], { type: 'image/webp' }), ext: 'webp' as const };
+      const saved = await closet().replacePhoto('a', image);
+      // Same tick: the queue's closet still shows the old, analysed photo.
+      expect(queue().analyse('a', 'new', saved)).toBeNull();
+    });
+    await waitFor(() => expect(repo.getData().items[0].analysis?.photoRevision).toBe(1));
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+});

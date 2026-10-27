@@ -88,6 +88,15 @@ export class AnalysisCapReached extends Error {
   }
 }
 
+/**
+ * The item to judge and send: the closet's copy, unless the caller handed one with a newer photo
+ * (just added, or a replaced photo) that the closet on screen doesn't show yet.
+ */
+function freshest(found: Item | undefined, given: Item | undefined): Item | undefined {
+  if (!found) return given;
+  return given && given.photoRevision > found.photoRevision ? given : found;
+}
+
 const defaultFetch: FetchLike = (url, init) => fetch(url, init);
 const defaultNow = () => new Date();
 const defaultOnline = () => (typeof navigator === 'undefined' ? true : navigator.onLine !== false);
@@ -195,7 +204,7 @@ export function ItemAnalysisProvider({ deviceStorage, children, now = defaultNow
       for (let next = queue.current.shift(); next; next = queue.current.shift()) {
         const { id, source } = next;
         const closet = dataRef.current;
-        const item = closet.items.find((it) => it.id === id) ?? next.item;
+        const item = freshest(closet.items.find((it) => it.id === id), next.item);
         const provider = closet.ai.provider;
         const apiKey = provider ? readApiKey(deviceStorage, provider) : null;
         // Everything is checked again here: settings, the cap or the item may have changed while it waited.
@@ -283,7 +292,7 @@ export function ItemAnalysisProvider({ deviceStorage, children, now = defaultNow
       if (!analysisReady(closet.ai, deviceStorage)) return 'not-ready';
       const job = jobsRef.current[id];
       if (job && job.kind !== 'failed') return 'busy';
-      const item = closet.items.find((it) => it.id === id) ?? saved;
+      const item = freshest(closet.items.find((it) => it.id === id), saved);
       if (!item || !needs(item, source)) return 'done';
       if (monthlyUse() >= closet.ai.analysis.monthlyCap) return 'cap';
       enqueue(id, source, item);

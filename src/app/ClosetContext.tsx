@@ -20,6 +20,8 @@ export interface ClosetApi {
   data: ClosetData;
   addItem(input: NewItem, image: StoredImage): Promise<Item>;
   updateItem(id: string, patch: ItemPatch): Promise<void>;
+  /** A new photo for an item (same id); its analysis is cleared and its AI looks are marked for the parent. */
+  replacePhoto(id: string, image: StoredImage): Promise<Item>;
   /** Stores what the AI said about an item's photo; dropped when the item is gone or its photo was replaced. */
   setItemAnalysis(id: string, analysis: ItemAnalysis): Promise<void>;
   setStatus(ids: string[], status: ItemStatus): Promise<void>;
@@ -142,6 +144,15 @@ export function ClosetProvider({ repo, children, now = defaultNow, newId = defau
         }),
       updateItem: (id, patch) => commit((d) => updateItemIn(d, id, patch, now())),
       setItemAnalysis: (id, analysis) => commit((d) => setItemAnalysisIn(d, id, analysis)),
+      replacePhoto: (id, image) =>
+        guard(async () => {
+          try {
+            return await repo.replacePhoto(id, image);
+          } finally {
+            // Also after a failed photo write: the list may already be saved with the new revision.
+            setState({ kind: 'ready', data: repo.getData() });
+          }
+        }),
       setStatus: (ids, status) => commit((d) => setStatusOf(d, ids, status, now())),
       deleteItems: (ids) =>
         guard(async () => {

@@ -1,8 +1,8 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
-import { NOW, asVersion1, closetWith, makeItem, makeOutfit, seededStore, withDoll } from '../test/data';
+import { NOW, asVersion1, closetWith, makeAnalysis, makeItem, makeLook, makeOutfit, seededStore, testPhoto, withDoll } from '../test/data';
 import { SCHEMA_VERSION } from '../core/model';
-import { MemoryFileStore, blobToText } from './fileStore';
+import { MemoryFileStore, blobToBytes, blobToText } from './fileStore';
 import {
   CLOSET_FILES,
   ClosetChangedElsewhereError,
@@ -543,5 +543,58 @@ describe('webWriteLock', () => {
     const request = vi.fn(() => Promise.reject(new DOMException('timed out', 'AbortError')));
     const lock = webWriteLock({ request } as unknown as Pick<LockManager, 'request'>, () => new AbortController().signal)!;
     await expect(lock(async () => 1)).rejects.toThrow('timed out');
+  });
+});
+
+describe('replacePhoto', () => {
+  const garments = () =>
+    closetWith([makeItem({ id: 't', analysis: makeAnalysis() }), makeItem({ id: 'b', type: 'pants' }), makeItem({ id: 'other' })]);
+
+  async function loaded(data = garments()) {
+    const store = seededStore({ ...data, aiLooks: [makeLook({ id: 'l1', upperId: 't', bottomId: 'b' }), makeLook({ id: 'l2', upperId: 'other', bottomId: 'b', flagged: false })] });
+    const repo = new ClosetRepository(store, () => '2026-10-27T10:00:00.000Z');
+    await repo.load();
+    return { store, repo };
+  }
+
+  it('overwrites the photo at the same path, raises the revision, clears the analysis and marks its looks', async () => {
+    const { store, repo } = await loaded();
+    const fresh = new Blob(['new photo'], { type: 'image/webp' });
+    const item = await repo.replacePhoto('t', { blob: fresh, ext: 'webp' });
+    expect(item).toMatchObject({ id: 't', image: 'images/t.webp', photoRevision: 1, analysis: null, updatedAt: '2026-10-27T10:00:00.000Z' });
+    expect(await blobToText(store.files.get('images/t.webp')!)).toBe('new photo');
+    expect(repo.getData().aiLooks.map((l) => [l.id, l.flagged])).toEqual([
+      ['l1', true],
+      ['l2', false],
+    ]);
+    // Saved: a reload sees the same.
+    const reloaded = new ClosetRepository(store, () => NOW);
+    expect((await reloaded.load()).items[0]).toMatchObject({ photoRevision: 1, analysis: null });
+  });
+
+  it('saves the list before overwriting, so a failed photo write never leaves an old analysis on a new photo', async () => {
+    const { store, repo } = await loaded();
+    const write = vi.spyOn(store, 'write');
+    write.mockImplementation(async (path, data) => {
+      if (path === 'images/t.webp') throw new Error('disk full');
+      store.files.set(path, data);
+    });
+    await expect(repo.replacePhoto('t', { blob: new Blob(['x']), ext: 'webp' })).rejects.toThrow('disk full');
+    // The old photo is still there, and it counts as not analysed, so it is simply sent again.
+    expect(await blobToBytes(store.files.get('images/t.webp')!)).toEqual(testPhoto('webp'));
+    expect(repo.getData().items[0]).toMatchObject({ photoRevision: 1, analysis: null });
+  });
+
+  it('moves to the new extension: new file, then the list, then the old file', async () => {
+    const { store, repo } = await loaded();
+    const item = await repo.replacePhoto('t', { blob: new Blob(['jpeg'], { type: 'image/jpeg' }), ext: 'jpg' });
+    expect(item.image).toBe('images/t.jpg');
+    expect(store.files.has('images/t.jpg')).toBe(true);
+    expect(store.files.has('images/t.webp')).toBe(false);
+  });
+
+  it('refuses an item that is gone', async () => {
+    const { repo } = await loaded();
+    await expect(repo.replacePhoto('gone', image)).rejects.toThrow('not found');
   });
 });

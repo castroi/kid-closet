@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { asVersion1, closetWith, makeAnalysis, makeItem, makeOutfit, NOW } from '../test/data';
+import { asVersion1, closetWith, makeAnalysis, makeItem, makeLook, makeOutfit, NOW } from '../test/data';
 import {
   InvalidClosetError,
   NO_FILTER,
@@ -15,6 +15,7 @@ import {
   isAnalysed,
   isSafeImagePath,
   itemsToAnalyse,
+  replaceItemPhoto,
   parseCloset,
   removeItems,
   removeOutfit,
@@ -416,6 +417,20 @@ describe('item analysis (schema 5)', () => {
       makeItem({ id: 'outgrown', status: 'outgrown' }),
     ];
     expect(itemsToAnalyse(list).map((it) => it.id)).toEqual(['new', 'replaced']);
+  });
+
+  it('gives an item a new photo: new revision, no analysis, and its looks marked for the parent', () => {
+    const data = {
+      ...closetWith([makeItem({ id: 'a', analysis: makeAnalysis() }), makeItem({ id: 'p', type: 'pants' })]),
+      aiLooks: [makeLook({ id: 'l1', upperId: 'a', bottomId: 'p' }), makeLook({ id: 'l2', upperId: 'x', bottomId: 'y' })],
+    };
+    const next = replaceItemPhoto(data, 'a', 'images/a.jpg', '2027-01-01');
+    expect(findItem(next, 'a')).toMatchObject({ image: 'images/a.jpg', photoRevision: 1, analysis: null, updatedAt: '2027-01-01' });
+    expect(next.aiLooks.map((l) => l.flagged)).toEqual([true, false]);
+    expect(isAnalysed(findItem(next, 'a')!)).toBe(false);
+    expect(() => replaceItemPhoto(data, 'gone', 'images/gone.webp', NOW)).toThrow('not found');
+    // An item's photo is always named after its own id.
+    expect(() => replaceItemPhoto(data, 'a', 'images/p.webp', NOW)).toThrow('Bad photo path');
   });
 
   it('removes the analysis with its item', () => {

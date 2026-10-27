@@ -1,6 +1,6 @@
 # AI item attributes — decisions and implementation plan
 
-Feature for `castroi/kid-closet`. Status: **in progress**. PRs 0–2 merged; PR 3 `feat/analyze-items`. Date: 2026-10-27.
+Feature for `castroi/kid-closet`. Status: **in progress**. PRs 0–3 merged; PR 4 `feat/replace-item-photo`. Date: 2026-10-27.
 
 ## 1. Goal
 
@@ -27,10 +27,10 @@ Each garment photo is sent once to a vision AI model, which describes it in a fi
 
 | # | Question | Proposal |
 |---|---|---|
-| 1 | Do the providers allow `chat/completions` calls from a web page (CORS)? | **Left to the owner after PR 2:** "בדיקת זיהוי" with a real key on her iPhone, as for the doll looks. |
-| 2 | Does DeepSeek V4.1 Flash enforce `response_format` with `json_schema`? | OpenRouter's model page says it accepts images and supports a JSON schema in `response_format`, though support can vary by upstream provider, so PR 2 also sets `provider.require_parameters`. Venice's model page mentions structured JSON output without detail. PR 2 sends the schema with `strict: true` and validates the answer anyway. If a provider rejects the parameter, the app reports a bad request with the provider's own words and does not retry without it. **Left to the owner:** the first real "בדיקת זיהוי" decides; if it fails that way, a follow-up PR drops `response_format` for that provider and relies on the prompt plus validation. |
+| 1 | Do the providers allow `chat/completions` calls from a web page (CORS)? | **Confirmed by the owner on 2026-10-27:** "בדיקת זיהוי" works on her iPhone. |
+| 2 | Does DeepSeek V4.1 Flash enforce `response_format` with `json_schema`? | **Confirmed by the owner on 2026-10-27:** "בדיקת זיהוי" returned an answer that passed the app's validation, so the schema is accepted. The app keeps validating every answer itself. |
 | 3 | Do provider-specific request options apply? | **Settled in PR 2** from Venice's chat completions docs: `venice_parameters.include_venice_system_prompt` defaults to true, so the app sends `false` and only our prompt goes with the photo. OpenRouter gets `provider.require_parameters: true`. |
-| 4 | Replacing a photo (PR 4): what happens to that item's AI doll looks? | They show the old garment. Proposal: ask the parent whether to delete them, like the doll-change question. Decide in PR 4. |
+| 4 | Replacing a photo (PR 4): what happens to that item's AI doll looks? | **Decided in PR 4:** they are marked (`flagged`) and show up in the parent's "לוקים לתיקון", where she redoes or deletes them. The replacement happens in the kid's edit sheet and deleting is parent-only, so nothing is deleted there; the owner can still ask for a question instead. |
 
 ## 4. Privacy and security changes
 

@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { nextResetDate } from '../app/aiDevice';
 import { useCloset } from '../app/ClosetContext';
 import { AnalysisCapReached, useItemAnalysis } from '../app/ItemAnalysis';
 import { AiError } from '../ai/providers';
 import { isAnalysed } from '../core/closet';
 import { hebrewDay } from '../core/gallery';
+import { processImage, type ImageDeps } from '../image/processImage';
+import type { StoredImage } from '../storage/repository';
 import { OCCASION_LABEL, SLOTS, slotOf, type Item, type ItemStatus, type Slot } from '../core/model';
 import { Garment, Icon, Sheet, Toast, explainedElsewhere } from './common';
 import { ItemFields, finalName, missingFields, type ItemDraft } from './ItemFields';
@@ -30,7 +32,16 @@ interface Undo {
   previous: ItemStatus;
 }
 
-export function Closet({ onOpenParent, onOpenSettings }: { onOpenParent: () => void; onOpenSettings: () => void }) {
+export function Closet({
+  onOpenParent,
+  onOpenSettings,
+  imageDeps,
+}: {
+  onOpenParent: () => void;
+  onOpenSettings: () => void;
+  /** Resize and encode a replaced photo, like the add screen. */
+  imageDeps: ImageDeps;
+}) {
   const { data, setStatus } = useCloset();
   const [tab, setTab] = useState<Tab>('top');
   const [selecting, setSelecting] = useState(false);
@@ -216,6 +227,7 @@ export function Closet({ onOpenParent, onOpenSettings }: { onOpenParent: () => v
       {editing && (
         <ItemEditor
           item={data.items.find((it) => it.id === editing.id) ?? editing}
+          imageDeps={imageDeps}
           onClose={() => setEditing(null)}
           onMove={() => move([editing.id], editing.status === 'outgrown' ? 'active' : 'outgrown')}
         />
@@ -224,7 +236,17 @@ export function Closet({ onOpenParent, onOpenSettings }: { onOpenParent: () => v
   );
 }
 
-function ItemEditor({ item, onClose, onMove }: { item: Item; onClose: () => void; onMove: () => Promise<void> }) {
+function ItemEditor({
+  item,
+  imageDeps,
+  onClose,
+  onMove,
+}: {
+  item: Item;
+  imageDeps: ImageDeps;
+  onClose: () => void;
+  onMove: () => Promise<void>;
+}) {
   const { updateItem } = useCloset();
   const [draft, setDraft] = useState<ItemDraft>({
     name: item.name,
@@ -277,6 +299,7 @@ function ItemEditor({ item, onClose, onMove }: { item: Item; onClose: () => void
             </span>
           )}
         </div>
+        <ReplacePhoto item={item} imageDeps={imageDeps} />
       </div>
       <AiRow item={item} />
       <ItemFields draft={draft} onChange={setDraft} />
@@ -343,6 +366,85 @@ function AiRow({ item }: { item: Item }) {
         {waiting ? 'ה־AI מסתכל על הבגד…' : invalid || hers ? 'לנסות שוב עם ה־AI' : 'להראות ל־AI'}
       </button>
       {atCap && !waiting && <p className="muted ai-caption">אפשר לנסות שוב ב־{hebrewDay(nextResetDate(now))}</p>}
+    </div>
+  );
+}
+
+type Replacing = { kind: 'idle' } | { kind: 'working' } | { kind: 'done' } | { kind: 'error'; text: string };
+
+/**
+ * "החלפת תמונה": the same take/choose flow as the add screen. The new photo keeps the garment's id;
+ * the AI is asked again when analysis is on (docs/ai-item-attributes.md §7).
+ */
+function ReplacePhoto({ item, imageDeps }: { item: Item; imageDeps: ImageDeps }) {
+  const { replacePhoto } = useCloset();
+  const analysis = useItemAnalysis();
+  const [state, setState] = useState<Replacing>({ kind: 'idle' });
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  const onFile = async (file: File | undefined) => {
+    if (!file) return;
+    setState({ kind: 'working' });
+    let image: StoredImage;
+    try {
+      image = await processImage(file, imageDeps);
+    } catch {
+      if (mounted.current) setState({ kind: 'error', text: 'לא הצלחנו לקרוא את התמונה' });
+      return;
+    }
+    try {
+      const saved = await replacePhoto(item.id, image);
+      analysis.analyse(saved.id, 'new', saved);
+      if (mounted.current) setState({ kind: 'done' });
+    } catch (err) {
+      if (mounted.current) setState(explainedElsewhere(err) ? { kind: 'idle' } : { kind: 'error', text: 'לא הצלחנו לשמור. נסי שוב.' });
+    }
+  };
+
+  const busy = state.kind === 'working';
+  const input = (label: string, camera: boolean) => (
+    <input
+      type="file"
+      accept="image/*"
+      capture={camera ? 'environment' : undefined}
+      aria-label={label}
+      disabled={busy}
+      onChange={(e) => {
+        void onFile(e.target.files?.[0]);
+        e.target.value = '';
+      }}
+    />
+  );
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1 }}>
+      <span className="label">החלפת תמונה</span>
+      <label className="btn file-btn">
+        <Icon name="camera" />
+        צילום
+        {input('צילום תמונה חדשה', true)}
+      </label>
+      <label className="btn file-btn" style={{ borderColor: 'var(--line)' }}>
+        מהגלריה
+        {input('תמונה חדשה מהגלריה', false)}
+      </label>
+      {state.kind === 'working' && <span role="status">מכינה את התמונה…</span>}
+      {state.kind === 'done' && (
+        <span className="muted" role="status">
+          התמונה הוחלפה
+        </span>
+      )}
+      {state.kind === 'error' && (
+        <span className="error" role="alert">
+          {state.text}
+        </span>
+      )}
     </div>
   );
 }

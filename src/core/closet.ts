@@ -118,6 +118,25 @@ export function isAnalysed(item: Item): boolean {
   return item.analysis !== null && item.analysis.photoRevision === item.photoRevision;
 }
 
+/**
+ * Gives an item a new photo (docs/ai-item-attributes.md §7, PR 4): its path (same id, maybe another
+ * extension), a higher photoRevision, and no analysis, so the AI is asked again. The AI looks that
+ * used the garment show the old photo, so they are marked for the parent in "לוקים לתיקון"; deleting
+ * stays hers to decide.
+ */
+export function replaceItemPhoto(data: ClosetData, id: string, image: string, now: string): ClosetData {
+  const item = data.items.find((it) => it.id === id);
+  if (!item) throw new Error(`Item ${id} not found`);
+  if (image !== `images/${id}.webp` && image !== `images/${id}.jpg`) throw new Error(`Bad photo path ${image}`);
+  return {
+    ...data,
+    items: data.items.map((it) =>
+      it.id === id ? { ...it, image, photoRevision: it.photoRevision + 1, analysis: null, updatedAt: now } : it,
+    ),
+    aiLooks: data.aiLooks.map((l) => (l.upperId === id || l.bottomId === id ? { ...l, flagged: true } : l)),
+  };
+}
+
 /** What the parent's bulk run sends: garments she wears that aren't analysed for their current photo. */
 export function itemsToAnalyse(items: Item[]): Item[] {
   return items.filter((it) => it.status === 'active' && !isAnalysed(it));

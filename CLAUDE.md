@@ -23,6 +23,7 @@ Outfit picker for one 11-year-old on her iPhone. Static PWA on Vercel; no server
 | Data is plain files in OPFS: `closet-a.json` / `closet-b.json` written alternately with a rising `generation`, photos in `images/<id>.webp` (`.jpg` fallback) | Runs fully on the phone; an interrupted save never loses the previous version |
 | Always save above the highest generation on disk, even one that can't be read | A newer app version's data is never outranked by mistake |
 | An item's photo is always `images/<id>.<ext>` | Deleting one item can never remove another's photo |
+| "החלפת תמונה" (`ClosetRepository.replacePhoto`) keeps the id, raises `photoRevision`, clears `analysis` and marks the item's AI looks for "לוקים לתיקון". Same extension: the list is saved before the photo is overwritten; another extension: new file, list, then the old file. Photo URLs are cached by path and revision (`useImageUrl`) | An interrupted replacement never leaves an old analysis on a new photo; the new photo shows at once; a look of the old garment is never deleted from her screen |
 | If the closet files exist but can't be read, show the recovery screen; never start empty over them | No silent data loss |
 | If the phone refuses storage access (e.g. a Safari private tab, `UnknownError`), say so and offer a retry; never call it corruption | Private tabs have no usable storage; a false "files are damaged" message scares the parent |
 | Writes go through `ClosetRepository`, one at a time | Saves never interleave |
