@@ -1,8 +1,11 @@
-import { screen } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import { AI_ANALYSIS_USAGE_KEY, AI_KEY_PREFIX } from '../app/aiDevice';
+import type { FetchLike } from '../ai/providers';
+import { emptyCloset } from '../core/model';
 import type { ImageDeps } from '../image/processImage';
-import { renderWithCloset } from '../test/fixtures';
+import { memoryStorage, renderWithCloset, sampleAttributes, testPhoto } from '../test/fixtures';
 import { AddItem } from './AddItem';
 
 function imageDeps(overrides: Partial<ImageDeps> = {}): ImageDeps {
@@ -129,5 +132,45 @@ describe('AddItem', () => {
     await user.click(screen.getByRole('button', { name: 'כחול' }));
     await user.click(screen.getByRole('button', { name: 'שמירה בארון' }));
     expect(await screen.findByText('לא הצלחנו לשמור את הבגד. נסי שוב.')).toBeInTheDocument();
+  });
+});
+
+describe('AddItem and garment analysis', () => {
+  const month = () => `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+  const answer = () =>
+    Response.json({ choices: [{ message: { content: JSON.stringify({ valid_image: true, ...sampleAttributes() }) } }] });
+
+  async function addOne(enabled: boolean) {
+    const user = userEvent.setup();
+    const data = emptyCloset();
+    const closet = { ...data, ai: { ...data.ai, provider: 'venice' as const, analysis: { enabled, model: '', monthlyCap: 300 } } };
+    const deviceStorage = memoryStorage({ [`${AI_KEY_PREFIX}venice`]: 'sk-venice-123' });
+    const fetchFn = vi.fn<FetchLike>().mockImplementation(async () => answer());
+    // A real (tiny) WebP, so the photo can be sent without its metadata.
+    const deps = imageDeps({ encodeWebp: vi.fn().mockResolvedValue(testPhoto('webp').buffer) });
+    const result = await renderWithCloset(<AddItem imageDeps={deps} onOpenCloset={vi.fn()} />, closet, { deviceStorage, fetchFn });
+    await user.upload(screen.getByLabelText('בחירת תמונה מהגלריה'), photo());
+    await screen.findByAltText('התמונה שנבחרה');
+    await user.click(screen.getByRole('button', { name: 'חולצה ארוכה' }));
+    await user.click(screen.getByRole('button', { name: 'בית ספר' }));
+    await user.click(screen.getByRole('button', { name: 'ירוק' }));
+    await user.click(screen.getByRole('button', { name: 'שמירה בארון' }));
+    expect(await screen.findByText('"חולצה ארוכה בצבע ירוק" נשמר בארון')).toBeInTheDocument();
+    return { ...result, fetchFn, deviceStorage };
+  }
+
+  it('sends the new photo to the AI in the background when the parent turned analysis on', async () => {
+    const { repo, fetchFn, deviceStorage } = await addOne(true);
+    await waitFor(() => expect(repo.getData().items[0].analysis?.result).toBe('ok'));
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(deviceStorage.getItem(AI_ANALYSIS_USAGE_KEY)!)).toEqual({ month: month(), count: 1 });
+    // Nothing new on her screen: the same saved line, no AI words.
+    expect(screen.queryByText(/AI/)).not.toBeInTheDocument();
+  });
+
+  it('sends nothing while analysis is off', async () => {
+    const { repo, fetchFn } = await addOne(false);
+    expect(fetchFn).not.toHaveBeenCalled();
+    expect(repo.getData().items[0].analysis).toBeNull();
   });
 });

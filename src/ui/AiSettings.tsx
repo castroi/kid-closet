@@ -6,6 +6,7 @@ import {
   nextResetDate,
   readApiKey,
   readLastCheck,
+  readAnalysisUse,
   readMonthlyUse,
   removeApiKey,
   saveApiKey,
@@ -13,6 +14,7 @@ import {
   type DeviceStorage,
 } from '../app/aiDevice';
 import { useCloset } from '../app/ClosetContext';
+import { useItemAnalysis } from '../app/ItemAnalysis';
 import { AI_PROVIDERS, effectiveModel } from '../ai/catalog';
 import { DEFAULT_PROMPT } from '../ai/prompt';
 import type { FetchLike } from '../ai/providers';
@@ -47,6 +49,7 @@ export function AiPanel({
   onOpenFix: () => void;
 }) {
   const { data } = useCloset();
+  const analysis = useItemAnalysis();
   const { provider, monthlyCap } = data.ai;
   const ready = aiReady(data.ai, deviceStorage);
   const check = provider ? readLastCheck(deviceStorage, provider) : null;
@@ -83,6 +86,16 @@ export function AiPanel({
       >
         <span style={{ width: `${percent}%` }} />
       </div>
+      {ready && data.ai.analysis.enabled && (
+        <div className="kv">
+          <span className="muted">זיהוי בגדים החודש</span>
+          <span>
+            {readAnalysisUse(deviceStorage, now)} מתוך {data.ai.analysis.monthlyCap}
+            {analysis.bulk?.running &&
+              ` · שולח ${analysis.bulk.analysed + analysis.bulk.skipped + analysis.bulk.failed.length} מתוך ${analysis.bulk.total}`}
+          </span>
+        </div>
+      )}
       <button type="button" className="row-btn" onClick={onOpenFix}>
         <span>לוקים לתיקון ({data.aiLooks.filter((l) => l.flagged).length})</span>
         <Icon name="next" />

@@ -3,11 +3,13 @@ import {
   addOutfit as addOutfitTo,
   removeOutfit as removeOutfitFrom,
   setAiSettings as setAiSettingsOf,
+  setItemAnalysis as setItemAnalysisIn,
   setLookFlagged as setLookFlaggedIn,
   setStatus as setStatusOf,
   updateItem as updateItemIn,
   type ItemPatch,
 } from '../core/closet';
+import type { ItemAnalysis } from '../core/attributes';
 import type { AiLook, AiSettings, ClosetData, Item, ItemStatus, Outfit } from '../core/model';
 import { exportBackup, importBackup, type BackupResult } from '../storage/backup';
 import { ClosetChangedElsewhereError, type ClosetRepository, type NewItem, type StoredImage } from '../storage/repository';
@@ -18,6 +20,8 @@ export interface ClosetApi {
   data: ClosetData;
   addItem(input: NewItem, image: StoredImage): Promise<Item>;
   updateItem(id: string, patch: ItemPatch): Promise<void>;
+  /** Stores what the AI said about an item's photo; dropped when the item is gone or its photo was replaced. */
+  setItemAnalysis(id: string, analysis: ItemAnalysis): Promise<void>;
   setStatus(ids: string[], status: ItemStatus): Promise<void>;
   deleteItems(ids: string[]): Promise<void>;
   addOutfit(outfit: OutfitInput): Promise<void>;
@@ -137,6 +141,7 @@ export function ClosetProvider({ repo, children, now = defaultNow, newId = defau
           return item;
         }),
       updateItem: (id, patch) => commit((d) => updateItemIn(d, id, patch, now())),
+      setItemAnalysis: (id, analysis) => commit((d) => setItemAnalysisIn(d, id, analysis)),
       setStatus: (ids, status) => commit((d) => setStatusOf(d, ids, status, now())),
       deleteItems: (ids) =>
         guard(async () => {

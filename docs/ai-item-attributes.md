@@ -1,6 +1,6 @@
 # AI item attributes — decisions and implementation plan
 
-Feature for `castroi/kid-closet`. Status: **in progress**. PRs 0–1 merged; PR 2 `feat/ai-analyze-provider`. Date: 2026-10-27.
+Feature for `castroi/kid-closet`. Status: **in progress**. PRs 0–2 merged; PR 3 `feat/analyze-items`. Date: 2026-10-27.
 
 ## 1. Goal
 

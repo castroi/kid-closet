@@ -11,6 +11,7 @@ import { Settings } from '../ui/Settings';
 import type { FetchLike } from '../ai/providers';
 import { browserDeviceStorage, type DeviceStorage } from './aiDevice';
 import { AiLookProvider, useAiLooks, type LookOutfit } from './AiLooks';
+import { ItemAnalysisProvider } from './ItemAnalysis';
 import type { ShareEnv, StorageLike } from './device';
 import { browserThemeEnv, useTheme, type ThemeEnv } from './theme';
 
@@ -30,7 +31,7 @@ export interface AppProps {
   today?: Date;
   themeEnv?: ThemeEnv;
   deviceStorage?: DeviceStorage;
-  /** Only for tests: the provider calls and the bundled doll. */
+  /** Only for tests: the provider calls, the bundled doll and the garment analyses. */
   fetchFn?: FetchLike;
 }
 
@@ -39,7 +40,9 @@ export function App({ deviceStorage: givenStorage, fetchFn, ...props }: AppProps
   const [deviceStorage] = useState<DeviceStorage>(() => (givenStorage === undefined ? browserDeviceStorage() : givenStorage));
   return (
     <AiLookProvider deviceStorage={deviceStorage} imageDeps={props.imageDeps} fetchFn={fetchFn}>
-      <Screens {...props} deviceStorage={deviceStorage} />
+      <ItemAnalysisProvider deviceStorage={deviceStorage} fetchFn={fetchFn}>
+        <Screens {...props} deviceStorage={deviceStorage} />
+      </ItemAnalysisProvider>
     </AiLookProvider>
   );
 }

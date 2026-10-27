@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useCloset } from '../app/ClosetContext';
+import { useItemAnalysis } from '../app/ItemAnalysis';
 import { processImage, type ImageDeps } from '../image/processImage';
 import type { StoredImage } from '../storage/repository';
 import { Icon, Toast } from './common';
@@ -15,6 +16,7 @@ type PhotoState =
 
 export function AddItem({ imageDeps, onOpenCloset }: { imageDeps: ImageDeps; onOpenCloset: () => void }) {
   const { addItem } = useCloset();
+  const analysis = useItemAnalysis();
   const [draft, setDraft] = useState<ItemDraft>(EMPTY);
   const [photo, setPhoto] = useState<PhotoState>({ kind: 'none' });
   const [saving, setSaving] = useState(false);
@@ -66,6 +68,9 @@ export function AddItem({ imageDeps, onOpenCloset }: { imageDeps: ImageDeps; onO
         { name: finalName(draft), type: draft.type, colorGroup: draft.colorGroup, occasions: draft.occasions },
         photo.image,
       );
+      // When the parent turned garment analysis on, the photo goes to the AI in the background;
+      // she sees nothing new here (docs/ai-item-attributes.md §7).
+      analysis.analyse(item.id, 'new', item);
       setSavedName(item.name);
       setDraft(EMPTY);
       setPhoto({ kind: 'none' });

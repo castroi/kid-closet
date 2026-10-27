@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react';
+import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { AI_ANALYSIS_USAGE_KEY, AI_KEY_PREFIX, AI_USAGE_KEY } from '../app/aiDevice';
@@ -6,8 +6,7 @@ import { SAMPLE_GARMENT_URL } from '../app/sampleGarment';
 import { AI_PROVIDERS } from '../ai/catalog';
 import type { FetchLike } from '../ai/providers';
 import { emptyCloset, type AiSettings, type ClosetData } from '../core/model';
-import { sampleAttributes } from '../test/data';
-import { fakeImageDeps, memoryStorage, renderWithCloset } from '../test/fixtures';
+import { closetWith, fakeImageDeps, makeAnalysis, makeItem, memoryStorage, renderWithCloset, sampleAttributes } from '../test/fixtures';
 import { cleanWebp } from '../test/photos';
 import { AiPanel, AiSettingsScreen } from './AiSettings';
 
@@ -28,9 +27,11 @@ function fetchWith(reply: () => Response) {
 }
 
 async function renderScreen(ai: Partial<AiSettings> = {}, storage = memoryStorage(), fetchFn?: FetchLike) {
+  // The same phone storage for the screen and the analysis queue, as in the app.
   const result = await renderWithCloset(
     <AiSettingsScreen deviceStorage={storage} imageDeps={fakeImageDeps()} fetchFn={fetchFn} />,
     closetWithAi({ provider: 'openrouter', ...ai }),
+    { deviceStorage: storage, fetchFn },
   );
   return { ...result, storage, panel: within(screen.getByRole('region', { name: 'זיהוי בגדים' })) };
 }
@@ -169,5 +170,105 @@ describe('AiPanel with analysis', () => {
       closetWithAi({ provider: 'venice', analysis: { enabled: true, model: '', monthlyCap: 300 } }),
     );
     expect(screen.getByRole('status')).toHaveTextContent('מוגדר · Venice · זיהוי בגדים פועל');
+  });
+});
+
+describe('sending existing clothes (bulk)', () => {
+  const items = () => [
+    makeItem({ id: 'known', name: 'מוכרת', analysis: makeAnalysis() }),
+    makeItem({ id: 'blurry', name: 'מטושטשת', analysis: makeAnalysis({ result: 'invalid-photo', notes: null, attributes: undefined } as never) }),
+    makeItem({ id: 'a', name: 'חולצה א' }),
+    makeItem({ id: 'b', name: 'חולצה ב' }),
+    makeItem({ id: 'old', name: 'ישנה', status: 'outgrown' }),
+  ];
+
+  async function renderBulk(fetchFn: FetchLike, enabled = true, monthlyCap = 300) {
+    const data = closetWith(items());
+    const closet = { ...data, ai: { ...data.ai, provider: 'openrouter' as const, analysis: { enabled, model: '', monthlyCap } } };
+    const deviceStorage = withKey();
+    const result = await renderWithCloset(
+      <AiSettingsScreen deviceStorage={deviceStorage} imageDeps={fakeImageDeps()} />,
+      closet,
+      { deviceStorage, fetchFn },
+    );
+    return { ...result, panel: within(screen.getByRole('region', { name: 'זיהוי בגדים' })) };
+  }
+
+  it('shows what is known, asks first, sends the active unanalysed clothes and sums up', async () => {
+    const user = userEvent.setup();
+    const fetchFn = vi.fn<FetchLike>().mockImplementation(async () => goodAnswer());
+    const { repo, panel } = await renderBulk(fetchFn);
+    expect(panel.getByText('1 מזוהים · תמונה אחת לא ברורה')).toBeInTheDocument();
+    await user.click(panel.getByRole('button', { name: 'לשלוח 2 בגדים לזיהוי' }));
+
+    const sheet = within(screen.getByRole('dialog', { name: 'לשלוח 2 תמונות בגדים ל־AI?' }));
+    expect(sheet.getByText(/כל בגד = בקשה אחת. נשארו החודש: 300/)).toBeInTheDocument();
+    expect(fetchFn).not.toHaveBeenCalled();
+    await user.click(sheet.getByRole('button', { name: 'כן, לשלוח' }));
+
+    expect(await panel.findByText('2 זוהו')).toBeInTheDocument();
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    expect(repo.getData().items.find((it) => it.id === 'old')?.analysis).toBeNull();
+    expect(panel.getByText('3 מזוהים · תמונה אחת לא ברורה')).toBeInTheDocument();
+    expect(panel.getByRole('button', { name: 'כל הבגדים כבר נשלחו לזיהוי' })).toBeDisabled();
+    await user.click(panel.getByRole('button', { name: 'סגירה' }));
+    expect(panel.queryByText('2 זוהו')).not.toBeInTheDocument();
+  });
+
+  it('says when the cap will stop the run, and lets the parent change her mind', async () => {
+    const user = userEvent.setup();
+    const fetchFn = vi.fn<FetchLike>();
+    const { panel } = await renderBulk(fetchFn, true, 1);
+    await user.click(panel.getByRole('button', { name: 'לשלוח 2 בגדים לזיהוי' }));
+    const sheet = within(screen.getByRole('dialog'));
+    expect(sheet.getByText(/אחרי 1 הריצה תיעצר/)).toBeInTheDocument();
+    await user.click(sheet.getByRole('button', { name: 'לא עכשיו' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it('shows progress and stops after the current garment', async () => {
+    const user = userEvent.setup();
+    let reply: (r: Response) => void = () => undefined;
+    const fetchFn = vi.fn<FetchLike>(() => new Promise<Response>((resolve) => (reply = resolve)));
+    const { panel } = await renderBulk(fetchFn);
+    await user.click(panel.getByRole('button', { name: 'לשלוח 2 בגדים לזיהוי' }));
+    await user.click(screen.getByRole('button', { name: 'כן, לשלוח' }));
+    expect(await panel.findByText('נשלחו 0 מתוך 2')).toBeInTheDocument();
+    expect(panel.getByRole('progressbar', { name: 'שליחה לזיהוי' })).toHaveAttribute('aria-valuemax', '2');
+    await user.click(panel.getByRole('button', { name: 'עצירה' }));
+    expect(panel.getByRole('button', { name: 'עוצר אחרי הבגד הנוכחי…' })).toBeDisabled();
+    await act(async () => reply(goodAnswer()));
+    expect(await panel.findByText('1 זוהו')).toBeInTheDocument();
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops on a problem every garment would hit, and explains each failure', async () => {
+    const user = userEvent.setup();
+    const fetchFn = vi.fn<FetchLike>().mockImplementation(async () => Response.json({ error: { message: 'Insufficient credits' } }, { status: 402 }));
+    const { panel } = await renderBulk(fetchFn);
+    await user.click(panel.getByRole('button', { name: 'לשלוח 2 בגדים לזיהוי' }));
+    await user.click(screen.getByRole('button', { name: 'כן, לשלוח' }));
+    expect(await panel.findByText('0 זוהו · 1 נכשלו')).toBeInTheDocument();
+    expect(panel.getByText(/הריצה נעצרה: נגמר הקרדיט/)).toBeInTheDocument();
+    const failure = panel.getByText(/חולצה א: נגמר הקרדיט/);
+    expect(within(failure).getByText('402 Insufficient credits')).toHaveAttribute('dir', 'ltr');
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('can only send while analysis is on', async () => {
+    const { panel } = await renderBulk(vi.fn<FetchLike>(), false);
+    expect(panel.getByRole('button', { name: 'לשלוח 2 בגדים לזיהוי' })).toBeDisabled();
+    expect(panel.getByText('צריך להפעיל את זיהוי הבגדים כדי לשלוח.')).toBeInTheDocument();
+  });
+
+  it("shows this month's analyses in the parent panel while analysis is on", async () => {
+    const storage = memoryStorage({ [`${AI_KEY_PREFIX}venice`]: 'k', [AI_ANALYSIS_USAGE_KEY]: JSON.stringify({ month: '2026-10', count: 12 }) });
+    await renderWithCloset(
+      <AiPanel deviceStorage={storage} now={OCT} onOpen={vi.fn()} onOpenFix={vi.fn()} />,
+      closetWithAi({ provider: 'venice', analysis: { enabled: true, model: '', monthlyCap: 300 } }),
+      { deviceStorage: storage },
+    );
+    expect(screen.getByText('זיהוי בגדים החודש').nextElementSibling).toHaveTextContent('12 מתוך 300');
   });
 });
