@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { asVersion1, closetWith, makeItem, makeOutfit, NOW } from '../test/data';
+import { asVersion1, closetWith, makeAnalysis, makeItem, makeOutfit, NOW } from '../test/data';
 import {
   InvalidClosetError,
   NO_FILTER,
@@ -12,22 +12,27 @@ import {
   setAiSettings,
   findItem,
   hasOutfit,
+  isAnalysed,
   isSafeImagePath,
   parseCloset,
   removeItems,
   removeOutfit,
   resolveSelection,
+  setItemAnalysis,
   setStatus,
   slotPool,
   stepSelection,
   updateItem,
 } from './closet';
 import {
+  DEFAULT_ANALYSIS_CAP,
   DEFAULT_DOLL_ID,
   DEFAULT_MONTHLY_CAP,
+  MAX_ANALYSIS_CAP,
   MAX_MONTHLY_CAP,
   SCHEMA_VERSION,
   defaultAiSettings,
+  defaultAnalysisSettings,
   defaultName,
   dollImagePath,
   emptyCloset,
@@ -54,7 +59,13 @@ describe('model helpers', () => {
       outfits: [],
       lastBackupAt: null,
       doll: { id: DEFAULT_DOLL_ID, image: null },
-      ai: { provider: null, model: '', prompt: null, monthlyCap: DEFAULT_MONTHLY_CAP },
+      ai: {
+        provider: null,
+        model: '',
+        prompt: null,
+        monthlyCap: DEFAULT_MONTHLY_CAP,
+        analysis: { enabled: false, model: '', monthlyCap: DEFAULT_ANALYSIS_CAP },
+      },
       aiLooks: [],
     });
     expect(dollImagePath('d1', 'webp')).toBe('images/doll-d1.webp');
@@ -233,7 +244,7 @@ describe('parseCloset', () => {
   it('reads a version 3 file as written, so a later version keeps its AI settings', () => {
     const ai = { provider: 'venice', model: 'm', prompt: null, monthlyCap: 12 };
     const raw = { ...JSON.parse(JSON.stringify(valid)), schemaVersion: 3, ai };
-    expect(parseCloset(raw).ai).toEqual(ai);
+    expect(parseCloset(raw).ai).toEqual({ ...ai, analysis: defaultAnalysisSettings() });
   });
 
   it.each([0, 2.5, '3', null])('rejects schemaVersion %s', (schemaVersion) => {
@@ -241,7 +252,13 @@ describe('parseCloset', () => {
   });
 
   it('keeps the AI settings', () => {
-    const ai = { provider: 'openrouter', model: 'meta/muse-image', prompt: 'Dress the doll.', monthlyCap: 0 };
+    const ai = {
+      provider: 'openrouter',
+      model: 'meta/muse-image',
+      prompt: 'Dress the doll.',
+      monthlyCap: 0,
+      analysis: { enabled: true, model: 'deepseek/deepseek-v4.1-flash', monthlyCap: 300 },
+    };
     expect(parseCloset({ ...valid, ai }).ai).toEqual(ai);
   });
 
@@ -307,5 +324,89 @@ describe('parseCloset', () => {
     expect(isSafeImagePath('images/abc.jpg')).toBe(true);
     expect(isSafeImagePath('images/../x.webp')).toBe(false);
     expect(isSafeImagePath('closet-a.json')).toBe(false);
+  });
+});
+
+describe('item analysis (schema 5)', () => {
+  const base = closetWith([makeItem({ id: 'a', analysis: makeAnalysis() }), makeItem({ id: 'b' })]);
+
+  function stored(patch: (raw: { items: Record<string, unknown>[] } & Record<string, unknown>) => void = () => undefined) {
+    const raw = JSON.parse(JSON.stringify(base));
+    patch(raw);
+    return raw;
+  }
+
+  it('keeps analyses and photo revisions', () => {
+    const parsed = parseCloset(stored((raw) => (raw.items[1].photoRevision = 2)));
+    expect(parsed.items[0].analysis).toEqual(makeAnalysis());
+    expect(parsed.items[1]).toMatchObject({ photoRevision: 2, analysis: null });
+  });
+
+  it('loads a version 4 file with photo revision 0, nothing analysed and analysis off', () => {
+    const raw = stored((r) => {
+      r.schemaVersion = 4;
+      r.ai = { provider: 'venice', model: '', prompt: null, monthlyCap: 100 };
+      for (const it of r.items) {
+        delete it.photoRevision;
+        delete it.analysis;
+      }
+    });
+    const parsed = parseCloset(raw);
+    expect(parsed.schemaVersion).toBe(SCHEMA_VERSION);
+    expect(parsed.items.map((it) => [it.photoRevision, it.analysis])).toEqual([
+      [0, null],
+      [0, null],
+    ]);
+    expect(parsed.ai.analysis).toEqual(defaultAnalysisSettings());
+  });
+
+  it('ignores analysis fields in an older file', () => {
+    const parsed = parseCloset(stored((r) => (r.schemaVersion = 4)));
+    expect(parsed.items[0]).toMatchObject({ photoRevision: 0, analysis: null });
+  });
+
+  it('loads a broken analysis as not analysed instead of refusing the closet', () => {
+    const parsed = parseCloset(stored((r) => (r.items[0].analysis = { result: 'ok', attributes: { category: 'hat' } })));
+    expect(parsed.items[0].analysis).toBeNull();
+    expect(parsed.items).toHaveLength(2);
+  });
+
+  it.each([undefined, -1, 1.5, '1'])('refuses photoRevision %s', (photoRevision) => {
+    expect(() => parseCloset(stored((r) => (r.items[0].photoRevision = photoRevision)))).toThrow('items[0].photoRevision');
+  });
+
+  it.each([
+    ['(analysis)', undefined],
+    ['enabled', { enabled: 'yes' }],
+    ['model', { model: null }],
+    ['model', { model: 'x'.repeat(201) }],
+    ['monthlyCap', { monthlyCap: -1 }],
+    ['monthlyCap', { monthlyCap: 2.5 }],
+    ['monthlyCap', { monthlyCap: MAX_ANALYSIS_CAP + 1 }],
+  ])('rejects analysis settings with a bad %s', (field, patch) => {
+    const analysis = patch === undefined ? undefined : { ...defaultAnalysisSettings(), ...patch };
+    expect(() => parseCloset({ ...base, ai: { ...defaultAiSettings(), analysis } })).toThrow(`ai.analysis.${field}`);
+  });
+
+  it('counts an item as analysed only for its current photo', () => {
+    expect(isAnalysed(makeItem({ id: 'x' }))).toBe(false);
+    expect(isAnalysed(makeItem({ id: 'x', analysis: makeAnalysis() }))).toBe(true);
+    expect(isAnalysed(makeItem({ id: 'x', photoRevision: 1, analysis: makeAnalysis({ photoRevision: 0 }) }))).toBe(false);
+  });
+
+  it('stores an analysis on its item and leaves the others alone', () => {
+    const next = setItemAnalysis(base, 'b', makeAnalysis({ model: 'm2' }));
+    expect(findItem(next, 'b')?.analysis?.model).toBe('m2');
+    expect(findItem(next, 'a')?.analysis).toEqual(makeAnalysis());
+  });
+
+  it('drops an answer that arrives after the item was deleted or its photo replaced', () => {
+    expect(setItemAnalysis(base, 'gone', makeAnalysis())).toBe(base);
+    const replaced = closetWith([makeItem({ id: 'a', photoRevision: 1 })]);
+    expect(setItemAnalysis(replaced, 'a', makeAnalysis({ photoRevision: 0 }))).toBe(replaced);
+  });
+
+  it('removes the analysis with its item', () => {
+    expect(removeItems(base, ['a']).items.map((it) => it.id)).toEqual(['b']);
   });
 });

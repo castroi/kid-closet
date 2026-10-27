@@ -1,6 +1,6 @@
 # AI item attributes — decisions and implementation plan
 
-Feature for `castroi/kid-closet`. Status: **planned**. PR 0 `docs/ai-item-attributes`. Date: 2026-10-27.
+Feature for `castroi/kid-closet`. Status: **in progress**. PR 0 merged; PR 1 `feat/item-attributes-model`. Date: 2026-10-27.
 
 ## 1. Goal
 

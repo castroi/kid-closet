@@ -1,8 +1,8 @@
 // @vitest-environment node
 import { strToU8, unzipSync, zipSync } from 'fflate';
 import { describe, expect, it, vi } from 'vitest';
-import { MAX_ITEMS, MAX_LOOKS, MAX_NAME_LENGTH, MAX_OUTFITS } from '../core/closet';
-import { NOW, asVersion1, closetWith, makeItem, makeLook, makeOutfit, seededStore, testPhoto, withDoll } from '../test/data';
+import { MAX_ITEMS, MAX_LOOKS, MAX_NAME_LENGTH, MAX_OUTFITS, isAnalysed } from '../core/closet';
+import { NOW, asVersion1, closetWith, makeAnalysis, makeItem, makeLook, makeOutfit, seededStore, testPhoto, withDoll } from '../test/data';
 import { gpsJpeg } from '../test/photos';
 import {
   BACKUP_FORMAT,
@@ -149,8 +149,33 @@ describe('backup', () => {
     expect([...broken.images.keys()]).not.toContain('images/look-l1.webp');
   });
 
+  it('keeps every analysis and photo revision, so nothing looks unanalysed after a restore', async () => {
+    const data = sample();
+    data.items = [
+      { ...data.items[0], photoRevision: 3, analysis: makeAnalysis({ photoRevision: 3 }) },
+      { ...data.items[1], analysis: makeAnalysis({ result: 'invalid-photo', notes: 'Blurry.', attributes: undefined } as never) },
+    ];
+    const source = new ClosetRepository(seededStore(data), () => NOW);
+    await source.load();
+    const zip = (await exportBackup(source, NOW)).zip;
+
+    const target = new ClosetRepository(new MemoryFileStore(), () => NOW);
+    await target.load();
+    const { closet: restored } = await importBackup(target, zip);
+    expect(restored.items.map((it) => [it.photoRevision, it.analysis])).toEqual(
+      JSON.parse(JSON.stringify(data.items.map((it) => [it.photoRevision, it.analysis]))),
+    );
+    expect(restored.items.every((it) => isAnalysed(it))).toBe(true);
+  });
+
   it('keeps the AI settings in the backup', async () => {
-    const ai = { provider: 'venice' as const, model: 'm', prompt: 'p', monthlyCap: 7 };
+    const ai = {
+      provider: 'venice' as const,
+      model: 'm',
+      prompt: 'p',
+      monthlyCap: 7,
+      analysis: { enabled: true, model: 'deepseek-v4-1-flash', monthlyCap: 250 },
+    };
     const repo = new ClosetRepository(seededStore({ ...sample(), ai }), () => NOW);
     await repo.load();
     expect(readBackup((await exportBackup(repo, NOW)).zip).closet.ai).toEqual(ai);

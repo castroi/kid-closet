@@ -209,6 +209,8 @@ export class ClosetRepository {
         occasions: [...input.occasions],
         status: 'active',
         image: path,
+        photoRevision: 0,
+        analysis: null,
         createdAt: now,
         updatedAt: now,
       };
