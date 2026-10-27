@@ -233,7 +233,10 @@ function BulkSection({ deviceStorage, now }: { deviceStorage: DeviceStorage; now
   const current = data.items.filter((it) => isAnalysed(it));
   const known = current.filter((it) => it.analysis?.result === 'ok').length;
   const unclear = current.length - known;
-  const failedNow = Object.values(queue.jobs).filter((j) => j.kind === 'failed').length;
+  const failedJobs = Object.values(queue.jobs).filter((j) => j.kind === 'failed');
+  // No answer at all isn't a failure of the garment: it goes out again when the phone is back online.
+  const offlineNow = failedJobs.filter((j) => j.error instanceof AiError && j.error.reason === 'network').length;
+  const failedNow = failedJobs.length - offlineNow;
   // From the closet on screen, not the queue's copy, so the button follows every saved analysis.
   const pending = itemsToAnalyse(data.items).filter((it) => queue.jobs[it.id] === undefined || queue.jobs[it.id].kind === 'failed');
   const left = Math.max(0, data.ai.analysis.monthlyCap - readAnalysisUse(deviceStorage, now()));
@@ -241,6 +244,7 @@ function BulkSection({ deviceStorage, now }: { deviceStorage: DeviceStorage; now
 
   const counts = [known === 1 ? 'בגד אחד מזוהה' : `${known} מזוהים`];
   if (failedNow > 0) counts.push(failedNow === 1 ? 'אחד נכשל' : `${failedNow} נכשלו`);
+  if (offlineNow > 0) counts.push(offlineNow === 1 ? 'אחד מחכה לאינטרנט' : `${offlineNow} מחכים לאינטרנט`);
   if (unclear > 0) counts.push(unclear === 1 ? 'תמונה אחת לא ברורה' : `${unclear} תמונות לא ברורות`);
 
   const start = () => {

@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { AI_ANALYSIS_USAGE_KEY, AI_KEY_PREFIX, AI_USAGE_KEY } from '../app/aiDevice';
 import { SAMPLE_GARMENT_URL } from '../app/sampleGarment';
+import { useItemAnalysis, type ItemAnalysisApi } from '../app/ItemAnalysis';
 import { AI_PROVIDERS } from '../ai/catalog';
 import type { FetchLike } from '../ai/providers';
 import { emptyCloset, type AiSettings, type ClosetData } from '../core/model';
@@ -288,3 +289,31 @@ describe('Hebrew counts', () => {
     expect(await panel.findByText('בגד אחד זוהה')).toBeInTheDocument();
   });
 });
+
+describe('counts while offline', () => {
+  it('counts a garment waiting for the internet apart from failures', async () => {
+    const data = closetWith([makeItem({ id: 'a', name: 'חולצה א' })]);
+    const closet = { ...data, ai: { ...data.ai, provider: 'openrouter' as const, analysis: { enabled: true, model: '', monthlyCap: 300 } } };
+    const deviceStorage = withKey();
+    const fetchFn = vi.fn<FetchLike>().mockRejectedValue(new TypeError('Load failed'));
+    await renderWithCloset(
+      <>
+        <AiSettingsScreen deviceStorage={deviceStorage} imageDeps={fakeImageDeps()} />
+        <Probe />
+      </>,
+      closet,
+      { deviceStorage, fetchFn },
+    );
+    act(() => {
+      probe.queue!.analyse('a', 'new');
+    });
+    const panel = within(screen.getByRole('region', { name: 'זיהוי בגדים' }));
+    expect(await panel.findByText('0 מזוהים · אחד מחכה לאינטרנט')).toBeInTheDocument();
+  });
+});
+
+const probe: { queue?: ItemAnalysisApi } = {};
+function Probe() {
+  probe.queue = useItemAnalysis();
+  return null;
+}
