@@ -1,3 +1,5 @@
+import type { ItemAnalysis } from './attributes';
+
 export type ItemType = 'tee' | 'longTop' | 'sweater' | 'jacket' | 'pants' | 'shorts';
 export type Slot = 'layer' | 'top' | 'bottom';
 export type Occasion = 'school' | 'casual' | 'party';
@@ -25,6 +27,10 @@ export interface Item {
   status: ItemStatus;
   /** Path of the photo inside the app's private folder, e.g. "images/<id>.webp". */
   image: string;
+  /** 0 for every photo from before version 5; raised each time the photo is replaced. */
+  photoRevision: number;
+  /** What the AI said about the photo (docs/ai-item-attributes.md); null = not analysed. */
+  analysis: ItemAnalysis | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -64,10 +70,25 @@ export interface AiSettings {
   prompt: string | null;
   /** AI pictures per month on this phone, counting the parent's redos. */
   monthlyCap: number;
+  /** Describing garment photos (docs/ai-item-attributes.md). Same provider and key, its own model and cap. */
+  analysis: AnalysisSettings;
+}
+
+export interface AnalysisSettings {
+  /** Off until the parent turns it on: garment photos then leave the phone automatically. */
+  enabled: boolean;
+  /** The provider's model name; empty means the provider's default analysis model. */
+  model: string;
+  /** Analyses per month on this phone, counted apart from the doll pictures. */
+  monthlyCap: number;
 }
 
 export const DEFAULT_MONTHLY_CAP = 100;
 export const MAX_MONTHLY_CAP = 1000;
+export const DEFAULT_ANALYSIS_CAP = 300;
+/** Longest model name accepted, for the doll looks, the analysis and what made each one. */
+export const MAX_MODEL_LENGTH = 200;
+export const MAX_ANALYSIS_CAP = 5000;
 
 /**
  * A picture of the doll wearing a look, made by the AI. It is identified by what was sent:
@@ -102,10 +123,12 @@ export interface ClosetData {
 }
 
 /**
- * 2 added `doll`, 3 added `ai`, 4 added `aiLooks`. Older files and backups still load:
- * version 1 with the bundled doll, versions 1–2 with AI not set up, versions 1–3 with no looks.
+ * 2 added `doll`, 3 added `ai`, 4 added `aiLooks`, 5 added items' `photoRevision` and `analysis`
+ * and `ai.analysis`. Older files and backups still load: version 1 with the bundled doll,
+ * versions 1–2 with AI not set up, versions 1–3 with no looks, versions 1–4 with photo
+ * revision 0, nothing analysed and analysis off.
  */
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 export const ITEM_TYPES: ItemType[] = ['tee', 'longTop', 'sweater', 'jacket', 'pants', 'shorts'];
 export const SLOTS: Slot[] = ['layer', 'top', 'bottom'];
@@ -162,7 +185,11 @@ export function emptyCloset(): ClosetData {
 }
 
 export function defaultAiSettings(): AiSettings {
-  return { provider: null, model: '', prompt: null, monthlyCap: DEFAULT_MONTHLY_CAP };
+  return { provider: null, model: '', prompt: null, monthlyCap: DEFAULT_MONTHLY_CAP, analysis: defaultAnalysisSettings() };
+}
+
+export function defaultAnalysisSettings(): AnalysisSettings {
+  return { enabled: false, model: '', monthlyCap: DEFAULT_ANALYSIS_CAP };
 }
 
 export function defaultDoll(): Doll {

@@ -18,6 +18,7 @@ import {
   saveLastCheck,
   type DeviceStorage,
 } from './aiDevice';
+import { defaultAiSettings } from '../core/model';
 import { memoryStorage } from '../test/data';
 
 const broken: DeviceStorage = {
@@ -67,7 +68,7 @@ describe('API keys on the device', () => {
 
   it('is ready only with a provider and its key on this phone', () => {
     const storage = memoryStorage({ [`${AI_KEY_PREFIX}venice`]: 'sk-venice-123' });
-    const ai = { provider: null, model: '', prompt: null, monthlyCap: 100 };
+    const ai = { ...defaultAiSettings(), provider: null };
     expect(aiReady(ai, storage)).toBe(false);
     expect(aiReady({ ...ai, provider: 'venice' }, storage)).toBe(true);
     expect(aiReady({ ...ai, provider: 'openrouter' }, storage)).toBe(false);

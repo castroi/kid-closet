@@ -1,12 +1,16 @@
+import { parseStoredAnalysis, type ItemAnalysis } from './attributes';
 import {
   AI_PROVIDER_IDS,
   COLOR_GROUPS,
   DEFAULT_DOLL_ID,
+  MAX_ANALYSIS_CAP,
+  MAX_MODEL_LENGTH,
   MAX_MONTHLY_CAP,
   ITEM_TYPES,
   OCCASIONS,
   SCHEMA_VERSION,
   defaultAiSettings,
+  defaultAnalysisSettings,
   defaultDoll,
   dollImagePath,
   lookImagePath,
@@ -14,6 +18,7 @@ import {
   type AiLook,
   type AiProviderId,
   type AiSettings,
+  type AnalysisSettings,
   type ClosetData,
   type ColorGroup,
   type Doll,
@@ -103,6 +108,24 @@ export function setStatus(data: ClosetData, ids: string[], status: ItemStatus, n
     ...data,
     items: data.items.map((it) => (set.has(it.id) ? { ...it, status, updatedAt: now } : it)),
   };
+}
+
+/**
+ * True when the item has an analysis of its current photo (not stale after a replacement), including an
+ * "invalid photo" answer: either way it isn't sent again automatically (docs/ai-item-attributes.md §7).
+ */
+export function isAnalysed(item: Item): boolean {
+  return item.analysis !== null && item.analysis.photoRevision === item.photoRevision;
+}
+
+/**
+ * Stores an analysis on its item. An answer that arrives late is dropped (the data comes back
+ * unchanged) when the item was deleted or its photo replaced while the call ran.
+ */
+export function setItemAnalysis(data: ClosetData, id: string, analysis: ItemAnalysis): ClosetData {
+  const item = data.items.find((it) => it.id === id);
+  if (!item || item.photoRevision !== analysis.photoRevision) return data;
+  return { ...data, items: data.items.map((it) => (it.id === id ? { ...it, analysis } : it)) };
 }
 
 /** Removes items, every saved outfit that used one of them, and their AI looks. */
@@ -244,10 +267,10 @@ export function isSafeImagePath(path: string): boolean {
   return SAFE_IMAGE_PATH.test(path);
 }
 
-function parseItem(raw: unknown, index: number): Item {
+function parseItem(raw: unknown, index: number, version: number): Item {
   const fail = (field: string) => new InvalidClosetError(`items[${index}].${field} is invalid`);
   if (!isRecord(raw)) throw fail('(item)');
-  const { id, name, type, colorGroup, occasions, status, image, createdAt, updatedAt } = raw;
+  const { id, name, type, colorGroup, occasions, status, image, photoRevision, analysis, createdAt, updatedAt } = raw;
   if (!isString(id) || id.length === 0) throw fail('id');
   if (!isString(name)) throw fail('name');
   if (!ITEM_TYPES.includes(type as ItemType)) throw fail('type');
@@ -266,6 +289,11 @@ function parseItem(raw: unknown, index: number): Item {
   }
   if (!isString(createdAt)) throw fail('createdAt');
   if (!isString(updatedAt)) throw fail('updatedAt');
+  let revision = 0;
+  if (version >= 5) {
+    if (typeof photoRevision !== 'number' || !Number.isInteger(photoRevision) || photoRevision < 0) throw fail('photoRevision');
+    revision = photoRevision;
+  }
   return {
     id,
     name,
@@ -274,6 +302,9 @@ function parseItem(raw: unknown, index: number): Item {
     occasions: [...new Set(occasions as Occasion[])],
     status,
     image,
+    photoRevision: revision,
+    // A bad analysis is dropped, never fatal: it can be made again (docs/ai-item-attributes.md §5).
+    analysis: version >= 5 ? parseStoredAnalysis(analysis) : null,
     createdAt,
     updatedAt,
   };
@@ -311,10 +342,22 @@ function parseDoll(raw: unknown): Doll {
 }
 
 /** Generous limits; they only stop a broken or hostile file from holding huge text. */
-export const MAX_MODEL_LENGTH = 200;
+export { MAX_MODEL_LENGTH };
 export const MAX_PROMPT_LENGTH = 4000;
 
-function parseAi(raw: unknown): AiSettings {
+function parseAnalysisSettings(raw: unknown): AnalysisSettings {
+  const fail = (field: string) => new InvalidClosetError(`ai.analysis.${field} is invalid`);
+  if (!isRecord(raw)) throw fail('(analysis)');
+  const { enabled, model, monthlyCap } = raw;
+  if (typeof enabled !== 'boolean') throw fail('enabled');
+  if (!isString(model) || model.length > MAX_MODEL_LENGTH) throw fail('model');
+  if (typeof monthlyCap !== 'number' || !Number.isInteger(monthlyCap) || monthlyCap < 0 || monthlyCap > MAX_ANALYSIS_CAP) {
+    throw fail('monthlyCap');
+  }
+  return { enabled, model, monthlyCap };
+}
+
+function parseAi(raw: unknown, version: number): AiSettings {
   const fail = (field: string) => new InvalidClosetError(`ai.${field} is invalid`);
   if (!isRecord(raw)) throw fail('(ai)');
   const { provider, model, prompt, monthlyCap } = raw;
@@ -324,7 +367,8 @@ function parseAi(raw: unknown): AiSettings {
   if (typeof monthlyCap !== 'number' || !Number.isInteger(monthlyCap) || monthlyCap < 0 || monthlyCap > MAX_MONTHLY_CAP) {
     throw fail('monthlyCap');
   }
-  return { provider: provider as AiProviderId | null, model, prompt, monthlyCap };
+  const analysis = version >= 5 ? parseAnalysisSettings(raw.analysis) : defaultAnalysisSettings();
+  return { provider: provider as AiProviderId | null, model, prompt, monthlyCap, analysis };
 }
 
 function parseLook(raw: unknown, index: number): AiLook {
@@ -370,7 +414,7 @@ export function parseCloset(raw: unknown): ClosetData {
   if (raw.lastBackupAt !== null && !isString(raw.lastBackupAt)) {
     throw new InvalidClosetError('lastBackupAt is invalid');
   }
-  const items = raw.items.map(parseItem);
+  const items = raw.items.map((it, i) => parseItem(it, i, version));
   const ids = new Set<string>();
   for (const it of items) {
     if (ids.has(it.id)) throw new InvalidClosetError(`duplicate item id ${it.id}`);
@@ -381,7 +425,7 @@ export function parseCloset(raw: unknown): ClosetData {
   if (doll.image && items.some((it) => it.image === doll.image)) {
     throw new InvalidClosetError('doll.image is used by an item');
   }
-  const ai = version >= 3 ? parseAi(raw.ai) : defaultAiSettings();
+  const ai = version >= 3 ? parseAi(raw.ai, version) : defaultAiSettings();
   let aiLooks: AiLook[] = [];
   if (version >= 4) {
     if (!Array.isArray(raw.aiLooks)) throw new InvalidClosetError('aiLooks is not a list');

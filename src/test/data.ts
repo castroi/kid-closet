@@ -1,3 +1,4 @@
+import type { ItemAnalysis, ItemAttributes } from '../core/attributes';
 import { closetImagePaths } from '../core/closet';
 import { emptyCloset, lookImagePath, type AiLook, type ClosetData, type Item, type Outfit } from '../core/model';
 import { MemoryFileStore } from '../storage/fileStore';
@@ -12,6 +13,8 @@ export function makeItem(partial: Partial<Item> & Pick<Item, 'id'>): Item {
     occasions: ['school'],
     status: 'active',
     image: `images/${partial.id}.webp`,
+    photoRevision: 0,
+    analysis: null,
     createdAt: NOW,
     updatedAt: NOW,
     ...partial,
@@ -79,6 +82,49 @@ export function memoryStorage(initial: Record<string, string> = {}) {
     setItem: (k: string, v: string) => void data.set(k, v),
     removeItem: (k: string) => void data.delete(k),
   };
+}
+
+/** What the AI said about the pink t-shirt from docs/ai-item-attributes.md, as stored. */
+export function sampleAttributes(): ItemAttributes {
+  return {
+    category: 'top',
+    subcategory: 't-shirt',
+    primary_color: 'pink',
+    primary_color_hex: '#D18197',
+    secondary_colors: ['white'],
+    color_family: 'colorful',
+    pattern: 'graphic_print',
+    graphic_description: 'small white circular graphic on the left chest',
+    text_on_item: null,
+    busyness: 'low',
+    formality: ['play', 'school'],
+    season: ['summer', 'mid'],
+    warmth: 'light',
+    sleeve_length: 'short',
+    leg_length: null,
+    material_guess: 'cotton',
+    fit: 'regular',
+    closure: 'none',
+    style_tags: ['casual', 'everyday', 'comfy'],
+    short_title: 'Pink graphic t-shirt',
+    kid_friendly_description: 'A comfy pink t-shirt with a small white picture on the chest.',
+    confidence: 'high',
+    notes: null,
+  };
+}
+
+/** A stored analysis of an item's first photo. */
+export function makeAnalysis(partial: Partial<ItemAnalysis> = {}): ItemAnalysis {
+  return {
+    result: 'ok',
+    attributes: sampleAttributes(),
+    photoRevision: 0,
+    provider: 'venice',
+    model: 'deepseek-v4-1-flash',
+    promptVersion: 1,
+    analyzedAt: NOW,
+    ...partial,
+  } as ItemAnalysis;
 }
 
 /** A saved AI look: the default doll, a shirt and jeans unless given. */
