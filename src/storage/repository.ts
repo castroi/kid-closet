@@ -12,6 +12,7 @@ import {
   defaultDoll,
   dollImagePath,
   emptyCloset,
+  itemImagePath,
   lookImagePath,
   type AiLook,
   type ClosetData,
@@ -276,23 +277,17 @@ export class ClosetRepository {
   }
 
   /**
-   * Gives an item a new photo, always at `images/<id>.<ext>`, and returns the updated item.
-   * Same extension: the list is saved first (new revision, no analysis), then the photo is
-   * overwritten, so a crash in between leaves the old photo marked as not analysed (it is sent
-   * again) and never an old analysis on a new photo. Other extension: the new file first, then
-   * the list, then the old file, as in addItem; a crash leaves only an orphan, removed on load.
+   * Gives an item a new photo and returns the updated item. The new photo is always a new file
+   * (`images/<id>-r<n>.<ext>`), never an overwrite: the file first, then the list, then the old
+   * file, as for the doll. A crash or a failed write leaves the old photo in use and at worst an
+   * orphan, which the next load removes; an old analysis is never kept on a new photo.
    */
   replacePhoto(id: string, image: StoredImage): Promise<Item> {
     return this.locked(async () => {
       const item = this.data.items.find((it) => it.id === id);
       if (!item) throw new Error(`Item ${id} not found`);
-      const path = `${IMAGES_DIR}/${id}.${image.ext}`;
+      const path = itemImagePath(id, item.photoRevision + 1, image.ext);
       const next = replaceItemPhoto(this.data, id, path, this.clock());
-      if (path === item.image) {
-        const saved = await this.persist(next);
-        await this.store.write(path, image.blob);
-        return saved.items.find((it) => it.id === id)!;
-      }
       await this.store.write(path, image.blob);
       let saved: ClosetData;
       try {

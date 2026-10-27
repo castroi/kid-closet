@@ -13,6 +13,7 @@ import {
   defaultAnalysisSettings,
   defaultDoll,
   dollImagePath,
+  itemImagePath,
   lookImagePath,
   slotOf,
   type AiLook,
@@ -119,20 +120,19 @@ export function isAnalysed(item: Item): boolean {
 }
 
 /**
- * Gives an item a new photo (docs/ai-item-attributes.md §7, PR 4): its path (same id, maybe another
- * extension), a higher photoRevision, and no analysis, so the AI is asked again. The AI looks that
+ * Gives an item a new photo (docs/ai-item-attributes.md §7, PR 4): a new file named after the item
+ * and its next revision, and no analysis, so the AI is asked again. The AI looks that
  * used the garment show the old photo, so they are marked for the parent in "לוקים לתיקון"; deleting
  * stays hers to decide.
  */
 export function replaceItemPhoto(data: ClosetData, id: string, image: string, now: string): ClosetData {
   const item = data.items.find((it) => it.id === id);
   if (!item) throw new Error(`Item ${id} not found`);
-  if (image !== `images/${id}.webp` && image !== `images/${id}.jpg`) throw new Error(`Bad photo path ${image}`);
+  const revision = item.photoRevision + 1;
+  if (image !== itemImagePath(id, revision, 'webp') && image !== itemImagePath(id, revision, 'jpg')) throw new Error(`Bad photo path ${image}`);
   return {
     ...data,
-    items: data.items.map((it) =>
-      it.id === id ? { ...it, image, photoRevision: it.photoRevision + 1, analysis: null, updatedAt: now } : it,
-    ),
+    items: data.items.map((it) => (it.id === id ? { ...it, image, photoRevision: revision, analysis: null, updatedAt: now } : it)),
     aiLooks: data.aiLooks.map((l) => (l.upperId === id || l.bottomId === id ? { ...l, flagged: true } : l)),
   };
 }
@@ -307,17 +307,17 @@ function parseItem(raw: unknown, index: number, version: number): Item {
     throw fail('occasions');
   }
   if (status !== 'active' && status !== 'outgrown') throw fail('status');
-  // Each item owns exactly one photo named after its id, so deleting one item can never remove another's photo.
-  if (!isString(image) || !isSafeImagePath(image) || (image !== `images/${id}.webp` && image !== `images/${id}.jpg`)) {
-    throw fail('image');
-  }
-  if (!isString(createdAt)) throw fail('createdAt');
-  if (!isString(updatedAt)) throw fail('updatedAt');
   let revision = 0;
   if (version >= 5) {
     if (typeof photoRevision !== 'number' || !Number.isInteger(photoRevision) || photoRevision < 0) throw fail('photoRevision');
     revision = photoRevision;
   }
+  // Each item owns exactly one photo named after its id and photo revision, so deleting one item can never remove another's photo.
+  if (!isString(image) || !isSafeImagePath(image) || (image !== itemImagePath(id, revision, 'webp') && image !== itemImagePath(id, revision, 'jpg'))) {
+    throw fail('image');
+  }
+  if (!isString(createdAt)) throw fail('createdAt');
+  if (!isString(updatedAt)) throw fail('updatedAt');
   return {
     id,
     name,

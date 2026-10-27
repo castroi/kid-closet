@@ -28,7 +28,7 @@ The app writes plain files into the browser's private folder for this site
 ```
 closet-a.json   ┐ the closet list, written alternately with an increasing
 closet-b.json   ┘ generation number, so an interrupted save never loses data
-images/<id>.webp  one photo per item (JPEG if WebP encoding fails)
+images/<id>.webp  one photo per item (JPEG if WebP encoding fails); <id>-r2.webp after its 2nd replacement
 images/doll-<id>.webp  the parent's doll picture, if she replaced the bundled one
 images/look-<id>.webp  a picture of the doll wearing a look, made by the AI
 ```

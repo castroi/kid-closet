@@ -152,7 +152,7 @@ describe('backup', () => {
   it('keeps every analysis and photo revision, so nothing looks unanalysed after a restore', async () => {
     const data = sample();
     data.items = [
-      { ...data.items[0], photoRevision: 3, analysis: makeAnalysis({ photoRevision: 3 }) },
+      { ...data.items[0], photoRevision: 3, image: 'images/t-r3.webp', analysis: makeAnalysis({ photoRevision: 3 }) },
       { ...data.items[1], analysis: makeAnalysis({ result: 'invalid-photo', notes: 'Blurry.', attributes: undefined } as never) },
     ];
     const source = new ClosetRepository(seededStore(data), () => NOW);

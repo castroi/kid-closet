@@ -422,3 +422,37 @@ describe('replaced photo', () => {
     expect(fetchFn).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('a photo replaced while the old one is being sent', () => {
+  it('sends the new photo as soon as the old call ends, and keeps only its answer', async () => {
+    const replies: ((r: Response) => void)[] = [];
+    const fetchFn = vi.fn<FetchLike>(() => new Promise<Response>((resolve) => replies.push(resolve)));
+    const { repo } = await setup(closetWithAnalysis([makeItem({ id: 'a' })]), fetchFn);
+    act(() => {
+      queue().analyse('a', 'new');
+    });
+    await waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      const image = { blob: new Blob([testPhoto('webp') as BlobPart], { type: 'image/webp' }), ext: 'webp' as const };
+      const saved = await closet().replacePhoto('a', image);
+      expect(queue().analyse('a', 'new', saved)).toBeNull();
+    });
+    // The old photo's answer arrives and is dropped; the new photo goes out right after.
+    await act(async () => replies[0](goodAnswer({ short_title: 'Old photo' })));
+    await waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(2));
+    await act(async () => replies[1](goodAnswer({ short_title: 'New photo' })));
+    await waitFor(() => expect(repo.getData().items[0].analysis?.photoRevision).toBe(1));
+    const analysis = repo.getData().items[0].analysis;
+    expect(analysis?.result === 'ok' ? analysis.attributes.short_title : null).toBe('New photo');
+  });
+
+  it('never lets a copy from before a restore win over the closet', async () => {
+    const fetchFn = vi.fn<FetchLike>().mockImplementation(async () => goodAnswer());
+    await setup(closetWithAnalysis([makeItem({ id: 'a', photoRevision: 3, analysis: makeAnalysis({ photoRevision: 3 }) })]), fetchFn);
+    // A stale copy two revisions ahead (e.g. kept from before a restore) is ignored: the closet says it's analysed.
+    act(() => {
+      expect(queue().analyse('a', 'new', makeItem({ id: 'a', photoRevision: 5 }))).toBe('done');
+    });
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+});

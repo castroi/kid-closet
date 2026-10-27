@@ -339,9 +339,29 @@ describe('item analysis (schema 5)', () => {
   }
 
   it('keeps analyses and photo revisions', () => {
-    const parsed = parseCloset(stored((raw) => (raw.items[1].photoRevision = 2)));
+    const parsed = parseCloset(
+      stored((raw) => {
+        raw.items[1].photoRevision = 2;
+        raw.items[1].image = 'images/b-r2.webp';
+      }),
+    );
     expect(parsed.items[0].analysis).toEqual(makeAnalysis());
-    expect(parsed.items[1]).toMatchObject({ photoRevision: 2, analysis: null });
+    expect(parsed.items[1]).toMatchObject({ photoRevision: 2, image: 'images/b-r2.webp', analysis: null });
+  });
+
+  it('refuses a photo whose name does not match its revision', () => {
+    for (const [revision, image] of [
+      [2, 'images/b.webp'],
+      [0, 'images/b-r1.webp'],
+      [1, 'images/b-r2.jpg'],
+      [1, 'images/a-r1.webp'],
+    ] as const) {
+      const raw = stored((r) => {
+        r.items[1].photoRevision = revision;
+        r.items[1].image = image;
+      });
+      expect(() => parseCloset(raw), `${revision} ${image}`).toThrow('items[1].image');
+    }
   });
 
   it('loads a version 4 file with photo revision 0, nothing analysed and analysis off', () => {
@@ -424,13 +444,15 @@ describe('item analysis (schema 5)', () => {
       ...closetWith([makeItem({ id: 'a', analysis: makeAnalysis() }), makeItem({ id: 'p', type: 'pants' })]),
       aiLooks: [makeLook({ id: 'l1', upperId: 'a', bottomId: 'p' }), makeLook({ id: 'l2', upperId: 'x', bottomId: 'y' })],
     };
-    const next = replaceItemPhoto(data, 'a', 'images/a.jpg', '2027-01-01');
-    expect(findItem(next, 'a')).toMatchObject({ image: 'images/a.jpg', photoRevision: 1, analysis: null, updatedAt: '2027-01-01' });
+    const next = replaceItemPhoto(data, 'a', 'images/a-r1.jpg', '2027-01-01');
+    expect(findItem(next, 'a')).toMatchObject({ image: 'images/a-r1.jpg', photoRevision: 1, analysis: null, updatedAt: '2027-01-01' });
     expect(next.aiLooks.map((l) => l.flagged)).toEqual([true, false]);
     expect(isAnalysed(findItem(next, 'a')!)).toBe(false);
     expect(() => replaceItemPhoto(data, 'gone', 'images/gone.webp', NOW)).toThrow('not found');
-    // An item's photo is always named after its own id.
-    expect(() => replaceItemPhoto(data, 'a', 'images/p.webp', NOW)).toThrow('Bad photo path');
+    // A new file named after its own id and next revision; never the old name, never another item's.
+    for (const bad of ['images/a.webp', 'images/a-r2.webp', 'images/p-r1.webp']) {
+      expect(() => replaceItemPhoto(data, 'a', bad, NOW)).toThrow('Bad photo path');
+    }
   });
 
   it('removes the analysis with its item', () => {

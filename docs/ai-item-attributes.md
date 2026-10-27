@@ -228,7 +228,7 @@ Reviewed by the UI/UX agent (2026-10-27). All existing UX rules apply: Hebrew RT
 
 **Parent: "בובה ו־AI" panel** stays short: two usage lines, "בובות: 23 מתוך 100" and "זיהוי בגדים: 40 מתוך 300", plus progress while a bulk run is going.
 
-**Photo replacement (PR 4)**: "החלפת תמונה" in the edit sheet, through the same take/choose flow as `AddItem.tsx`. The new photo replaces `images/<id>.<ext>`, and the same write raises `photoRevision` and clears `analysis`, so the item counts as not analysed and is sent again automatically by PR 3's queue when the feature is on. `useImageUrl` (`src/ui/common.tsx`) caches by path, which stays the same, so its key must include `photoRevision`; otherwise the old photo keeps showing.
+**Photo replacement (PR 4)**: "החלפת תמונה" in the edit sheet, through the same take/choose flow as `AddItem.tsx`. **Decided in PR 4 (review):** the new photo is always a new file, `images/<id>-r<n>.<ext>` after the n-th replacement, written before the list is saved; the old file is removed after. A photo is never overwritten, because a half-written only copy would break the closet and every backup. The same write raises `photoRevision` and clears `analysis`, so the item counts as not analysed and is sent again by PR 3's queue when the feature is on, also when its previous photo was still being analysed.
 
 ## 8. Pull requests
 

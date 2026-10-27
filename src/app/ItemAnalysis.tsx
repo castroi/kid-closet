@@ -89,12 +89,13 @@ export class AnalysisCapReached extends Error {
 }
 
 /**
- * The item to judge and send: the closet's copy, unless the caller handed one with a newer photo
- * (just added, or a replaced photo) that the closet on screen doesn't show yet.
+ * The item to judge and send: the closet's copy, unless the caller handed the item just saved
+ * (a new item, or the very next photo revision) that the closet on screen doesn't show yet. Only
+ * the next revision wins, so a copy left over from before a restore never does.
  */
 function freshest(found: Item | undefined, given: Item | undefined): Item | undefined {
   if (!found) return given;
-  return given && given.photoRevision > found.photoRevision ? given : found;
+  return given && given.photoRevision === found.photoRevision + 1 ? given : found;
 }
 
 const defaultFetch: FetchLike = (url, init) => fetch(url, init);
@@ -129,6 +130,10 @@ export function ItemAnalysisProvider({ deviceStorage, children, now = defaultNow
   const bulkRef = useRef<BulkRun | null>(bulk);
   const queue = useRef<Queued[]>([]);
   const working = useRef(false);
+  /** A newer photo saved while the item's previous one was being sent: sent as soon as that call ends. */
+  const again = useRef<Map<string, Queued>>(new Map());
+  /** The photo being sent right now, to tell a newer one from it. */
+  const sending = useRef<{ id: string; revision: number } | null>(null);
   /** Items of this session that waited for the internet; sent again on the "online" event. */
   const offline = useRef<Map<string, AnalysisSource>>(new Map());
   useEffect(() => {
@@ -235,6 +240,7 @@ export function ItemAnalysisProvider({ deviceStorage, children, now = defaultNow
           continue;
         }
         setJob(id, { kind: 'waiting' });
+        sending.current = { id, revision: item.photoRevision };
         try {
           const blob = await readImage(item.image);
           if (!blob) throw new AiError('bad-photo', `${item.image} is missing`);
@@ -264,6 +270,15 @@ export function ItemAnalysisProvider({ deviceStorage, children, now = defaultNow
           // No answer at all costs nothing: her items go out again when the phone is back online.
           else if (noAnswer(error)) offline.current.set(id, source);
         }
+        sending.current = null;
+        const later = again.current.get(id);
+        if (later) {
+          again.current.delete(id);
+          // The answer just in was for the old photo and was dropped; the new one goes next.
+          setJob(id, null);
+          queue.current.unshift(later);
+          setJob(id, { kind: 'queued' });
+        }
         if (bulkRef.current?.stopping && !queue.current.some((q) => q.source === 'bulk')) {
           setBulk({ ...bulkRef.current, running: false, stopping: false });
         }
@@ -291,8 +306,15 @@ export function ItemAnalysisProvider({ deviceStorage, children, now = defaultNow
       const closet = dataRef.current;
       if (!analysisReady(closet.ai, deviceStorage)) return 'not-ready';
       const job = jobsRef.current[id];
+      const found = closet.items.find((it) => it.id === id);
+      // A replaced photo while the old one is being sent: send the new one right after.
+      const inFlight = sending.current?.id === id ? sending.current.revision : null;
+      if (job?.kind === 'waiting' && saved && inFlight !== null && saved.photoRevision > inFlight) {
+        again.current.set(id, { id, source, item: saved });
+        return null;
+      }
       if (job && job.kind !== 'failed') return 'busy';
-      const item = freshest(closet.items.find((it) => it.id === id), saved);
+      const item = freshest(found, saved);
       if (!item || !needs(item, source)) return 'done';
       if (monthlyUse() >= closet.ai.analysis.monthlyCap) return 'cap';
       enqueue(id, source, item);
