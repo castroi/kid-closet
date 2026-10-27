@@ -86,6 +86,8 @@ export interface AnalysisSettings {
 export const DEFAULT_MONTHLY_CAP = 100;
 export const MAX_MONTHLY_CAP = 1000;
 export const DEFAULT_ANALYSIS_CAP = 300;
+/** Longest model name accepted, for the doll looks, the analysis and what made each one. */
+export const MAX_MODEL_LENGTH = 200;
 export const MAX_ANALYSIS_CAP = 5000;
 
 /**

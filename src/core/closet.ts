@@ -4,6 +4,7 @@ import {
   COLOR_GROUPS,
   DEFAULT_DOLL_ID,
   MAX_ANALYSIS_CAP,
+  MAX_MODEL_LENGTH,
   MAX_MONTHLY_CAP,
   ITEM_TYPES,
   OCCASIONS,
@@ -341,7 +342,7 @@ function parseDoll(raw: unknown): Doll {
 }
 
 /** Generous limits; they only stop a broken or hostile file from holding huge text. */
-export const MAX_MODEL_LENGTH = 200;
+export { MAX_MODEL_LENGTH };
 export const MAX_PROMPT_LENGTH = 4000;
 
 function parseAnalysisSettings(raw: unknown): AnalysisSettings {

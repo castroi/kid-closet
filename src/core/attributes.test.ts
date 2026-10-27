@@ -57,6 +57,13 @@ describe('parseAttributesAnswer', () => {
 
   it('refuses an answer over the size limit before parsing it', () => {
     expect(() => parseAttributesAnswer(' '.repeat(MAX_ANSWER_BYTES + 1))).toThrow('answer too large');
+    // Fewer characters than the limit, but more bytes: Hebrew letters take two bytes each.
+    expect(() => parseAttributesAnswer('א'.repeat(MAX_ANSWER_BYTES / 2 + 1))).toThrow('answer too large');
+  });
+
+  it('cuts text by characters, never splitting an emoji', () => {
+    const title = '🦖'.repeat(ATTR_TEXT_LIMITS.short_title + 5);
+    expect(Array.from(attributesOf({ short_title: title }).short_title)).toEqual(Array(ATTR_TEXT_LIMITS.short_title).fill('🦖'));
   });
 
   it.each([

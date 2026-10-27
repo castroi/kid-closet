@@ -1,4 +1,4 @@
-import { AI_PROVIDER_IDS, type AiProviderId } from './model';
+import { AI_PROVIDER_IDS, MAX_MODEL_LENGTH, type AiProviderId } from './model';
 
 /**
  * What a vision model says about one garment photo (docs/ai-item-attributes.md §5).
@@ -87,7 +87,6 @@ export const MAX_SECONDARY_COLORS = 5;
 export const MAX_STYLE_TAGS = 5;
 /** The answer is text; anything larger is broken or hostile and is refused before parsing. */
 export const MAX_ANSWER_BYTES = 64 * 1024;
-export const MAX_ANALYSIS_MODEL_LENGTH = 200;
 
 const HEX = /^#[0-9A-Fa-f]{6}$/;
 
@@ -121,12 +120,14 @@ function oneOfOrNull<T extends string>(values: readonly T[], v: unknown, field: 
   return v === null ? null : oneOf(values, v, field);
 }
 
+/** Limits count characters (code points), so cutting never splits an emoji in half. */
 function text(v: unknown, limit: number, mode: Mode, field: string): string {
   if (typeof v !== 'string') throw new Invalid(field);
   const trimmed = v.trim();
-  if (trimmed.length > limit) {
+  const chars = Array.from(trimmed);
+  if (chars.length > limit) {
     if (mode === 'stored') throw new Invalid(field);
-    return trimmed.slice(0, limit).trim();
+    return chars.slice(0, limit).join('').trim();
   }
   return trimmed;
 }
@@ -210,7 +211,10 @@ function stripCodeFence(answer: string): string {
  * Fields the schema doesn't know are ignored.
  */
 export function parseAttributesAnswer(answer: string): AnalysisResult {
-  if (new TextEncoder().encode(answer).length > MAX_ANSWER_BYTES) throw new AttributesAnswerError('answer too large');
+  // Every UTF-16 unit is at least one byte, so a long string is refused before it is copied to count its bytes.
+  if (answer.length > MAX_ANSWER_BYTES || new TextEncoder().encode(answer).length > MAX_ANSWER_BYTES) {
+    throw new AttributesAnswerError('answer too large');
+  }
   let raw: unknown;
   try {
     raw = JSON.parse(stripCodeFence(answer));
@@ -239,7 +243,7 @@ export function parseStoredAnalysis(raw: unknown): ItemAnalysis | null {
   const { result, photoRevision, provider, model, promptVersion, analyzedAt } = raw;
   if (typeof photoRevision !== 'number' || !Number.isInteger(photoRevision) || photoRevision < 0) return null;
   if (!AI_PROVIDER_IDS.includes(provider as AiProviderId)) return null;
-  if (typeof model !== 'string' || model.length > MAX_ANALYSIS_MODEL_LENGTH) return null;
+  if (typeof model !== 'string' || model.length > MAX_MODEL_LENGTH) return null;
   if (typeof promptVersion !== 'number' || !Number.isInteger(promptVersion) || promptVersion < 1) return null;
   if (typeof analyzedAt !== 'string') return null;
   const meta: AnalysisMeta = { photoRevision, provider: provider as AiProviderId, model, promptVersion, analyzedAt };
