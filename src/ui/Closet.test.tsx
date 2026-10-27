@@ -351,7 +351,10 @@ describe('replacing a photo', () => {
 
     await user.upload(sheet.getByLabelText('תמונה חדשה מהגלריה'), file());
     expect(await sheet.findByText('התמונה הוחלפה')).toBeInTheDocument();
-    await waitFor(() => expect(repo.getData().items[0].analysis?.attributes).toMatchObject({ short_title: 'New shirt' }));
+    await waitFor(() => {
+      const analysis = repo.getData().items[0].analysis;
+      expect(analysis?.result === 'ok' ? analysis.attributes.short_title : null).toBe('New shirt');
+    });
     expect(repo.getData().items[0]).toMatchObject({ photoRevision: 1, analysis: { photoRevision: 1 } });
     expect(repo.getData().aiLooks[0].flagged).toBe(true);
     expect(fetchFn).toHaveBeenCalledTimes(1);
