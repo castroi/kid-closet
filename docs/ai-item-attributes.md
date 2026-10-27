@@ -19,7 +19,7 @@ Each garment photo is sent once to a vision AI model, which describes it in a fi
 | 7 | Separate monthly counter and cap: **300 analyses**, editable by the parent | A bulk run must never use up her dolls. Same counting rules as the dolls (`docs/ai-doll-look.md` §8). |
 | 8 | Attributes are stored as the AI returned them, separate from her own fields | Her type, colour and occasion are never overwritten or prefilled. Mapping the AI's categories (dress, shoes, sport…) to the app's types belongs to the matching feature. |
 | 9 | The kid sees only a "done" sign, never the attributes | A sparkle mark on the photo. Not analysed and failed items carry no mark. |
-| 10 | The analysed photo is recorded with the attributes (a hash of its bytes) | When the photo is replaced (PR 4), the attributes are stale and the item counts as not analysed. |
+| 10 | Each item has a photo revision number; the analysis records the revision it was made from | It changes only when she replaces the photo (PR 4), so those attributes become stale and the item counts as not analysed. A number, not a hash of the bytes: a backup restore re-encodes photos (`cleanPhoto()` in `src/storage/backup.ts`) and must not make every item look unanalysed. |
 | 11 | She can replace a garment's photo (PR 4) | Without it, a photo the AI couldn't read is a dead end. |
 | 12 | The app validates every answer itself | Schema enforcement for this model is not confirmed on either provider (§3). An answer that doesn't match the schema is a failed call. |
 
@@ -52,7 +52,7 @@ interface ItemAttributes {          // exactly the prompt's schema, snake_case k
   category: AttrCategory;
   subcategory: string;
   primary_color: string;
-  primary_color_hex: string;        // '#RRGGBB'
+  primary_color_hex: string | null; // '#RRGGBB', null when the model's value isn't one
   secondary_colors: string[];
   color_family: 'neutral' | 'colorful';
   pattern: AttrPattern;
@@ -75,7 +75,7 @@ interface ItemAttributes {          // exactly the prompt's schema, snake_case k
 }
 
 interface AnalysisMeta {
-  imageHash: string;                // short SHA-256 of the photo's bytes that were analysed
+  photoRevision: number;            // the item's photoRevision when it was analysed
   provider: AiProviderId;
   model: string;
   promptVersion: number;
@@ -88,6 +88,7 @@ type ItemAnalysis =
 
 interface Item {
   // ...existing fields
+  photoRevision: number;            // 0 for every existing item; +1 on each photo replacement (PR 4)
   analysis: ItemAnalysis | null;    // null = not analysed
 }
 
@@ -105,7 +106,14 @@ Device-only (not in backup): a second usage counter, `kid-closet:ai-analysis-usa
 
 Rules:
 - Failures (offline, provider errors, a broken answer) are **not** saved in `closet.json`. They live in the queue's state for the session; the parent sees them in the bulk-run summary.
-- Strings from the AI are trimmed and capped in length when stored; enums outside the list fail validation.
+- **A bad stored analysis never blocks the closet.** On load (and restore), an analysis that fails validation becomes `null`; the item is simply not analysed. It can be made again; she must never land on the recovery screen because of it.
+- **When an answer is stored:** a wrong type, a missing field or an enum value outside the list fails the call. Strings are trimmed and cut to their limit, arrays to their maximum length:
+  - `short_title` 60 characters; `subcategory`, `primary_color` and each colour or tag 40; `graphic_description`, `text_on_item`, `kid_friendly_description` 200; `notes` 300
+  - `secondary_colors` at most 5, `style_tags` at most 5, `formality` and `season` without duplicates, at least one entry
+  - `primary_color_hex` must match `#RRGGBB`, otherwise it is stored as `null`
+- Restore applies the same validation; the existing restore size caps already cover `closet.json`.
+- **An answer that arrives late is dropped** when the item was deleted or its `photoRevision` changed while the call ran (the same check as `kept` in `src/app/AiLooks.tsx`). It still counts toward the cap.
+- An analysis made with an older `promptVersion` still counts as done. The bulk run doesn't resend it; a later PR can offer "re-analyse with the new prompt" if the prompt changes.
 - Deleting an item removes its analysis with it. Backups carry it inside `closet.json`.
 - Every write goes through `ClosetRepository`, one at a time.
 
@@ -116,7 +124,7 @@ Rules:
 Request (OpenAI-compatible chat completions on both providers):
 - one system message with the prompt below, one user message holding the photo as an `image_url` data URL
 - `temperature: 0`
-- `response_format: { type: 'json_schema', json_schema: { name: 'garment', strict: true, schema } }`, with `additionalProperties: false` on every object and every field listed in `required` (nullable fields use `["string", "null"]`), as Venice requires
+- `response_format: { type: 'json_schema', json_schema: { name: 'garment', strict: true, schema } }`, with `additionalProperties: false` on every object and every field listed in `required` (nullable fields use `["string", "null"]`, and a nullable enum also lists `null` in its `enum`), as Venice requires
 - the answer is `choices[0].message.content`; a surrounding code fence is removed before `JSON.parse`
 
 ### Prompt (version 1)
@@ -209,7 +217,7 @@ Reviewed by the UI/UX agent (2026-10-27). All existing UX rules apply: Hebrew RT
 
 **Parent: "בובה ו־AI" panel** stays short: two usage lines, "בובות: 23 מתוך 100" and "זיהוי בגדים: 40 מתוך 300", plus progress while a bulk run is going.
 
-**Photo replacement (PR 4)**: "החלפת תמונה" in the edit sheet, through the same take/choose flow as `AddItem.tsx`. The new photo replaces `images/<id>.<ext>`; the analysis no longer matches its hash, so the item counts as not analysed and is sent again automatically when the feature is on.
+**Photo replacement (PR 4)**: "החלפת תמונה" in the edit sheet, through the same take/choose flow as `AddItem.tsx`. The new photo replaces `images/<id>.<ext>`, and the same write raises `photoRevision` and clears `analysis`, so the item counts as not analysed and is sent again automatically by PR 3's queue when the feature is on. `useImageUrl` (`src/ui/common.tsx`) caches by path, which stays the same, so its key must include `photoRevision`; otherwise the old photo keeps showing.
 
 ## 8. Pull requests
 
@@ -218,10 +226,10 @@ Each PR follows `CLAUDE.md`: branch from `main`, draft PR, review agent, fixes a
 | # | Branch | Scope | Depends on |
 |---|---|---|---|
 | 0 | `docs/ai-item-attributes` | This plan, `CLAUDE.md` pointer | — |
-| 1 | `feat/item-attributes-model` | Schema v5 and migration, types and enums, validation on load, the prompt and JSON schema as constants, strict parser of the AI answer, image hash helper. No UI, no network. | 0 |
+| 1 | `feat/item-attributes-model` | Schema v5 and migration, types and enums, validation on load, the prompt and JSON schema as constants, strict parser of the AI answer, `photoRevision` on items. No UI, no network. | 0 |
 | 2 | `feat/ai-analyze-provider` | `analyze` endpoint and default model in the catalog, CSP, `analyzeItem` in both adapters, `requestAttributes` in `send.ts`, analysis usage counter, "זיהוי בגדים" settings (switch, model, cap) and "בדיקת זיהוי", privacy text in README / `CLAUDE.md` / AI panel | 1 |
 | 3 | `feat/analyze-items` | Analysis queue in shared state, auto-analysis after adding, retry on `online`, kid's resend, sparkle mark, parent bulk run with confirmation, progress, stop and summary, panel usage line | 2 |
-| 4 | `feat/replace-item-photo` | "החלפת תמונה" in the edit sheet, stale analysis by hash, the decision on that item's doll looks (§3.4) | 1 |
+| 4 | `feat/replace-item-photo` | "החלפת תמונה" in the edit sheet, `photoRevision` raised and `analysis` cleared in one write, image cache key with the revision, the decision on that item's doll looks (§3.4) | 3 |
 | 5 | `feat/item-attributes-view` (later) | Parent sees and corrects an item's attributes | 3 |
 
 ## 9. Tests
@@ -231,7 +239,9 @@ Coverage thresholds stay: 80 % lines/statements/functions, 75 % branches.
 **Core**
 - v4 `closet.json` loads as v5 with `analysis: null` on every item and the feature off.
 - Validation rejects unknown enum values, a bad hex, wrong types, an unknown provider, and too-long strings.
-- Deleting an item removes its analysis; a changed photo hash makes the item count as not analysed.
+- Deleting an item removes its analysis; an analysis whose `photoRevision` differs from the item's counts as not analysed.
+- An invalid stored analysis (bad enum, wrong type, unknown provider) loads as `null`; the rest of the closet loads normally.
+- Strings and arrays over their limits are cut to the limit when an answer is stored; on load, an analysis over the limits is dropped to `null`.
 
 **Parser**
 - A valid answer, an answer in a code fence, `valid_image: false`, missing fields, extra fields, non-JSON, and an answer over 64 KB.
