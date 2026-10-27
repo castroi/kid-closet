@@ -14,6 +14,7 @@ import {
   hasOutfit,
   isAnalysed,
   isSafeImagePath,
+  itemsToAnalyse,
   parseCloset,
   removeItems,
   removeOutfit,
@@ -404,6 +405,17 @@ describe('item analysis (schema 5)', () => {
     expect(setItemAnalysis(base, 'gone', makeAnalysis())).toBe(base);
     const replaced = closetWith([makeItem({ id: 'a', photoRevision: 1 })]);
     expect(setItemAnalysis(replaced, 'a', makeAnalysis({ photoRevision: 0 }))).toBe(replaced);
+  });
+
+  it('picks for a bulk run the garments she wears that are not analysed for their current photo', () => {
+    const list = [
+      makeItem({ id: 'new' }),
+      makeItem({ id: 'done', analysis: makeAnalysis() }),
+      makeItem({ id: 'unclear', analysis: makeAnalysis({ result: 'invalid-photo', notes: null, attributes: undefined } as never) }),
+      makeItem({ id: 'replaced', photoRevision: 2, analysis: makeAnalysis({ photoRevision: 1 }) }),
+      makeItem({ id: 'outgrown', status: 'outgrown' }),
+    ];
+    expect(itemsToAnalyse(list).map((it) => it.id)).toEqual(['new', 'replaced']);
   });
 
   it('removes the analysis with its item', () => {

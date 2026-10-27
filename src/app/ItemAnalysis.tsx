@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AiError, countsTowardCap, type FetchLike } from '../ai/providers';
 import { requestAttributes, type AttributesResponse } from '../ai/send';
-import { isAnalysed } from '../core/closet';
+import { isAnalysed, itemsToAnalyse } from '../core/closet';
 import type { Item } from '../core/model';
 import { blobToBytes } from '../storage/fileStore';
 import { analysisReady, readAnalysisUse, readApiKey, recordAnalysisUse, type DeviceStorage } from './aiDevice';
@@ -53,8 +53,6 @@ export interface ItemAnalysisApi {
    * `item` is the item just saved, for a call made before the screen has the new closet.
    */
   analyse(id: string, source: AnalysisSource, item?: Item): AnalyseRefusal | null;
-  /** Items the parent's bulk run would send: active, not analysed for their current photo. */
-  pendingItems(): Item[];
   bulk: BulkRun | null;
   startBulk(): AnalyseRefusal | null;
   stopBulk(): void;
@@ -274,17 +272,14 @@ export function ItemAnalysisProvider({ deviceStorage, children, now = defaultNow
     [deviceStorage, enqueue, monthlyUse, needs],
   );
 
-  const pendingItems = useCallback(
-    () => dataRef.current.items.filter((it) => it.status === 'active' && !isAnalysed(it)),
-    [],
-  );
-
   const startBulk = useCallback((): AnalyseRefusal | null => {
     const closet = dataRef.current;
     if (!analysisReady(closet.ai, deviceStorage)) return 'not-ready';
     if (bulkRef.current?.running) return 'busy';
     // Her own requests, waiting or queued, keep their place and aren't part of the run.
-    const items = pendingItems().filter((it) => jobsRef.current[it.id]?.kind !== 'waiting' && !queue.current.some((q) => q.id === it.id));
+    const items = itemsToAnalyse(closet.items).filter(
+      (it) => jobsRef.current[it.id]?.kind !== 'waiting' && !queue.current.some((q) => q.id === it.id),
+    );
     if (items.length === 0) return 'done';
     if (monthlyUse() >= closet.ai.analysis.monthlyCap) return 'cap';
     setBulk({ total: items.length, analysed: 0, skipped: 0, failed: [], running: true, stopping: false, stoppedBy: null });
@@ -294,7 +289,7 @@ export function ItemAnalysisProvider({ deviceStorage, children, now = defaultNow
     }
     void work();
     return null;
-  }, [deviceStorage, monthlyUse, pendingItems, setBulk, setJob, work]);
+  }, [deviceStorage, monthlyUse, setBulk, setJob, work]);
 
   const stopBulk = useCallback(() => {
     const run = bulkRef.current;
@@ -327,14 +322,13 @@ export function ItemAnalysisProvider({ deviceStorage, children, now = defaultNow
       usageVersion,
       jobs,
       analyse,
-      pendingItems,
       bulk,
       startBulk,
       stopBulk,
       clearBulk: () => setBulk(null),
       countUse,
     }),
-    [data.ai, deviceStorage, monthlyUse, usageVersion, jobs, analyse, pendingItems, bulk, startBulk, stopBulk, setBulk, countUse],
+    [data.ai, deviceStorage, monthlyUse, usageVersion, jobs, analyse, bulk, startBulk, stopBulk, setBulk, countUse],
   );
 
   return <ItemAnalysisContext.Provider value={api}>{children}</ItemAnalysisContext.Provider>;

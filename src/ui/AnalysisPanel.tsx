@@ -6,7 +6,7 @@ import { SAMPLE_GARMENT_URL } from '../app/sampleGarment';
 import { effectiveAnalysisModel } from '../ai/catalog';
 import { AiError, countsTowardCap, type FetchLike } from '../ai/providers';
 import { requestAttributes, type AttributesResponse } from '../ai/send';
-import { isAnalysed } from '../core/closet';
+import { isAnalysed, itemsToAnalyse } from '../core/closet';
 import { MAX_ANALYSIS_CAP, MAX_MODEL_LENGTH, type AiProviderId, type AnalysisSettings } from '../core/model';
 import { Sheet, explainedElsewhere } from './common';
 import { aiErrorDetail, aiErrorText } from './aiErrors';
@@ -234,7 +234,8 @@ function BulkSection({ deviceStorage, now }: { deviceStorage: DeviceStorage; now
   const known = current.filter((it) => it.analysis?.result === 'ok').length;
   const unclear = current.length - known;
   const failedNow = Object.values(queue.jobs).filter((j) => j.kind === 'failed').length;
-  const pending = queue.pendingItems().filter((it) => queue.jobs[it.id]?.kind !== 'waiting');
+  // From the closet on screen, not the queue's copy, so the button follows every saved analysis.
+  const pending = itemsToAnalyse(data.items).filter((it) => queue.jobs[it.id] === undefined || queue.jobs[it.id].kind === 'failed');
   const left = Math.max(0, data.ai.analysis.monthlyCap - readAnalysisUse(deviceStorage, now()));
   const ready = queue.isReady();
 

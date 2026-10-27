@@ -2,6 +2,7 @@ import { act, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { AI_PROVIDERS } from '../ai/catalog';
 import type { FetchLike } from '../ai/providers';
+import { itemsToAnalyse } from '../core/closet';
 import type { ClosetData } from '../core/model';
 import { closetWith, makeAnalysis, makeItem, memoryStorage, renderWithCloset, sampleAttributes, testPhoto } from '../test/fixtures';
 import { AI_ANALYSIS_USAGE_KEY, AI_KEY_PREFIX, AI_USAGE_KEY } from './aiDevice';
@@ -199,7 +200,7 @@ describe('bulk run', () => {
       return goodAnswer();
     });
     const { repo, storage } = await setup(closetWithAnalysis(items()), fetchFn);
-    expect(queue().pendingItems().map((it) => it.id)).toEqual(['a', 'b']);
+    expect(itemsToAnalyse(closet().data.items).map((it) => it.id)).toEqual(['a', 'b']);
     act(() => {
       expect(queue().startBulk()).toBeNull();
     });

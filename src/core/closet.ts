@@ -118,6 +118,11 @@ export function isAnalysed(item: Item): boolean {
   return item.analysis !== null && item.analysis.photoRevision === item.photoRevision;
 }
 
+/** What the parent's bulk run sends: garments she wears that aren't analysed for their current photo. */
+export function itemsToAnalyse(items: Item[]): Item[] {
+  return items.filter((it) => it.status === 'active' && !isAnalysed(it));
+}
+
 /**
  * Stores an analysis on its item. An answer that arrives late is dropped (the data comes back
  * unchanged) when the item was deleted or its photo replaced while the call ran.
