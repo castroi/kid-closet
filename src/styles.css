@@ -1251,6 +1251,22 @@ a {
   padding-inline-start: 18px;
   font-size: 14px;
 }
+/* A field the AI filled on the add screen. */
+.ai-field-mark {
+  display: inline-flex;
+  vertical-align: middle;
+  margin-inline-start: 6px;
+  color: var(--ai);
+}
+.ai-waiting {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ai-waiting svg {
+  color: var(--ai);
+  flex: none;
+}
 /* A garment still waiting for the AI: only the mark is faded, never the photo. */
 .fav-ai-mark.pending {
   opacity: 0.45;
