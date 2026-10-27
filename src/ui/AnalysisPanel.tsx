@@ -1,12 +1,14 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { readAnalysisUse, readApiKey, recordAnalysisUse, type DeviceStorage } from '../app/aiDevice';
+import { readAnalysisUse, readApiKey, type DeviceStorage } from '../app/aiDevice';
 import { useCloset } from '../app/ClosetContext';
+import { AnalysisCapReached, useItemAnalysis, type BulkRun } from '../app/ItemAnalysis';
 import { SAMPLE_GARMENT_URL } from '../app/sampleGarment';
 import { effectiveAnalysisModel } from '../ai/catalog';
 import { AiError, countsTowardCap, type FetchLike } from '../ai/providers';
 import { requestAttributes, type AttributesResponse } from '../ai/send';
+import { isAnalysed, itemsToAnalyse } from '../core/closet';
 import { MAX_ANALYSIS_CAP, MAX_MODEL_LENGTH, type AiProviderId, type AnalysisSettings } from '../core/model';
-import { explainedElsewhere } from './common';
+import { Sheet, explainedElsewhere } from './common';
 import { aiErrorDetail, aiErrorText } from './aiErrors';
 
 /** `detail` is the provider's own (English) words, shown in their own direction inside the Hebrew line. */
@@ -31,6 +33,7 @@ export function AnalysisPanel({
   now?: () => Date;
 }) {
   const { data, setAiSettings } = useCloset();
+  const queue = useItemAnalysis();
   const settings = data.ai.analysis;
   const [model, setModel] = useState(settings.model);
   const [cap, setCap] = useState(String(settings.monthlyCap));
@@ -43,7 +46,8 @@ export function AnalysisPanel({
   }
   const [message, setMessage] = useState<Message>(null);
   const [checking, setChecking] = useState(false);
-  const [used, setUsed] = useState(() => readAnalysisUse(deviceStorage, now()));
+  // Read on every render; the queue's usageVersion changes after each counted analysis, which renders this again.
+  const used = readAnalysisUse(deviceStorage, now());
   const modelId = useId();
   const capId = useId();
   const mounted = useRef(true);
@@ -82,10 +86,7 @@ export function AnalysisPanel({
     }
     setChecking(true);
     setMessage(null);
-    const count = () => {
-      recordAnalysisUse(deviceStorage, now());
-      if (mounted.current) setUsed(readAnalysisUse(deviceStorage, now()));
-    };
+    const count = () => queue.countUse();
     try {
       const response = await fetchFn(SAMPLE_GARMENT_URL, {});
       if (!response.ok) throw new AiError('bad-photo', 'the bundled sample photo is missing');
@@ -202,6 +203,171 @@ export function AnalysisPanel({
           )}
         </p>
       )}
+      <BulkSection deviceStorage={deviceStorage} now={now} />
     </section>
+  );
+}
+
+/** "בגד אחד" / "5 בגדים". */
+function garments(n: number): string {
+  return n === 1 ? 'בגד אחד' : `${n} בגדים`;
+}
+
+/** Why a run ended early, in the parent's words. */
+function stopReasonText(reason: unknown): string {
+  if (reason === 'off') return 'הריצה נעצרה כי זיהוי הבגדים כובה או שהמפתח הוסר.';
+  if (reason instanceof AnalysisCapReached) return 'הריצה נעצרה: הגעת למגבלת הזיהויים של החודש. אפשר להגדיל אותה למעלה.';
+  return `הריצה נעצרה: ${aiErrorText(reason)}`;
+}
+
+/**
+ * The parent's "send all": what is already known, the button with a confirmation, progress with
+ * "עצירה", and a summary (docs/ai-item-attributes.md §7). Outgrown items are never sent.
+ */
+function BulkSection({ deviceStorage, now }: { deviceStorage: DeviceStorage; now: () => Date }) {
+  const { data } = useCloset();
+  const queue = useItemAnalysis();
+  const [confirm, setConfirm] = useState(false);
+  const [refusal, setRefusal] = useState<string | null>(null);
+  const run = queue.bulk;
+  const current = data.items.filter((it) => isAnalysed(it));
+  const known = current.filter((it) => it.analysis?.result === 'ok').length;
+  const unclear = current.length - known;
+  const failedJobs = Object.values(queue.jobs).filter((j) => j.kind === 'failed');
+  // No answer at all isn't a failure of the garment: it goes out again when the phone is back online.
+  const offlineNow = failedJobs.filter((j) => j.error instanceof AiError && j.error.reason === 'network').length;
+  const failedNow = failedJobs.length - offlineNow;
+  // From the closet on screen, not the queue's copy, so the button follows every saved analysis.
+  const pending = itemsToAnalyse(data.items).filter((it) => queue.jobs[it.id] === undefined || queue.jobs[it.id].kind === 'failed');
+  const left = Math.max(0, data.ai.analysis.monthlyCap - readAnalysisUse(deviceStorage, now()));
+  const ready = queue.isReady();
+
+  const counts = [known === 1 ? 'בגד אחד מזוהה' : `${known} מזוהים`];
+  if (failedNow > 0) counts.push(failedNow === 1 ? 'אחד נכשל' : `${failedNow} נכשלו`);
+  if (offlineNow > 0) counts.push(offlineNow === 1 ? 'אחד מחכה לאינטרנט' : `${offlineNow} מחכים לאינטרנט`);
+  if (unclear > 0) counts.push(unclear === 1 ? 'תמונה אחת לא ברורה' : `${unclear} תמונות לא ברורות`);
+
+  const start = () => {
+    setConfirm(false);
+    const refused = queue.startBulk();
+    setRefusal(
+      refused === 'cap'
+        ? 'הגעת למגבלת הזיהויים של החודש.'
+        : refused === 'not-ready'
+          ? 'צריך להפעיל את זיהוי הבגדים ולשמור מפתח.'
+          : refused === 'done'
+            ? 'אין בגדים שמחכים לזיהוי.'
+            : null,
+    );
+  };
+
+  return (
+    <div className="bulk-analysis">
+      <div className="kv">
+        <span className="muted">בגדים בארון</span>
+        <span>{counts.join(' · ')}</span>
+      </div>
+      {run?.running ? (
+        <BulkProgress run={run} onStop={queue.stopBulk} />
+      ) : (
+        <>
+          <button
+            type="button"
+            className="btn btn-dark"
+            disabled={!ready || pending.length === 0}
+            onClick={() => {
+              setRefusal(null);
+              setConfirm(true);
+            }}
+          >
+            {pending.length === 0 ? 'כל הבגדים כבר נשלחו לזיהוי' : `לשלוח ${garments(pending.length)} לזיהוי`}
+          </button>
+          {!ready && pending.length > 0 && <p className="muted">צריך להפעיל את זיהוי הבגדים כדי לשלוח.</p>}
+        </>
+      )}
+      {refusal && (
+        <p className="error" role="alert">
+          {refusal}
+        </p>
+      )}
+      {run && !run.running && <BulkSummary run={run} onClose={queue.clearBulk} />}
+      {confirm && (
+        <Sheet
+          title={pending.length === 1 ? 'לשלוח תמונת בגד אחת ל־AI?' : `לשלוח ${pending.length} תמונות בגדים ל־AI?`}
+          onClose={() => setConfirm(false)}
+        >
+          <p className="muted">
+            כל בגד = בקשה אחת. נשארו החודש: {left}. בגדים שקטנים עליה לא נשלחים.
+            {pending.length > left && ` אחרי ${left} הריצה תיעצר, והשאר יחכו לחודש הבא או להגדלת המגבלה.`}
+          </p>
+          <button type="button" className="btn btn-dark" onClick={start}>
+            כן, לשלוח
+          </button>
+          <button type="button" className="btn" onClick={() => setConfirm(false)}>
+            לא עכשיו
+          </button>
+        </Sheet>
+      )}
+    </div>
+  );
+}
+
+function BulkProgress({ run, onStop }: { run: BulkRun; onStop: () => void }) {
+  const done = run.analysed + run.skipped + run.failed.length;
+  return (
+    <>
+      <div className="kv">
+        <span className="muted">שליחה לזיהוי</span>
+        <span role="status">
+          נשלחו {done} מתוך {run.total}
+        </span>
+      </div>
+      <div
+        className="usage-bar"
+        role="progressbar"
+        aria-label="שליחה לזיהוי"
+        aria-valuemin={0}
+        aria-valuemax={run.total}
+        aria-valuenow={done}
+      >
+        <span style={{ width: `${Math.round((done / run.total) * 100)}%` }} />
+      </div>
+      <button type="button" className="btn" disabled={run.stopping} onClick={onStop}>
+        {run.stopping ? 'עוצר אחרי הבגד הנוכחי…' : 'עצירה'}
+      </button>
+    </>
+  );
+}
+
+function BulkSummary({ run, onClose }: { run: BulkRun; onClose: () => void }) {
+  const { data } = useCloset();
+  const name = (id: string) => data.items.find((it) => it.id === id)?.name ?? 'בגד שנמחק';
+  return (
+    <div className="bulk-summary" role="status">
+      <p>
+        {run.analysed === 1 ? 'בגד אחד זוהה' : `${run.analysed} זוהו`}
+        {run.failed.length === 1 ? ' · אחד נכשל' : run.failed.length > 1 ? ` · ${run.failed.length} נכשלו` : ''}
+      </p>
+      {run.stoppedBy !== null && <p className="error">{stopReasonText(run.stoppedBy)}</p>}
+      {run.failed.length > 0 && (
+        <ul className="bulk-failures">
+          {run.failed.map((f) => (
+            <li key={f.id}>
+              {name(f.id)}: {aiErrorText(f.error)}
+              {aiErrorDetail(f.error) && (
+                <>
+                  {' ('}
+                  <bdi dir="ltr">{aiErrorDetail(f.error)}</bdi>
+                  {')'}
+                </>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      <button type="button" className="btn" onClick={onClose}>
+        סגירה
+      </button>
+    </div>
   );
 }

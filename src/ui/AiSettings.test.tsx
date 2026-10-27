@@ -57,7 +57,7 @@ describe('AiPanel', () => {
     await renderWithCloset(<AiPanel deviceStorage={storage} now={OCT} onOpen={onOpen} onOpenFix={vi.fn()} />, closetWithAi({ provider: 'venice' }));
     expect(screen.getByRole('status')).toHaveTextContent('מוגדר · Venice');
     expect(screen.getByText('23 מתוך 100 · מתאפס ב־1.11')).toBeInTheDocument();
-    expect(screen.getByRole('progressbar', { name: 'השימוש החודש' })).toHaveAttribute('aria-valuenow', '23');
+    expect(screen.getByRole('progressbar', { name: 'בובות החודש' })).toHaveAttribute('aria-valuenow', '23');
     await user.click(screen.getByRole('button', { name: 'הגדרות AI' }));
     expect(onOpen).toHaveBeenCalled();
   });

@@ -1,8 +1,12 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import { AI_ANALYSIS_USAGE_KEY, AI_KEY_PREFIX } from '../app/aiDevice';
+import type { FetchLike } from '../ai/providers';
+import { hebrewDay } from '../core/gallery';
+import type { ClosetData } from '../core/model';
 import { ClosetChangedElsewhereError } from '../storage/repository';
-import { renderWithCloset, sampleCloset } from '../test/fixtures';
+import { closetWith, makeAnalysis, makeItem, memoryStorage, renderWithCloset, sampleAttributes, sampleCloset } from '../test/fixtures';
 import { Closet } from './Closet';
 
 describe('Closet', () => {
@@ -187,5 +191,125 @@ describe('Closet', () => {
     await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} />);
     expect(screen.getByText(/אין עדיין בגדים כאן/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'בחירה' })).toBeDisabled();
+  });
+});
+
+describe('Closet and the AI', () => {
+  const month = () => `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+  const answer = () =>
+    Response.json({ choices: [{ message: { content: JSON.stringify({ valid_image: true, ...sampleAttributes() }) } }] });
+
+  function closetForAi(enabled = true, monthlyCap = 300): ClosetData {
+    const items = [
+      makeItem({ id: 'known', name: 'חולצה מוכרת', analysis: makeAnalysis() }),
+      makeItem({ id: 'fresh', name: 'חולצה חדשה' }),
+      makeItem({ id: 'blurry', name: 'חולצה מטושטשת', analysis: makeAnalysis({ result: 'invalid-photo', notes: 'Blurry.', attributes: undefined } as never) }),
+      makeItem({ id: 'stale', name: 'חולצה שהתמונה שלה הוחלפה', photoRevision: 1, analysis: makeAnalysis({ photoRevision: 0 }) }),
+    ];
+    const data = closetWith(items);
+    return { ...data, ai: { ...data.ai, provider: 'venice', analysis: { enabled, model: '', monthlyCap } } };
+  }
+
+  async function renderCloset(data: ClosetData, fetchFn: FetchLike = vi.fn<FetchLike>().mockImplementation(async () => answer()), usage = 0) {
+    const deviceStorage = memoryStorage({
+      [`${AI_KEY_PREFIX}venice`]: 'sk-venice-123',
+      [AI_ANALYSIS_USAGE_KEY]: JSON.stringify({ month: month(), count: usage }),
+    });
+    return renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} />, data, { deviceStorage, fetchFn });
+  }
+
+  it('marks only the garments the AI described, on their current photo, without dimming any photo', async () => {
+    const { container } = await renderCloset(closetForAi());
+    expect(screen.getByRole('button', { name: 'עריכת חולצה מוכרת · ה־AI מכיר' })).toBeInTheDocument();
+    for (const name of ['חולצה חדשה', 'חולצה מטושטשת', 'חולצה שהתמונה שלה הוחלפה']) {
+      expect(screen.getByRole('button', { name: `עריכת ${name}` })).toBeInTheDocument();
+    }
+    expect(container.querySelectorAll('.card .fav-ai-mark')).toHaveLength(1);
+    expect(container.querySelector('.card .thumb img.faded, .card .thumb.faded')).toBeNull();
+  });
+
+  it('tells her the AI knows a garment, with nothing to press', async () => {
+    const user = userEvent.setup();
+    await renderCloset(closetForAi());
+    await user.click(screen.getByRole('button', { name: 'עריכת חולצה מוכרת · ה־AI מכיר' }));
+    expect(screen.getByText('ה־AI כבר מכיר את הבגד הזה')).toBeInTheDocument();
+    expect(within(screen.getByRole('dialog')).queryByRole('button', { name: /AI/ })).not.toBeInTheDocument();
+  });
+
+  it('lets her show a garment to the AI, then marks it', async () => {
+    const user = userEvent.setup();
+    let reply: (r: Response) => void = () => undefined;
+    const fetchFn = vi.fn<FetchLike>(() => new Promise<Response>((resolve) => (reply = resolve)));
+    const { repo, container } = await renderCloset(closetForAi(), fetchFn);
+    await user.click(screen.getByRole('button', { name: 'עריכת חולצה חדשה' }));
+    await user.click(screen.getByRole('button', { name: 'להראות ל־AI' }));
+    expect(await screen.findByRole('button', { name: 'ה־AI מסתכל על הבגד…' })).toBeDisabled();
+    // While waiting, the card's mark is faded; the photo never is.
+    expect(container.querySelector('.card .fav-ai-mark.pending')).not.toBeNull();
+    await act(async () => reply(answer()));
+    expect(await screen.findByText('ה־AI כבר מכיר את הבגד הזה')).toBeInTheDocument();
+    expect(repo.getData().items[1].analysis?.result).toBe('ok');
+  });
+
+  it('explains a photo the AI could not read and lets her try again; a replaced photo counts as new', async () => {
+    const user = userEvent.setup();
+    await renderCloset(closetForAi());
+    await user.click(screen.getByRole('button', { name: 'עריכת חולצה מטושטשת' }));
+    expect(screen.getByText(/כדאי לצלם על רקע חלק ובהיר/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'לנסות שוב עם ה־AI' })).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: 'סגירה' }));
+    await user.click(screen.getByRole('button', { name: 'עריכת חולצה שהתמונה שלה הוחלפה' }));
+    expect(screen.getByRole('button', { name: 'להראות ל־AI' })).toBeEnabled();
+  });
+
+  it('shows her one friendly line when it fails, never the provider message', async () => {
+    const user = userEvent.setup();
+    const fetchFn = vi.fn<FetchLike>().mockResolvedValue(Response.json({ error: 'Upstream exploded' }, { status: 502 }));
+    await renderCloset(closetForAi(), fetchFn);
+    await user.click(screen.getByRole('button', { name: 'עריכת חולצה חדשה' }));
+    await user.click(screen.getByRole('button', { name: 'להראות ל־AI' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('לא הצלחנו הפעם. נסי שוב אחר כך.');
+    expect(screen.queryByText(/Upstream/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'לנסות שוב עם ה־AI' })).toBeEnabled();
+  });
+
+  it('waits for next month at the cap', async () => {
+    const user = userEvent.setup();
+    await renderCloset(closetForAi(true, 5), undefined, 5);
+    await user.click(screen.getByRole('button', { name: 'עריכת חולצה חדשה' }));
+    expect(screen.getByRole('button', { name: 'להראות ל־AI' })).toBeDisabled();
+    const next = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1);
+    expect(screen.getByText(`אפשר לנסות שוב ב־${hebrewDay(next)}`)).toBeInTheDocument();
+  });
+
+  it('shows nothing about the AI while the parent has analysis off', async () => {
+    const user = userEvent.setup();
+    await renderCloset(closetForAi(false));
+    await user.click(screen.getByRole('button', { name: 'עריכת חולצה חדשה' }));
+    expect(within(screen.getByRole('dialog')).queryByRole('button', { name: /AI/ })).not.toBeInTheDocument();
+  });
+});
+
+describe('her AI row only speaks for her own tap', () => {
+  it('stays silent about an automatic send that failed, and says when she needs the internet', async () => {
+    const user = userEvent.setup();
+    const data = closetWith([makeItem({ id: 'fresh', name: 'חולצה חדשה' })]);
+    const closet = { ...data, ai: { ...data.ai, provider: 'venice' as const, analysis: { enabled: true, model: '', monthlyCap: 300 } } };
+    const deviceStorage = memoryStorage({ [`${AI_KEY_PREFIX}venice`]: 'sk-venice-123' });
+    let online = true;
+    const fetchFn = vi.fn<FetchLike>().mockResolvedValue(new Response('', { status: 503 }));
+    await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} />, closet, { deviceStorage, fetchFn, isOnline: () => online });
+    await user.click(screen.getByRole('button', { name: 'עריכת חולצה חדשה' }));
+    const sheet = within(screen.getByRole('dialog'));
+
+    // Her own tap fails: one friendly line.
+    await user.click(sheet.getByRole('button', { name: 'להראות ל־AI' }));
+    expect(await sheet.findByRole('alert')).toHaveTextContent('לא הצלחנו הפעם');
+
+    // Offline: no error, just what she needs.
+    online = false;
+    await user.click(sheet.getByRole('button', { name: 'לנסות שוב עם ה־AI' }));
+    expect(await sheet.findByText('צריך אינטרנט. ננסה שוב כשיהיה.')).toBeInTheDocument();
+    expect(sheet.queryByRole('alert')).not.toBeInTheDocument();
   });
 });

@@ -4,6 +4,7 @@ import { expect, vi } from 'vitest';
 import type { DeviceStorage } from '../app/aiDevice';
 import { AiLookProvider } from '../app/AiLooks';
 import { ClosetProvider } from '../app/ClosetContext';
+import { ItemAnalysisProvider } from '../app/ItemAnalysis';
 import type { FetchLike } from '../ai/providers';
 import { emptyCloset, type ClosetData } from '../core/model';
 import type { ImageDeps } from '../image/processImage';
@@ -29,6 +30,8 @@ export interface RenderOptions {
   fetchFn?: FetchLike;
   imageDeps?: ImageDeps;
   now?: () => Date;
+  /** Whether the phone is online for the garment analysis queue; online by default. */
+  isOnline?: () => boolean;
 }
 
 export async function renderWithCloset(ui: ReactElement, data: ClosetData = emptyCloset(), options: RenderOptions = {}) {
@@ -39,7 +42,9 @@ export async function renderWithCloset(ui: ReactElement, data: ClosetData = empt
   const result = render(
     <ClosetProvider repo={repo} now={() => NOW} newId={testIds()}>
       <AiLookProvider deviceStorage={deviceStorage} imageDeps={options.imageDeps ?? fakeImageDeps()} fetchFn={fetchFn} now={options.now}>
-        {ui}
+        <ItemAnalysisProvider deviceStorage={deviceStorage} fetchFn={fetchFn} now={options.now} isOnline={options.isOnline}>
+          {ui}
+        </ItemAnalysisProvider>
       </AiLookProvider>
     </ClosetProvider>,
   );

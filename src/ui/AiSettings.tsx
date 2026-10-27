@@ -6,6 +6,7 @@ import {
   nextResetDate,
   readApiKey,
   readLastCheck,
+  readAnalysisUse,
   readMonthlyUse,
   removeApiKey,
   saveApiKey,
@@ -13,6 +14,7 @@ import {
   type DeviceStorage,
 } from '../app/aiDevice';
 import { useCloset } from '../app/ClosetContext';
+import { useItemAnalysis } from '../app/ItemAnalysis';
 import { AI_PROVIDERS, effectiveModel } from '../ai/catalog';
 import { DEFAULT_PROMPT } from '../ai/prompt';
 import type { FetchLike } from '../ai/providers';
@@ -47,6 +49,7 @@ export function AiPanel({
   onOpenFix: () => void;
 }) {
   const { data } = useCloset();
+  const analysis = useItemAnalysis();
   const { provider, monthlyCap } = data.ai;
   const ready = aiReady(data.ai, deviceStorage);
   const check = provider ? readLastCheck(deviceStorage, provider) : null;
@@ -68,7 +71,7 @@ export function AiPanel({
         {status}
       </div>
       <div className="kv">
-        <span className="muted">השימוש החודש</span>
+        <span className="muted">בובות החודש</span>
         <span>
           {used} מתוך {monthlyCap} · מתאפס ב־{formatDay(nextResetDate(now))}
         </span>
@@ -76,13 +79,23 @@ export function AiPanel({
       <div
         className="usage-bar"
         role="progressbar"
-        aria-label="השימוש החודש"
+        aria-label="בובות החודש"
         aria-valuemin={0}
         aria-valuemax={Math.max(1, monthlyCap)}
         aria-valuenow={monthlyCap === 0 ? 1 : Math.min(used, monthlyCap)}
       >
         <span style={{ width: `${percent}%` }} />
       </div>
+      {ready && data.ai.analysis.enabled && (
+        <div className="kv">
+          <span className="muted">זיהוי בגדים החודש</span>
+          <span>
+            {readAnalysisUse(deviceStorage, now)} מתוך {data.ai.analysis.monthlyCap}
+            {analysis.bulk?.running &&
+              ` · שולח ${analysis.bulk.analysed + analysis.bulk.skipped + analysis.bulk.failed.length} מתוך ${analysis.bulk.total}`}
+          </span>
+        </div>
+      )}
       <button type="button" className="row-btn" onClick={onOpenFix}>
         <span>לוקים לתיקון ({data.aiLooks.filter((l) => l.flagged).length})</span>
         <Icon name="next" />

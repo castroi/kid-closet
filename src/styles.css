@@ -1233,6 +1233,28 @@ a {
   object-fit: contain;
   border-radius: 12px;
 }
+.card .thumb,
+.photo-pick .thumb {
+  position: relative;
+}
+.bulk-analysis,
+.bulk-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.bulk-summary p {
+  margin: 0;
+}
+.bulk-failures {
+  margin: 0;
+  padding-inline-start: 18px;
+  font-size: 14px;
+}
+/* A garment still waiting for the AI: only the mark is faded, never the photo. */
+.fav-ai-mark.pending {
+  opacity: 0.45;
+}
 .fav-ai-mark {
   position: absolute;
   top: 8px;

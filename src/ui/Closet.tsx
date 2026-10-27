@@ -1,5 +1,10 @@
 import { useState } from 'react';
+import { nextResetDate } from '../app/aiDevice';
 import { useCloset } from '../app/ClosetContext';
+import { AnalysisCapReached, useItemAnalysis } from '../app/ItemAnalysis';
+import { AiError } from '../ai/providers';
+import { isAnalysed } from '../core/closet';
+import { hebrewDay } from '../core/gallery';
 import { OCCASION_LABEL, SLOTS, slotOf, type Item, type ItemStatus, type Slot } from '../core/model';
 import { Garment, Icon, Sheet, Toast, explainedElsewhere } from './common';
 import { ItemFields, finalName, missingFields, type ItemDraft } from './ItemFields';
@@ -34,6 +39,7 @@ export function Closet({ onOpenParent, onOpenSettings }: { onOpenParent: () => v
   const [undo, setUndo] = useState<Undo | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const analysis = useItemAnalysis();
   const visible = data.items.filter((it) => inTab(it, tab));
   const activeCount = data.items.filter((it) => it.status === 'active').length;
   const isOutgrownTab = tab === 'outgrown';
@@ -151,17 +157,25 @@ export function Closet({ onOpenParent, onOpenSettings }: { onOpenParent: () => v
           <div className="grid">
             {visible.map((it) => {
               const on = selected.has(it.id);
+              const known = describedByAi(it);
+              const sending = analysis.jobs[it.id] !== undefined && analysis.jobs[it.id].kind !== 'failed';
               return (
                 <button
                   key={it.id}
                   type="button"
                   className="card"
                   aria-pressed={selecting ? on : undefined}
-                  aria-label={selecting ? it.name : `עריכת ${it.name}`}
+                  aria-label={(selecting ? it.name : `עריכת ${it.name}`) + (known ? ' · ה־AI מכיר' : '')}
                   onClick={() => (selecting ? toggle(it.id) : setEditing(it))}
                 >
                   <div className="thumb">
                     <Garment item={it} height={100} />
+                    {/* Only the mark is faded while waiting, never the photo: she matches real colours. */}
+                    {(known || sending) && (
+                      <span className={`fav-ai-mark${known ? '' : ' pending'}`} aria-hidden="true">
+                        <Icon name="sparkle" size={16} />
+                      </span>
+                    )}
                   </div>
                   <span style={{ fontSize: 14, fontWeight: 500 }}>{it.name}</span>
                   <span className="tags">
@@ -201,7 +215,7 @@ export function Closet({ onOpenParent, onOpenSettings }: { onOpenParent: () => v
 
       {editing && (
         <ItemEditor
-          item={editing}
+          item={data.items.find((it) => it.id === editing.id) ?? editing}
           onClose={() => setEditing(null)}
           onMove={() => move([editing.id], editing.status === 'outgrown' ? 'active' : 'outgrown')}
         />
@@ -257,8 +271,14 @@ function ItemEditor({ item, onClose, onMove }: { item: Item; onClose: () => void
       <div className="photo-pick">
         <div className="thumb">
           <Garment item={item} height={110} />
+          {describedByAi(item) && (
+            <span className="fav-ai-mark" aria-hidden="true">
+              <Icon name="sparkle" size={16} />
+            </span>
+          )}
         </div>
       </div>
+      <AiRow item={item} />
       <ItemFields draft={draft} onChange={setDraft} />
       {missing.length > 0 && <p className="muted">חסר: {missing.join(', ')}</p>}
       {error && (
@@ -275,5 +295,54 @@ function ItemEditor({ item, onClose, onMove }: { item: Item; onClose: () => void
         </button>
       </div>
     </Sheet>
+  );
+}
+
+/** The AI described this photo (not just "not a garment"), so she sees the sparkle. */
+function describedByAi(item: Item): boolean {
+  return item.analysis?.result === 'ok' && isAnalysed(item);
+}
+
+/**
+ * Her line about the AI in the edit sheet (docs/ai-item-attributes.md §7). Shown only when the parent
+ * turned garment analysis on; she never sees the attributes or a provider's message.
+ */
+function AiRow({ item }: { item: Item }) {
+  const analysis = useItemAnalysis();
+  const { data } = useCloset();
+  if (!analysis.isReady()) return null;
+  if (describedByAi(item)) {
+    return <p className="muted">ה־AI כבר מכיר את הבגד הזה</p>;
+  }
+  const job = analysis.jobs[item.id];
+  const now = new Date();
+  const atCap = analysis.monthlyUse() >= data.ai.analysis.monthlyCap;
+  const invalid = item.analysis?.result === 'invalid-photo' && isAnalysed(item);
+  const failed = job?.kind === 'failed';
+  const waiting = job !== undefined && !failed;
+  // Only her own resend tells her it failed; an automatic or parent's send stays silent for her.
+  const hers = failed && job.source === 'kid';
+  const offline = hers && job.error instanceof AiError && job.error.reason === 'network';
+
+  return (
+    <div className="ai-action">
+      {invalid && <p className="muted">ה־AI לא הצליח לזהות את הבגד בתמונה. כדאי לצלם על רקע חלק ובהיר.</p>}
+      {offline && <p className="muted">צריך אינטרנט. ננסה שוב כשיהיה.</p>}
+      {hers && !offline && !(job.error instanceof AnalysisCapReached) && (
+        <p className="error" role="alert">
+          לא הצלחנו הפעם. נסי שוב אחר כך.
+        </p>
+      )}
+      <button
+        type="button"
+        className="btn ai-btn"
+        disabled={waiting || atCap}
+        onClick={() => analysis.analyse(item.id, 'kid')}
+      >
+        <Icon name="sparkle" />
+        {waiting ? 'ה־AI מסתכל על הבגד…' : invalid || hers ? 'לנסות שוב עם ה־AI' : 'להראות ל־AI'}
+      </button>
+      {atCap && !waiting && <p className="muted ai-caption">אפשר לנסות שוב ב־{hebrewDay(nextResetDate(now))}</p>}
+    </div>
   );
 }
