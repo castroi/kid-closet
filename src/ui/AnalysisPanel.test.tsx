@@ -1,4 +1,4 @@
-import { act, screen, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { AI_ANALYSIS_USAGE_KEY, AI_KEY_PREFIX, AI_USAGE_KEY } from '../app/aiDevice';
@@ -236,6 +236,7 @@ describe('sending existing clothes (bulk)', () => {
     await user.click(panel.getByRole('button', { name: 'לשלוח 2 בגדים לזיהוי' }));
     await user.click(screen.getByRole('button', { name: 'כן, לשלוח' }));
     expect(await panel.findByText('נשלחו 0 מתוך 2')).toBeInTheDocument();
+    await waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(1));
     expect(panel.getByRole('progressbar', { name: 'שליחה לזיהוי' })).toHaveAttribute('aria-valuemax', '2');
     await user.click(panel.getByRole('button', { name: 'עצירה' }));
     expect(panel.getByRole('button', { name: 'עוצר אחרי הבגד הנוכחי…' })).toBeDisabled();

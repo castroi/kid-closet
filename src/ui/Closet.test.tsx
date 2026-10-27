@@ -255,6 +255,7 @@ describe('Closet and the AI', () => {
     await user.click(screen.getByRole('button', { name: 'עריכת חולצה חדשה' }));
     await user.click(screen.getByRole('button', { name: 'להראות ל־AI' }));
     expect(await screen.findByRole('button', { name: 'ה־AI מסתכל על הבגד…' })).toBeDisabled();
+    await waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(1));
     // While waiting, the card's mark is faded; the photo never is.
     expect(container.querySelector('.card .fav-ai-mark.pending')).not.toBeNull();
     await act(async () => reply(answer()));

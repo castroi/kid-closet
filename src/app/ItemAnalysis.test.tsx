@@ -169,6 +169,8 @@ describe('ItemAnalysisProvider', () => {
       queue().analyse('a', 'new');
     });
     await waitFor(() => expect(queue().jobs.a?.kind).toBe('waiting'));
+    // Waiting is set before the photo is read; the fake provider must have been called before it answers.
+    await waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(1));
     await act(async () => {
       await closet().deleteItems(['a']);
     });
@@ -259,6 +261,8 @@ describe('bulk run', () => {
       queue().startBulk();
     });
     await waitFor(() => expect(queue().jobs.a?.kind).toBe('waiting'));
+    // Waiting is set before the photo is read; the fake provider must have been called before it answers.
+    await waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(1));
     act(() => queue().stopBulk());
     expect(queue().bulk).toMatchObject({ running: true, stopping: true });
     expect(queue().jobs.b).toBeUndefined();
@@ -279,6 +283,8 @@ describe('bulk run', () => {
       queue().startBulk();
     });
     await waitFor(() => expect(queue().jobs.a?.kind).toBe('waiting'));
+    // Waiting is set before the photo is read; the fake provider must have been called before it answers.
+    await waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(1));
     await act(async () => {
       await closet().deleteItems(['b']);
     });
@@ -286,6 +292,8 @@ describe('bulk run', () => {
       answer(goodAnswer());
     });
     await waitFor(() => expect(queue().jobs.c?.kind).toBe('waiting'));
+    // Waiting is set before the photo is read; the fake provider must have been called before it answers.
+    await waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(2));
     expect(queue().bulk).toMatchObject({ analysed: 1, skipped: 1 });
     await act(async () => {
       await closet().setAiSettings({ analysis: { enabled: false, model: '', monthlyCap: 300 } });
@@ -341,6 +349,8 @@ describe('review fixes', () => {
     });
     expect(queue().bulk?.total).toBe(3);
     await waitFor(() => expect(queue().jobs.a?.kind).toBe('waiting'));
+    // Waiting is set before the photo is read; the fake provider must have been called before it answers.
+    await waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(1));
     act(() => {
       expect(queue().analyse('mine', 'kid')).toBeNull();
     });
