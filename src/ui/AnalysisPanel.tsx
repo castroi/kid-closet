@@ -34,6 +34,13 @@ export function AnalysisPanel({
   const settings = data.ai.analysis;
   const [model, setModel] = useState(settings.model);
   const [cap, setCap] = useState(String(settings.monthlyCap));
+  // Follow a model or cap saved elsewhere (a provider switch, a restore) without remounting, so a message stays.
+  const [basis, setBasis] = useState({ model: settings.model, monthlyCap: settings.monthlyCap });
+  if (basis.model !== settings.model || basis.monthlyCap !== settings.monthlyCap) {
+    setBasis({ model: settings.model, monthlyCap: settings.monthlyCap });
+    setModel(settings.model);
+    setCap(String(settings.monthlyCap));
+  }
   const [message, setMessage] = useState<Message>(null);
   const [checking, setChecking] = useState(false);
   const [used, setUsed] = useState(() => readAnalysisUse(deviceStorage, now()));

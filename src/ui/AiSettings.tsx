@@ -156,8 +156,10 @@ export function AiSettingsScreen({
               className="chip"
               aria-pressed={provider === id}
               onClick={() => {
-                // A model name belongs to one provider; switching goes back to the new one's default.
-                if (provider !== id) void save({ provider: id, model: '' }, `נבחר ${AI_PROVIDERS[id].label}.`);
+                // A model name belongs to one provider; switching goes back to the new one's defaults, for both models.
+                if (provider !== id) {
+                  void save({ provider: id, model: '', analysis: { ...data.ai.analysis, model: '' } }, `נבחר ${AI_PROVIDERS[id].label}.`);
+                }
               }}
             >
               {AI_PROVIDERS[id].label}

@@ -33,6 +33,9 @@ images/doll-<id>.webp  the parent's doll picture, if she replaced the bundled on
 images/look-<id>.webp  a picture of the doll wearing a look, made by the AI
 ```
 
+- Garment photos stay on the phone unless the parent turns on "זיהוי בגדים" in "הגדרות AI": then each photo is sent,
+  automatically and without its metadata, to the AI provider she picked, and what the model says about it is saved in
+  `closet.json`. "בדיקת זיהוי" sends only a sample photo bundled with the app.
 - Photos are resized on the phone to at most 800 px and encoded to WebP with a WebAssembly
   encoder ([`@jsquash/webp`](https://github.com/jamsinclair/jSquash)), because Safari cannot encode
   WebP itself.
