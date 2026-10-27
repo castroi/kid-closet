@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useCloset } from '../app/ClosetContext';
 import { useItemAnalysis, type PhotoDescription } from '../app/ItemAnalysis';
+import { countsTowardCap } from '../ai/providers';
 import type { ItemAnalysis } from '../core/attributes';
 import { prefillFromAttributes } from '../core/prefill';
 import { processImage, type ImageDeps } from '../image/processImage';
@@ -114,12 +115,19 @@ export function AddItem({
     if (!analysis.isReady()) return;
     setAiState('waiting');
     let expired = false;
-    deadline.current = setTimeout(() => {
-      expired = true;
-      if (mounted.current && formPick.current === pick) setAiState((s) => (s === 'waiting' ? 'idle' : s));
-    }, fillDeadlineMs);
-    const wanted = () => pick === latestPick.current || savedPicks.current.has(pick);
-    const answer = chain.current.then(() => (wanted() ? analysis.describePhoto(image) : null));
+    // Sent only while it is still the photo on the form of an open screen, or the garment she saved.
+    const wanted = () => (mounted.current && pick === latestPick.current) || savedPicks.current.has(pick);
+    const answer = chain.current.then(() => {
+      if (!wanted()) return null;
+      // The deadline counts from the moment its own call starts, not while it waits for the one before.
+      if (formPick.current === pick) {
+        deadline.current = setTimeout(() => {
+          expired = true;
+          if (mounted.current && formPick.current === pick) setAiState((s) => (s === 'waiting' ? 'idle' : s));
+        }, fillDeadlineMs);
+      }
+      return analysis.describePhoto(image);
+    });
     chain.current = answer.catch(() => undefined);
     pending.current = { pick, answer };
     answer.then(
@@ -142,6 +150,15 @@ export function AddItem({
     const isCurrent = () => mounted.current && pick === latestPick.current;
     setSavedName(null);
     formPick.current = -1;
+    // The last photo's AI values she didn't touch go with it, so they never look like her own choices.
+    if (aiFilled.size > 0) {
+      setDraft((d) => ({
+        ...d,
+        type: aiFilled.has('type') ? null : d.type,
+        colorGroup: aiFilled.has('colorGroup') ? null : d.colorGroup,
+        occasions: aiFilled.has('occasions') ? [] : d.occasions,
+      }));
+    }
     resetAi();
     setPhoto({ kind: 'working' });
     try {
@@ -184,7 +201,9 @@ export function AddItem({
         photo.image,
       );
       // The whole answer for this photo is stored with the garment, every attribute, also those the
-      // form doesn't show; it is never paid for twice. Without one, the queue sends it (§7).
+      // form doesn't show. It is never paid for twice: after a failure that may have cost money, it
+      // isn't sent again by itself (§7); her "להראות ל־AI" or the parent's run can. When nothing was
+      // sent (off, offline, at the cap) or there was no answer at all, the queue sends it as before.
       const queue = () => void analysis.analyse(item.id, 'new', item);
       if (asked) {
         savedPicks.current.add(pick);
@@ -193,7 +212,9 @@ export function AddItem({
             if (!description) return queue();
             setItemAnalysis(item.id, { ...description, photoRevision: item.photoRevision } as ItemAnalysis).catch(() => undefined);
           },
-          queue,
+          (err: unknown) => {
+            if (!countsTowardCap(err)) queue();
+          },
         );
       } else {
         queue();
@@ -253,7 +274,7 @@ export function AddItem({
                 />
               </label>
               {aiState === 'waiting' ? (
-                <p className="muted ai-waiting" role="status">
+                <p className="muted add-ai-waiting" role="status">
                   <Icon name="sparkle" size={16} />
                   ה־AI מסתכל על הבגד…
                 </p>

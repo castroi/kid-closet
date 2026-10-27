@@ -27,6 +27,8 @@ describe('prefillFromAttributes', () => {
     [{ category: 'bottom', leg_length: 'capri', subcategory: 'leggings' }, 'pants'],
     [{ category: 'bottom', leg_length: null, subcategory: 'bike shorts' }, 'shorts'],
     [{ category: 'bottom', leg_length: null, subcategory: 'joggers' }, 'pants'],
+    [{ category: 'bottom', leg_length: null, subcategory: 'pleated skirt' }, null],
+    [{ category: 'bottom', leg_length: 'shorts', subcategory: 'skort' }, null],
     [{ category: 'dress' }, null],
     [{ category: 'shoes' }, null],
     [{ category: 'accessory' }, null],
@@ -52,8 +54,20 @@ describe('prefillFromAttributes', () => {
     ['khaki', 'beige'],
     ['chocolate brown', 'brown'],
     ['black', 'black'],
+    ['tangerine', 'yellow'],
+    ['cream-colored', 'beige'],
+    ['golden', 'yellow'],
   ] as const)('maps the colour word "%s" to %s', (primary_color, group) => {
     expect(colorFromAttributes(attrs({ primary_color, busyness: 'low' }))).toBe(group);
+  });
+
+  it('never matches a colour inside another word', () => {
+    expect(colorFromAttributes(attrs({ primary_color: 'colored', primary_color_hex: null, busyness: 'low' }))).toBeNull();
+    expect(colorFromAttributes(attrs({ primary_color: 'stand', primary_color_hex: null, busyness: 'low' }))).toBeNull();
+  });
+
+  it.each(['multicolored', 'multi-colour', 'rainbow', 'colorful', 'tie-dye'])('calls "%s" צבעוני', (primary_color) => {
+    expect(colorFromAttributes(attrs({ primary_color, busyness: 'low' }))).toBe('multi');
   });
 
   it('calls a busy print in several colours "צבעוני", but not a plain one', () => {

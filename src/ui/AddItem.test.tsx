@@ -262,7 +262,15 @@ describe('the AI fills the form (decision 13)', () => {
     expect(pressed('חולצה קצרה')).toBe('false');
   });
 
-  it('says nothing when the call fails, and sends the garment again after she saves it', async () => {
+  async function fillAndSave(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole('button', { name: 'חולצה ארוכה' }));
+    await user.click(screen.getByRole('button', { name: 'בית ספר' }));
+    await user.click(screen.getByRole('button', { name: 'ירוק' }));
+    await user.click(screen.getByRole('button', { name: 'שמירה בארון' }));
+    expect(await screen.findByText('"חולצה ארוכה בצבע ירוק" נשמר בארון')).toBeInTheDocument();
+  }
+
+  it('says nothing when a call that may have cost money fails, and never pays for it twice', async () => {
     const user = userEvent.setup();
     const fetchFn = vi.fn<FetchLike>().mockResolvedValueOnce(new Response('', { status: 503 })).mockImplementation(async () => answer());
     const { repo } = await renderAdd(fetchFn);
@@ -270,12 +278,42 @@ describe('the AI fills the form (decision 13)', () => {
     await waitFor(() => expect(screen.queryByText('ה־AI מסתכל על הבגד…')).not.toBeInTheDocument());
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.getByText('טיפ: לצלם על רקע חלק ובהיר')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'חולצה ארוכה' }));
-    await user.click(screen.getByRole('button', { name: 'בית ספר' }));
-    await user.click(screen.getByRole('button', { name: 'ירוק' }));
-    await user.click(screen.getByRole('button', { name: 'שמירה בארון' }));
+    await fillAndSave(user);
+    await new Promise((r) => setTimeout(r, 20));
+    // Not sent again by itself (§7); her "להראות ל־AI" or the parent's run can.
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(repo.getData().items[0].analysis).toBeNull();
+  });
+
+  it('sends the garment after she saves it when the first call got no answer at all', async () => {
+    const user = userEvent.setup();
+    const fetchFn = vi.fn<FetchLike>().mockRejectedValueOnce(new TypeError('Load failed')).mockImplementation(async () => answer());
+    const { repo } = await renderAdd(fetchFn);
+    await user.upload(screen.getByLabelText('בחירת תמונה מהגלריה'), photo());
+    await waitFor(() => expect(screen.queryByText('ה־AI מסתכל על הבגד…')).not.toBeInTheDocument());
+    await fillAndSave(user);
     await waitFor(() => expect(repo.getData().items[0]?.analysis?.result).toBe('ok'));
     expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
+  it("clears the last photo's AI values when she picks another photo", async () => {
+    const user = userEvent.setup();
+    const { fetchFn, reply } = heldProvider();
+    await renderAdd(fetchFn);
+    await user.upload(screen.getByLabelText('בחירת תמונה מהגלריה'), photo());
+    await waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(1));
+    await act(async () => reply(answer()));
+    await waitFor(() => expect(pressed('ורוד')).toBe('true'));
+    // She set the type herself: that stays; the AI's colour and occasions go with the old photo.
+    await user.click(screen.getByRole('button', { name: 'חולצה ארוכה' }));
+    await user.upload(screen.getByLabelText('בחירת תמונה מהגלריה'), photo());
+    await waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(2));
+    expect(pressed('חולצה ארוכה')).toBe('true');
+    expect(pressed('ורוד')).toBe('false');
+    expect(pressed('בית ספר')).toBe('false');
+    await act(async () => reply(answer({ primary_color: 'black' })));
+    await waitFor(() => expect(pressed('שחור')).toBe('true'));
+    expect(pressed('חולצה ארוכה')).toBe('true');
   });
 
   it('stores an answer that arrives after she saved, without filling the next form', async () => {

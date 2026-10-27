@@ -25,6 +25,8 @@ export function typeFromAttributes(a: ItemAttributes): ItemType | null {
       if (a.sleeve_length === 'long' || a.sleeve_length === 'three_quarter') return 'longTop';
       return SHORT_TOP_WORDS.test(a.subcategory) ? 'tee' : null;
     case 'bottom':
+      // Skirts have no type in the app yet, like dresses: she picks one, or none fits.
+      if (/\bskirts?\b|\bskorts?\b/i.test(a.subcategory)) return null;
       if (a.leg_length === 'shorts') return 'shorts';
       if (a.leg_length === 'capri' || a.leg_length === 'full') return 'pants';
       return /short/i.test(a.subcategory) ? 'shorts' : 'pants';
@@ -34,19 +36,25 @@ export function typeFromAttributes(a: ItemAttributes): ItemType | null {
   }
 }
 
+/** Whole words only, so "colored" is never red and "tangerine" never tan. */
+const words = (...list: string[]) => new RegExp(`\\b(?:${list.join('|')})\\b`, 'i');
+
+/** A print in many colours, whatever its busyness: what she calls "צבעוני". */
+const MULTI_WORDS = words('multi-?colou?r(?:ed)?', 'rainbow', 'colou?rful', 'tie-?dye', 'patchwork');
+
 /** Colour words the model may use, to her 12 groups. Checked in order, so "light blue" is blue and "off-white" white. */
 const COLOR_WORDS: [RegExp, ColorGroup][] = [
-  [/black|charcoal|jet/i, 'black'],
-  [/white|ivory|off-?white|snow/i, 'white'],
-  [/gr[ae]y|silver|graphite/i, 'gray'],
-  [/navy|blue|denim|indigo|azure|cobalt|sky|turquoise|aqua|cyan/i, 'blue'],
-  [/pink|rose|fuchsia|magenta|blush|salmon|coral/i, 'pink'],
-  [/red|burgundy|maroon|crimson|wine|cherry/i, 'red'],
-  [/green|olive|mint|lime|emerald|sage|teal|forest/i, 'green'],
-  [/purple|violet|lavender|lilac|plum|mauve/i, 'purple'],
-  [/yellow|gold|mustard|lemon|orange|peach|apricot/i, 'yellow'],
-  [/beige|tan|khaki|cream|sand|camel|nude|oatmeal/i, 'beige'],
-  [/brown|chocolate|coffee|rust|copper|bronze/i, 'brown'],
+  [words('black', 'charcoal', 'jet'), 'black'],
+  [words('white', 'ivory', 'off-?white', 'snow'), 'white'],
+  [words('gr[ae]y', 'silver', 'graphite'), 'gray'],
+  [words('navy', 'blue', 'denim', 'indigo', 'azure', 'cobalt', 'sky', 'turquoise', 'aqua', 'cyan'), 'blue'],
+  [words('pink', 'rose', 'fuchsia', 'magenta', 'blush', 'salmon', 'coral'), 'pink'],
+  [words('red', 'burgundy', 'maroon', 'crimson', 'wine', 'cherry'), 'red'],
+  [words('green', 'olive', 'mint', 'lime', 'emerald', 'sage', 'teal', 'forest'), 'green'],
+  [words('purple', 'violet', 'lavender', 'lilac', 'plum', 'mauve'), 'purple'],
+  [words('yellow', 'gold', 'golden', 'mustard', 'lemon', 'orange', 'tangerine', 'peach', 'apricot'), 'yellow'],
+  [words('beige', 'tan', 'khaki', 'cream', 'sand', 'camel', 'nude', 'oatmeal'), 'beige'],
+  [words('brown', 'chocolate', 'coffee', 'rust', 'copper', 'bronze'), 'brown'],
 ];
 
 function hexToRgb(hex: string): [number, number, number] {
@@ -76,7 +84,8 @@ export function nearestGroup(hex: string): ColorGroup | null {
 }
 
 export function colorFromAttributes(a: ItemAttributes): ColorGroup | null {
-  // A busy print in several colours is what she calls "צבעוני".
+  // A busy print in several colours, or a colour the model itself calls many, is what she calls "צבעוני".
+  if (MULTI_WORDS.test(a.primary_color)) return 'multi';
   if (a.busyness === 'high' && a.secondary_colors.length >= 2) return 'multi';
   for (const [words, group] of COLOR_WORDS) if (words.test(a.primary_color)) return group;
   return a.primary_color_hex ? nearestGroup(a.primary_color_hex) : null;

@@ -1258,12 +1258,12 @@ a {
   margin-inline-start: 6px;
   color: var(--ai);
 }
-.ai-waiting {
+.add-ai-waiting {
   display: flex;
   align-items: center;
   gap: 6px;
 }
-.ai-waiting svg {
+.add-ai-waiting svg {
   color: var(--ai);
   flex: none;
 }
