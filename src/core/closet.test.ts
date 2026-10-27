@@ -349,6 +349,14 @@ describe('item analysis (schema 5)', () => {
     expect(parsed.items[1]).toMatchObject({ photoRevision: 2, image: 'images/b-r2.webp', analysis: null });
   });
 
+  it('refuses two items sharing one photo file', () => {
+    const raw = JSON.parse(
+      JSON.stringify(closetWith([makeItem({ id: 'x', photoRevision: 1 }), makeItem({ id: 'x-r1' })])),
+    );
+    expect(raw.items.map((it: { image: string }) => it.image)).toEqual(['images/x-r1.webp', 'images/x-r1.webp']);
+    expect(() => parseCloset(raw)).toThrow('duplicate photo images/x-r1.webp');
+  });
+
   it('refuses a photo whose name does not match its revision', () => {
     for (const [revision, image] of [
       [2, 'images/b.webp'],

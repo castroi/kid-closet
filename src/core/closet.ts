@@ -440,9 +440,13 @@ export function parseCloset(raw: unknown): ClosetData {
   }
   const items = raw.items.map((it, i) => parseItem(it, i, version));
   const ids = new Set<string>();
+  const photos = new Set<string>();
   for (const it of items) {
     if (ids.has(it.id)) throw new InvalidClosetError(`duplicate item id ${it.id}`);
     ids.add(it.id);
+    // Only a hand-made file could do this (item "x" after a replacement and an item "x-r1"); deleting one would remove the other's photo.
+    if (photos.has(it.image)) throw new InvalidClosetError(`duplicate photo ${it.image}`);
+    photos.add(it.image);
   }
   const outfits = raw.outfits.map(parseOutfit).filter((o) => outfitIsValid(o, items));
   const doll = version >= 2 ? parseDoll(raw.doll) : defaultDoll();
