@@ -46,7 +46,7 @@ Each garment photo is sent once to a vision AI model, which describes it in a fi
 
 ## 5. Data model
 
-`SCHEMA_VERSION` **5** adds `analysis` to items and `analysis` to the AI settings. Versions 1–4 load with no analysis and the feature off.
+`SCHEMA_VERSION` **5** adds `photoRevision` and `analysis` to items and `analysis` to the AI settings. Versions 1–4 load with `photoRevision: 0`, no analysis and the feature off.
 
 ```ts
 type AttrCategory = 'top' | 'bottom' | 'dress' | 'outerwear' | 'shoes' | 'accessory' | 'other';
@@ -114,7 +114,7 @@ Rules:
 - **A bad stored analysis never blocks the closet.** On load (and restore), an analysis that fails validation becomes `null`; the item is simply not analysed. It can be made again; she must never land on the recovery screen because of it.
 - **When an answer is stored:** a wrong type, a missing field or an enum value outside the list fails the call. Strings are trimmed and cut to their limit, arrays to their maximum length:
   - `short_title` 60 characters; `subcategory`, `primary_color` and each colour or tag 40; `graphic_description`, `text_on_item`, `kid_friendly_description` 200; `notes` 300
-  - `secondary_colors` at most 5, `style_tags` at most 5, `formality` and `season` without duplicates, at least one entry
+  - `secondary_colors` at most 5, `style_tags` at most 5, `formality` and `season` without duplicates; an empty `formality` or `season` fails the call (it is not cut or filled in)
   - `primary_color_hex` must match `#RRGGBB`, otherwise it is stored as `null`
 - Restore applies the same validation; the existing restore size caps already cover `closet.json`.
 - **An answer that arrives late is dropped** when the item was deleted or its `photoRevision` changed while the call ran (the same check as `kept` in `src/app/AiLooks.tsx`). It still counts toward the cap.
@@ -218,7 +218,7 @@ Reviewed by the UI/UX agent (2026-10-27). All existing UX rules apply: Hebrew RT
 
 **Parent: "הגדרות AI" → new section "זיהוי בגדים"**
 - Switch to turn it on, model field (placeholder = the provider's default), monthly cap (default 300), counts ("38 מזוהים · 2 נכשלו · 1 תמונה לא ברורה").
-- **"בדיקת זיהוי"** checks the whole path (CORS, key, model, schema) before any of her photos leave the phone: it sends a bundled sample garment photo (`src/assets/sample-garment.webp`, pre-cached by the service worker like the default doll), never one of hers, and works with the switch still off. On success it shows the answer's `short_title` ("הזיהוי עובד · Blue striped t-shirt"); on failure, the reason from `src/ui/aiErrors.ts`. It counts toward the analysis cap, because it is paid.
+- **"בדיקת זיהוי"** checks the whole path (CORS, key, model, schema) before any of her photos leave the phone: it sends a bundled sample garment photo (`src/assets/sample-garment.webp`, pre-cached by the service worker; like the default doll, the build fails if it isn't in the pre-cache list), never one of hers, and works with the switch still off. On success it shows the answer's `short_title` ("הזיהוי עובד · Blue striped t-shirt"); on failure, the reason from `src/ui/aiErrors.ts`. It counts toward the analysis cap, because it is paid.
 - Button "לשלוח N בגדים לזיהוי" (not analysed, not outgrown).
 - Confirmation sheet like the delete flow in `Parent.tsx`: "לשלוח N תמונות בגדים ל־AI?" / "כל בגד = בקשה אחת. נשארו החודש: M." A cost estimate only when the catalog has a confirmed price, in ISO currency format (USD); never guessed.
 - Progress: a determinate `.usage-bar`, "נשלחו 12 מתוך 47". It keeps running when she leaves the parent area.
@@ -248,8 +248,8 @@ Each PR follows `CLAUDE.md`: branch from `main`, draft PR, review agent, fixes a
 Coverage thresholds stay: 80 % lines/statements/functions, 75 % branches.
 
 **Core**
-- v4 `closet.json` loads as v5 with `analysis: null` on every item and the feature off.
-- Validation rejects unknown enum values, a bad hex, wrong types, an unknown provider, and too-long strings.
+- v4 `closet.json` loads as v5 with `photoRevision: 0` and `analysis: null` on every item and the feature off.
+- Storing an answer fails on unknown enum values, wrong types, missing fields and an empty `formality` or `season`; it cuts too-long strings and arrays and stores a bad hex as `null`.
 - Deleting an item removes its analysis; an analysis whose `photoRevision` differs from the item's counts as not analysed.
 - An invalid stored analysis (bad enum, wrong type, unknown provider) loads as `null`; the rest of the closet loads normally.
 - Strings and arrays over their limits are cut to the limit when an answer is stored; on load, an analysis over the limits is dropped to `null`.
