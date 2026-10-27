@@ -16,7 +16,7 @@ parent asks), so a vision model can describe them (colours, pattern, season); on
 | --- | --- |
 | להתלבש (Dress up) | Occasion, cold/warm switch, rows for outer layer / shirt / trousers with arrows and swipe, per-row type & colour filter, preview of the look (with "להלביש את הבובה" once a parent set up AI), save to favourites. |
 | מועדפים (Favourites) | Saved looks, filter by occasion, tap to open, remove. |
-| הארון שלי (My closet) | Items by category, tap to edit, select several to move to / from "outgrown" with undo. A sparkle marks garments the AI described; when the parent turned garment analysis on, the edit sheet has "להראות ל־AI" for one that isn't. |
+| הארון שלי (My closet) | Items by category, tap to edit, select several to move to / from "outgrown" with undo. A sparkle marks garments the AI described; when the parent turned garment analysis on, the edit sheet has "להראות ל־AI" for one that isn't. "החלפת תמונה" in the edit sheet takes or picks a new photo for the garment. |
 | הוספה (Add) | Take or choose a photo, pick type, occasions and colour. The name is optional. |
 | אזור הורים (Parents) | Behind a simple question: backup export / restore, "בובה ו־AI" (status, monthly use, and the "הגדרות AI" screen: provider, API key, model, monthly cap, garment analysis with its own model and cap and "בדיקת זיהוי", doll, prompt), storage status, permanent delete. |
 
@@ -28,7 +28,7 @@ The app writes plain files into the browser's private folder for this site
 ```
 closet-a.json   ┐ the closet list, written alternately with an increasing
 closet-b.json   ┘ generation number, so an interrupted save never loses data
-images/<id>.webp  one photo per item (JPEG if WebP encoding fails)
+images/<id>.webp  one photo per item (JPEG if WebP encoding fails); <id>-r2.webp after its 2nd replacement
 images/doll-<id>.webp  the parent's doll picture, if she replaced the bundled one
 images/look-<id>.webp  a picture of the doll wearing a look, made by the AI
 ```

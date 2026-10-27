@@ -74,7 +74,7 @@ function Screens({ imageDeps, shareEnv, storage, today, themeEnv, deviceStorage 
           />
         )}
         {tab === 'favorites' && <Favorites onOpen={(o) => openOutfit(o)} />}
-        {tab === 'closet' && <Closet onOpenParent={() => setTab('parent')} onOpenSettings={() => setSettingsOpen(true)} />}
+        {tab === 'closet' && <Closet onOpenParent={() => setTab('parent')} onOpenSettings={() => setSettingsOpen(true)} imageDeps={imageDeps} />}
         {tab === 'add' && <AddItem imageDeps={imageDeps} onOpenCloset={() => setTab('closet')} />}
         {tab === 'parent' && (
           <Parent

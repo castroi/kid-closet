@@ -1,6 +1,6 @@
 import type { ItemAnalysis, ItemAttributes } from '../core/attributes';
 import { closetImagePaths } from '../core/closet';
-import { emptyCloset, lookImagePath, type AiLook, type ClosetData, type Item, type Outfit } from '../core/model';
+import { emptyCloset, itemImagePath, lookImagePath, type AiLook, type ClosetData, type Item, type Outfit } from '../core/model';
 import { MemoryFileStore } from '../storage/fileStore';
 
 export const NOW = '2026-10-24T08:00:00.000Z';
@@ -12,7 +12,7 @@ export function makeItem(partial: Partial<Item> & Pick<Item, 'id'>): Item {
     colorGroup: 'blue',
     occasions: ['school'],
     status: 'active',
-    image: `images/${partial.id}.webp`,
+    image: itemImagePath(partial.id, partial.photoRevision ?? 0, 'webp'),
     photoRevision: 0,
     analysis: null,
     createdAt: NOW,

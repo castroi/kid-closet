@@ -169,6 +169,8 @@ describe('ItemAnalysisProvider', () => {
       queue().analyse('a', 'new');
     });
     await waitFor(() => expect(queue().jobs.a?.kind).toBe('waiting'));
+    // Waiting is set before the photo is read; the fake provider must have been called before it answers.
+    await waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(1));
     await act(async () => {
       await closet().deleteItems(['a']);
     });
@@ -259,6 +261,8 @@ describe('bulk run', () => {
       queue().startBulk();
     });
     await waitFor(() => expect(queue().jobs.a?.kind).toBe('waiting'));
+    // Waiting is set before the photo is read; the fake provider must have been called before it answers.
+    await waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(1));
     act(() => queue().stopBulk());
     expect(queue().bulk).toMatchObject({ running: true, stopping: true });
     expect(queue().jobs.b).toBeUndefined();
@@ -279,6 +283,8 @@ describe('bulk run', () => {
       queue().startBulk();
     });
     await waitFor(() => expect(queue().jobs.a?.kind).toBe('waiting'));
+    // Waiting is set before the photo is read; the fake provider must have been called before it answers.
+    await waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(1));
     await act(async () => {
       await closet().deleteItems(['b']);
     });
@@ -286,6 +292,8 @@ describe('bulk run', () => {
       answer(goodAnswer());
     });
     await waitFor(() => expect(queue().jobs.c?.kind).toBe('waiting'));
+    // Waiting is set before the photo is read; the fake provider must have been called before it answers.
+    await waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(2));
     expect(queue().bulk).toMatchObject({ analysed: 1, skipped: 1 });
     await act(async () => {
       await closet().setAiSettings({ analysis: { enabled: false, model: '', monthlyCap: 300 } });
@@ -341,6 +349,8 @@ describe('review fixes', () => {
     });
     expect(queue().bulk?.total).toBe(3);
     await waitFor(() => expect(queue().jobs.a?.kind).toBe('waiting'));
+    // Waiting is set before the photo is read; the fake provider must have been called before it answers.
+    await waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(1));
     act(() => {
       expect(queue().analyse('mine', 'kid')).toBeNull();
     });
@@ -395,5 +405,54 @@ describe('review fixes', () => {
       window.dispatchEvent(new Event('online'));
     });
     await waitFor(() => expect(repo.getData().items[0].analysis?.result).toBe('ok'));
+  });
+});
+
+describe('replaced photo', () => {
+  it('sends a replaced photo right away, before the screen has the new closet', async () => {
+    const fetchFn = vi.fn<FetchLike>().mockImplementation(async () => goodAnswer());
+    const { repo } = await setup(closetWithAnalysis([makeItem({ id: 'a', analysis: makeAnalysis() })]), fetchFn);
+    await act(async () => {
+      const image = { blob: new Blob([testPhoto('webp') as BlobPart], { type: 'image/webp' }), ext: 'webp' as const };
+      const saved = await closet().replacePhoto('a', image);
+      // Same tick: the queue's closet still shows the old, analysed photo.
+      expect(queue().analyse('a', 'new', saved)).toBeNull();
+    });
+    await waitFor(() => expect(repo.getData().items[0].analysis?.photoRevision).toBe(1));
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('a photo replaced while the old one is being sent', () => {
+  it('sends the new photo as soon as the old call ends, and keeps only its answer', async () => {
+    const replies: ((r: Response) => void)[] = [];
+    const fetchFn = vi.fn<FetchLike>(() => new Promise<Response>((resolve) => replies.push(resolve)));
+    const { repo } = await setup(closetWithAnalysis([makeItem({ id: 'a' })]), fetchFn);
+    act(() => {
+      queue().analyse('a', 'new');
+    });
+    await waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      const image = { blob: new Blob([testPhoto('webp') as BlobPart], { type: 'image/webp' }), ext: 'webp' as const };
+      const saved = await closet().replacePhoto('a', image);
+      expect(queue().analyse('a', 'new', saved)).toBeNull();
+    });
+    // The old photo's answer arrives and is dropped; the new photo goes out right after.
+    await act(async () => replies[0](goodAnswer({ short_title: 'Old photo' })));
+    await waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(2));
+    await act(async () => replies[1](goodAnswer({ short_title: 'New photo' })));
+    await waitFor(() => expect(repo.getData().items[0].analysis?.photoRevision).toBe(1));
+    const analysis = repo.getData().items[0].analysis;
+    expect(analysis?.result === 'ok' ? analysis.attributes.short_title : null).toBe('New photo');
+  });
+
+  it('never lets a copy from before a restore win over the closet', async () => {
+    const fetchFn = vi.fn<FetchLike>().mockImplementation(async () => goodAnswer());
+    await setup(closetWithAnalysis([makeItem({ id: 'a', photoRevision: 3, analysis: makeAnalysis({ photoRevision: 3 }) })]), fetchFn);
+    // A stale copy two revisions ahead (e.g. kept from before a restore) is ignored: the closet says it's analysed.
+    act(() => {
+      expect(queue().analyse('a', 'new', makeItem({ id: 'a', photoRevision: 5 }))).toBe('done');
+    });
+    expect(fetchFn).not.toHaveBeenCalled();
   });
 });

@@ -13,6 +13,7 @@ import {
   defaultAnalysisSettings,
   defaultDoll,
   dollImagePath,
+  itemImagePath,
   lookImagePath,
   slotOf,
   type AiLook,
@@ -116,6 +117,24 @@ export function setStatus(data: ClosetData, ids: string[], status: ItemStatus, n
  */
 export function isAnalysed(item: Item): boolean {
   return item.analysis !== null && item.analysis.photoRevision === item.photoRevision;
+}
+
+/**
+ * Gives an item a new photo (docs/ai-item-attributes.md §7, PR 4): a new file named after the item
+ * and its next revision, and no analysis, so the AI is asked again. The AI looks that
+ * used the garment show the old photo, so they are marked for the parent in "לוקים לתיקון"; deleting
+ * stays hers to decide.
+ */
+export function replaceItemPhoto(data: ClosetData, id: string, image: string, now: string): ClosetData {
+  const item = data.items.find((it) => it.id === id);
+  if (!item) throw new Error(`Item ${id} not found`);
+  const revision = item.photoRevision + 1;
+  if (image !== itemImagePath(id, revision, 'webp') && image !== itemImagePath(id, revision, 'jpg')) throw new Error(`Bad photo path ${image}`);
+  return {
+    ...data,
+    items: data.items.map((it) => (it.id === id ? { ...it, image, photoRevision: revision, analysis: null, updatedAt: now } : it)),
+    aiLooks: data.aiLooks.map((l) => (l.upperId === id || l.bottomId === id ? { ...l, flagged: true } : l)),
+  };
 }
 
 /** What the parent's bulk run sends: garments she wears that aren't analysed for their current photo. */
@@ -288,17 +307,17 @@ function parseItem(raw: unknown, index: number, version: number): Item {
     throw fail('occasions');
   }
   if (status !== 'active' && status !== 'outgrown') throw fail('status');
-  // Each item owns exactly one photo named after its id, so deleting one item can never remove another's photo.
-  if (!isString(image) || !isSafeImagePath(image) || (image !== `images/${id}.webp` && image !== `images/${id}.jpg`)) {
-    throw fail('image');
-  }
-  if (!isString(createdAt)) throw fail('createdAt');
-  if (!isString(updatedAt)) throw fail('updatedAt');
   let revision = 0;
   if (version >= 5) {
     if (typeof photoRevision !== 'number' || !Number.isInteger(photoRevision) || photoRevision < 0) throw fail('photoRevision');
     revision = photoRevision;
   }
+  // Each item owns exactly one photo named after its id and photo revision, so deleting one item can never remove another's photo.
+  if (!isString(image) || !isSafeImagePath(image) || (image !== itemImagePath(id, revision, 'webp') && image !== itemImagePath(id, revision, 'jpg'))) {
+    throw fail('image');
+  }
+  if (!isString(createdAt)) throw fail('createdAt');
+  if (!isString(updatedAt)) throw fail('updatedAt');
   return {
     id,
     name,
@@ -421,9 +440,13 @@ export function parseCloset(raw: unknown): ClosetData {
   }
   const items = raw.items.map((it, i) => parseItem(it, i, version));
   const ids = new Set<string>();
+  const photos = new Set<string>();
   for (const it of items) {
     if (ids.has(it.id)) throw new InvalidClosetError(`duplicate item id ${it.id}`);
     ids.add(it.id);
+    // Only a hand-made file could do this (item "x" after a replacement and an item "x-r1"); deleting one would remove the other's photo.
+    if (photos.has(it.image)) throw new InvalidClosetError(`duplicate photo ${it.image}`);
+    photos.add(it.image);
   }
   const outfits = raw.outfits.map(parseOutfit).filter((o) => outfitIsValid(o, items));
   const doll = version >= 2 ? parseDoll(raw.doll) : defaultDoll();

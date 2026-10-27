@@ -200,6 +200,15 @@ export function lookImagePath(id: string, ext: 'webp' | 'jpg'): string {
   return `images/look-${id}.${ext}`;
 }
 
+/**
+ * An item's photo: `images/<id>.<ext>` for the first one, `images/<id>-r<n>.<ext>` after the n-th
+ * replacement. A replaced photo is always a new file, so the only copy is never overwritten; the name
+ * still belongs to this item alone (an id never ends in "-r<n>": ids are UUIDs).
+ */
+export function itemImagePath(id: string, revision: number, ext: 'webp' | 'jpg'): string {
+  return revision === 0 ? `images/${id}.${ext}` : `images/${id}-r${revision}.${ext}`;
+}
+
 /** The parent's doll picture is named after the doll's id, like an item's photo. */
 export function dollImagePath(id: string, ext: 'webp' | 'jpg'): string {
   return `images/doll-${id}.${ext}`;

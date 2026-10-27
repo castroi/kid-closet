@@ -5,12 +5,14 @@ import {
   putLook,
   removeItems,
   removeLooks as removeLooksFrom,
+  replaceItemPhoto,
   storedImagePaths,
 } from '../core/closet';
 import {
   defaultDoll,
   dollImagePath,
   emptyCloset,
+  itemImagePath,
   lookImagePath,
   type AiLook,
   type ClosetData,
@@ -271,6 +273,32 @@ export class ClosetRepository {
       const kept = new Set(storedImagePaths(next));
       for (const p of before) if (!kept.has(p)) await this.store.remove(p).catch(() => undefined);
       return look;
+    });
+  }
+
+  /**
+   * Gives an item a new photo and returns the updated item. The new photo is always a new file
+   * (`images/<id>-r<n>.<ext>`), never an overwrite: the file first, then the list, then the old
+   * file, as for the doll. A crash or a failed write leaves the old photo in use and at worst an
+   * orphan, which the next load removes; an old analysis is never kept on a new photo.
+   */
+  replacePhoto(id: string, image: StoredImage): Promise<Item> {
+    return this.locked(async () => {
+      const item = this.data.items.find((it) => it.id === id);
+      if (!item) throw new Error(`Item ${id} not found`);
+      const path = itemImagePath(id, item.photoRevision + 1, image.ext);
+      const next = replaceItemPhoto(this.data, id, path, this.clock());
+      await this.store.write(path, image.blob);
+      let saved: ClosetData;
+      try {
+        saved = await this.persist(next);
+      } catch (err) {
+        // As in setDoll: remove it only when nothing was written; a reported failure may have landed.
+        if (err instanceof ClosetChangedElsewhereError) await this.store.remove(path).catch(() => undefined);
+        throw err;
+      }
+      await this.store.remove(item.image).catch(() => undefined);
+      return saved.items.find((it) => it.id === id)!;
     });
   }
 

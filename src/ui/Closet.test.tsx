@@ -6,13 +6,24 @@ import type { FetchLike } from '../ai/providers';
 import { hebrewDay } from '../core/gallery';
 import type { ClosetData } from '../core/model';
 import { ClosetChangedElsewhereError } from '../storage/repository';
-import { closetWith, makeAnalysis, makeItem, memoryStorage, renderWithCloset, sampleAttributes, sampleCloset } from '../test/fixtures';
+import {
+  closetWith,
+  fakeImageDeps,
+  makeAnalysis,
+  makeItem,
+  makeLook,
+  memoryStorage,
+  renderWithCloset,
+  sampleAttributes,
+  sampleCloset,
+  testPhoto,
+} from '../test/fixtures';
 import { Closet } from './Closet';
 
 describe('Closet', () => {
   it('lists items by category and counts active ones', async () => {
     const user = userEvent.setup();
-    await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} />, sampleCloset());
+    await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} imageDeps={fakeImageDeps()} />, sampleCloset());
     expect(screen.getByText('9 בגדים בארון')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'חולצות (4)' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: 'עריכת חולצה כחולה' })).toBeInTheDocument();
@@ -24,7 +35,7 @@ describe('Closet', () => {
 
   it('moves selected items to outgrown, with undo', async () => {
     const user = userEvent.setup();
-    const { repo } = await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} />, sampleCloset());
+    const { repo } = await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} imageDeps={fakeImageDeps()} />, sampleCloset());
     await user.click(screen.getByRole('button', { name: 'בחירה' }));
     const move = screen.getByRole('button', { name: 'העברה ל"קטן עליי" (0)' });
     expect(move).toBeDisabled();
@@ -42,7 +53,7 @@ describe('Closet', () => {
 
   it('clears the selection when switching tabs', async () => {
     const user = userEvent.setup();
-    await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} />, sampleCloset());
+    await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} imageDeps={fakeImageDeps()} />, sampleCloset());
     await user.click(screen.getByRole('button', { name: 'בחירה' }));
     await user.click(screen.getByRole('button', { name: 'חולצה כחולה' }));
     await user.click(screen.getByRole('button', { name: 'מכנסיים (3)' }));
@@ -53,7 +64,7 @@ describe('Closet', () => {
 
   it('brings items back from outgrown', async () => {
     const user = userEvent.setup();
-    const { repo } = await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} />, sampleCloset());
+    const { repo } = await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} imageDeps={fakeImageDeps()} />, sampleCloset());
     await user.click(screen.getByRole('button', { name: 'קטן עליי (1)' }));
     await user.click(screen.getByRole('button', { name: 'בחירה' }));
     await user.click(screen.getByRole('button', { name: 'חולצה ישנה' }));
@@ -65,7 +76,7 @@ describe('Closet', () => {
 
   it('edits an item', async () => {
     const user = userEvent.setup();
-    const { repo } = await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} />, sampleCloset());
+    const { repo } = await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} imageDeps={fakeImageDeps()} />, sampleCloset());
     await user.click(screen.getByRole('button', { name: 'עריכת חולצה כחולה' }));
     const dialog = within(screen.getByRole('dialog', { name: 'עריכת בגד' }));
     await user.click(dialog.getByRole('button', { name: 'יום רגיל' }));
@@ -83,7 +94,7 @@ describe('Closet', () => {
 
   it('requires at least one occasion when editing', async () => {
     const user = userEvent.setup();
-    await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} />, sampleCloset());
+    await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} imageDeps={fakeImageDeps()} />, sampleCloset());
     await user.click(screen.getByRole('button', { name: 'עריכת חולצה כחולה' }));
     const dialog = within(screen.getByRole('dialog', { name: 'עריכת בגד' }));
     await user.click(dialog.getByRole('button', { name: 'בית ספר' }));
@@ -93,7 +104,7 @@ describe('Closet', () => {
 
   it('marks one item as outgrown from the editor', async () => {
     const user = userEvent.setup();
-    const { repo } = await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} />, sampleCloset());
+    const { repo } = await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} imageDeps={fakeImageDeps()} />, sampleCloset());
     await user.click(screen.getByRole('button', { name: 'עריכת חולצה כחולה' }));
     await user.click(screen.getByRole('button', { name: 'קטן עליי' }));
     expect(repo.getData().items.find((i) => i.id === 'tBlue')?.status).toBe('outgrown');
@@ -102,7 +113,7 @@ describe('Closet', () => {
 
   it('shows a failed "outgrown" inside the editor, where she is looking', async () => {
     const user = userEvent.setup();
-    const { repo } = await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} />, sampleCloset());
+    const { repo } = await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} imageDeps={fakeImageDeps()} />, sampleCloset());
     vi.spyOn(repo, 'update').mockRejectedValueOnce(new Error('disk full'));
     await user.click(screen.getByRole('button', { name: 'עריכת חולצה כחולה' }));
     const dialog = within(screen.getByRole('dialog'));
@@ -118,7 +129,7 @@ describe('Closet', () => {
 
   it('shows a failed move next to the move button', async () => {
     const user = userEvent.setup();
-    const { repo } = await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} />, sampleCloset());
+    const { repo } = await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} imageDeps={fakeImageDeps()} />, sampleCloset());
     vi.spyOn(repo, 'update').mockRejectedValueOnce(new Error('disk full'));
     await user.click(screen.getByRole('button', { name: 'בחירה' }));
     await user.click(screen.getByRole('button', { name: 'חולצה כחולה' }));
@@ -131,7 +142,7 @@ describe('Closet', () => {
 
   it('clears an old error once she moves on', async () => {
     const user = userEvent.setup();
-    const { repo } = await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} />, sampleCloset());
+    const { repo } = await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} imageDeps={fakeImageDeps()} />, sampleCloset());
     const failOnce = () => vi.spyOn(repo, 'update').mockRejectedValueOnce(new Error('disk full'));
 
     failOnce();
@@ -154,7 +165,7 @@ describe('Closet', () => {
 
   it('shows a failed undo next to the undo toast', async () => {
     const user = userEvent.setup();
-    const { repo } = await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} />, sampleCloset());
+    const { repo } = await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} imageDeps={fakeImageDeps()} />, sampleCloset());
     await user.click(screen.getByRole('button', { name: 'עריכת חולצה כחולה' }));
     await user.click(screen.getByRole('button', { name: 'קטן עליי' }));
     await screen.findByText('הועבר ל"קטן עליי" (1)');
@@ -168,7 +179,7 @@ describe('Closet', () => {
 
   it('adds no second message when the "changed in another window" notice explains it', async () => {
     const user = userEvent.setup();
-    const { repo } = await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} />, sampleCloset());
+    const { repo } = await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} imageDeps={fakeImageDeps()} />, sampleCloset());
     vi.spyOn(repo, 'update').mockRejectedValueOnce(new ClosetChangedElsewhereError());
     await user.click(screen.getByRole('button', { name: 'עריכת חולצה כחולה' }));
     await user.click(screen.getByRole('button', { name: 'קטן עליי' }));
@@ -180,7 +191,7 @@ describe('Closet', () => {
     const user = userEvent.setup();
     const onOpenParent = vi.fn();
     const onOpenSettings = vi.fn();
-    await renderWithCloset(<Closet onOpenParent={onOpenParent} onOpenSettings={onOpenSettings} />, sampleCloset());
+    await renderWithCloset(<Closet onOpenParent={onOpenParent} onOpenSettings={onOpenSettings} imageDeps={fakeImageDeps()} />, sampleCloset());
     await user.click(screen.getByRole('button', { name: 'אזור הורים' }));
     expect(onOpenParent).toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: 'הגדרות' }));
@@ -188,7 +199,7 @@ describe('Closet', () => {
   });
 
   it('shows an empty state', async () => {
-    await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} />);
+    await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} imageDeps={fakeImageDeps()} />);
     expect(screen.getByText(/אין עדיין בגדים כאן/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'בחירה' })).toBeDisabled();
   });
@@ -215,7 +226,7 @@ describe('Closet and the AI', () => {
       [`${AI_KEY_PREFIX}venice`]: 'sk-venice-123',
       [AI_ANALYSIS_USAGE_KEY]: JSON.stringify({ month: month(), count: usage }),
     });
-    return renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} />, data, { deviceStorage, fetchFn });
+    return renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} imageDeps={fakeImageDeps()} />, data, { deviceStorage, fetchFn });
   }
 
   it('marks only the garments the AI described, on their current photo, without dimming any photo', async () => {
@@ -244,6 +255,7 @@ describe('Closet and the AI', () => {
     await user.click(screen.getByRole('button', { name: 'עריכת חולצה חדשה' }));
     await user.click(screen.getByRole('button', { name: 'להראות ל־AI' }));
     expect(await screen.findByRole('button', { name: 'ה־AI מסתכל על הבגד…' })).toBeDisabled();
+    await waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(1));
     // While waiting, the card's mark is faded; the photo never is.
     expect(container.querySelector('.card .fav-ai-mark.pending')).not.toBeNull();
     await act(async () => reply(answer()));
@@ -298,7 +310,7 @@ describe('her AI row only speaks for her own tap', () => {
     const deviceStorage = memoryStorage({ [`${AI_KEY_PREFIX}venice`]: 'sk-venice-123' });
     let online = true;
     const fetchFn = vi.fn<FetchLike>().mockResolvedValue(new Response('', { status: 503 }));
-    await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} />, closet, { deviceStorage, fetchFn, isOnline: () => online });
+    await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} imageDeps={fakeImageDeps()} />, closet, { deviceStorage, fetchFn, isOnline: () => online });
     await user.click(screen.getByRole('button', { name: 'עריכת חולצה חדשה' }));
     const sheet = within(screen.getByRole('dialog'));
 
@@ -311,5 +323,74 @@ describe('her AI row only speaks for her own tap', () => {
     await user.click(sheet.getByRole('button', { name: 'לנסות שוב עם ה־AI' }));
     expect(await sheet.findByText('צריך אינטרנט. ננסה שוב כשיהיה.')).toBeInTheDocument();
     expect(sheet.queryByRole('alert')).not.toBeInTheDocument();
+  });
+});
+
+describe('replacing a photo', () => {
+  const webpDeps = () => fakeImageDeps({ encodeWebp: vi.fn().mockResolvedValue(testPhoto('webp').buffer) });
+  const file = () => new File(['raw'], 'new.jpg', { type: 'image/jpeg' });
+
+  it('replaces the photo, says so, and sends it to the AI again when analysis is on', async () => {
+    const user = userEvent.setup();
+    const data = {
+      ...closetWith([makeItem({ id: 'a', name: 'חולצה כחולה', analysis: makeAnalysis() }), makeItem({ id: 'p', name: 'ג׳ינס', type: 'pants' })]),
+      aiLooks: [makeLook({ id: 'l1', upperId: 'a', bottomId: 'p' })],
+    };
+    const closet = { ...data, ai: { ...data.ai, provider: 'venice' as const, analysis: { enabled: true, model: '', monthlyCap: 300 } } };
+    const deviceStorage = memoryStorage({ [`${AI_KEY_PREFIX}venice`]: 'sk-venice-123' });
+    const fetchFn = vi.fn<FetchLike>().mockImplementation(async () =>
+      Response.json({ choices: [{ message: { content: JSON.stringify({ valid_image: true, ...sampleAttributes(), short_title: 'New shirt' }) } }] }),
+    );
+    const { repo } = await renderWithCloset(
+      <Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} imageDeps={webpDeps()} />,
+      closet,
+      { deviceStorage, fetchFn },
+    );
+    await user.click(screen.getByRole('button', { name: 'עריכת חולצה כחולה · ה־AI מכיר' }));
+    const sheet = within(screen.getByRole('dialog'));
+    expect(sheet.getByText('ה־AI כבר מכיר את הבגד הזה')).toBeInTheDocument();
+
+    await user.upload(sheet.getByLabelText('תמונה חדשה מהגלריה'), file());
+    expect(await sheet.findByText('התמונה הוחלפה')).toBeInTheDocument();
+    await waitFor(() => {
+      const analysis = repo.getData().items[0].analysis;
+      expect(analysis?.result === 'ok' ? analysis.attributes.short_title : null).toBe('New shirt');
+    });
+    expect(repo.getData().items[0]).toMatchObject({ photoRevision: 1, analysis: { photoRevision: 1 } });
+    expect(repo.getData().aiLooks[0].flagged).toBe(true);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(await sheet.findByText('ה־AI כבר מכיר את הבגד הזה')).toBeInTheDocument();
+  });
+
+  it('replaces the photo without sending anything while analysis is off', async () => {
+    const user = userEvent.setup();
+    const fetchFn = vi.fn<FetchLike>();
+    const { repo } = await renderWithCloset(
+      <Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} imageDeps={webpDeps()} />,
+      closetWith([makeItem({ id: 'a', name: 'חולצה כחולה' })]),
+      { fetchFn },
+    );
+    await user.click(screen.getByRole('button', { name: 'עריכת חולצה כחולה' }));
+    const sheet = within(screen.getByRole('dialog'));
+    const before = (await sheet.findByRole('img', { name: 'חולצה כחולה' })).getAttribute('src');
+    await user.upload(screen.getByLabelText('צילום תמונה חדשה'), file());
+    expect(await screen.findByText('התמונה הוחלפה')).toBeInTheDocument();
+    expect(repo.getData().items[0].photoRevision).toBe(1);
+    // Same path, new revision: the photo is read again instead of showing the old one.
+    await waitFor(() => expect(sheet.getByRole('img', { name: 'חולצה כחולה' }).getAttribute('src')).not.toBe(before));
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it('says so when the photo cannot be read, and keeps the old one', async () => {
+    const user = userEvent.setup();
+    const deps = fakeImageDeps({ decode: vi.fn().mockRejectedValue(new Error('not a picture')) });
+    const { repo } = await renderWithCloset(
+      <Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} imageDeps={deps} />,
+      closetWith([makeItem({ id: 'a', name: 'חולצה כחולה' })]),
+    );
+    await user.click(screen.getByRole('button', { name: 'עריכת חולצה כחולה' }));
+    await user.upload(screen.getByLabelText('תמונה חדשה מהגלריה'), file());
+    expect(await screen.findByRole('alert')).toHaveTextContent('לא הצלחנו לקרוא את התמונה');
+    expect(repo.getData().items[0].photoRevision).toBe(0);
   });
 });
