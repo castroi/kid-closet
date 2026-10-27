@@ -289,3 +289,27 @@ describe('Closet and the AI', () => {
     expect(within(screen.getByRole('dialog')).queryByRole('button', { name: /AI/ })).not.toBeInTheDocument();
   });
 });
+
+describe('her AI row only speaks for her own tap', () => {
+  it('stays silent about an automatic send that failed, and says when she needs the internet', async () => {
+    const user = userEvent.setup();
+    const data = closetWith([makeItem({ id: 'fresh', name: 'חולצה חדשה' })]);
+    const closet = { ...data, ai: { ...data.ai, provider: 'venice' as const, analysis: { enabled: true, model: '', monthlyCap: 300 } } };
+    const deviceStorage = memoryStorage({ [`${AI_KEY_PREFIX}venice`]: 'sk-venice-123' });
+    let online = true;
+    const fetchFn = vi.fn<FetchLike>().mockResolvedValue(new Response('', { status: 503 }));
+    await renderWithCloset(<Closet onOpenParent={vi.fn()} onOpenSettings={vi.fn()} />, closet, { deviceStorage, fetchFn, isOnline: () => online });
+    await user.click(screen.getByRole('button', { name: 'עריכת חולצה חדשה' }));
+    const sheet = within(screen.getByRole('dialog'));
+
+    // Her own tap fails: one friendly line.
+    await user.click(sheet.getByRole('button', { name: 'להראות ל־AI' }));
+    expect(await sheet.findByRole('alert')).toHaveTextContent('לא הצלחנו הפעם');
+
+    // Offline: no error, just what she needs.
+    online = false;
+    await user.click(sheet.getByRole('button', { name: 'לנסות שוב עם ה־AI' }));
+    expect(await sheet.findByText('צריך אינטרנט. ננסה שוב כשיהיה.')).toBeInTheDocument();
+    expect(sheet.queryByRole('alert')).not.toBeInTheDocument();
+  });
+});

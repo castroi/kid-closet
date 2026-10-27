@@ -198,7 +198,7 @@ describe('sending existing clothes (bulk)', () => {
     const user = userEvent.setup();
     const fetchFn = vi.fn<FetchLike>().mockImplementation(async () => goodAnswer());
     const { repo, panel } = await renderBulk(fetchFn);
-    expect(panel.getByText('1 מזוהים · תמונה אחת לא ברורה')).toBeInTheDocument();
+    expect(panel.getByText('בגד אחד מזוהה · תמונה אחת לא ברורה')).toBeInTheDocument();
     await user.click(panel.getByRole('button', { name: 'לשלוח 2 בגדים לזיהוי' }));
 
     const sheet = within(screen.getByRole('dialog', { name: 'לשלוח 2 תמונות בגדים ל־AI?' }));
@@ -239,7 +239,7 @@ describe('sending existing clothes (bulk)', () => {
     await user.click(panel.getByRole('button', { name: 'עצירה' }));
     expect(panel.getByRole('button', { name: 'עוצר אחרי הבגד הנוכחי…' })).toBeDisabled();
     await act(async () => reply(goodAnswer()));
-    expect(await panel.findByText('1 זוהו')).toBeInTheDocument();
+    expect(await panel.findByText('בגד אחד זוהה')).toBeInTheDocument();
     expect(fetchFn).toHaveBeenCalledTimes(1);
   });
 
@@ -249,7 +249,7 @@ describe('sending existing clothes (bulk)', () => {
     const { panel } = await renderBulk(fetchFn);
     await user.click(panel.getByRole('button', { name: 'לשלוח 2 בגדים לזיהוי' }));
     await user.click(screen.getByRole('button', { name: 'כן, לשלוח' }));
-    expect(await panel.findByText('0 זוהו · 1 נכשלו')).toBeInTheDocument();
+    expect(await panel.findByText('0 זוהו · אחד נכשל')).toBeInTheDocument();
     expect(panel.getByText(/הריצה נעצרה: נגמר הקרדיט/)).toBeInTheDocument();
     const failure = panel.getByText(/חולצה א: נגמר הקרדיט/);
     expect(within(failure).getByText('402 Insufficient credits')).toHaveAttribute('dir', 'ltr');
@@ -270,5 +270,21 @@ describe('sending existing clothes (bulk)', () => {
       { deviceStorage: storage },
     );
     expect(screen.getByText('זיהוי בגדים החודש').nextElementSibling).toHaveTextContent('12 מתוך 300');
+  });
+});
+
+describe('Hebrew counts', () => {
+  it('uses the singular for one garment', async () => {
+    const user = userEvent.setup();
+    const data = closetWith([makeItem({ id: 'k', analysis: makeAnalysis() }), makeItem({ id: 'a', name: 'חולצה א' })]);
+    const closet = { ...data, ai: { ...data.ai, provider: 'openrouter' as const, analysis: { enabled: true, model: '', monthlyCap: 300 } } };
+    const deviceStorage = withKey();
+    const fetchFn = vi.fn<FetchLike>().mockImplementation(async () => goodAnswer());
+    await renderWithCloset(<AiSettingsScreen deviceStorage={deviceStorage} imageDeps={fakeImageDeps()} />, closet, { deviceStorage, fetchFn });
+    const panel = within(screen.getByRole('region', { name: 'זיהוי בגדים' }));
+    expect(panel.getByText('בגד אחד מזוהה')).toBeInTheDocument();
+    await user.click(panel.getByRole('button', { name: 'לשלוח בגד אחד לזיהוי' }));
+    await user.click(screen.getByRole('button', { name: 'כן, לשלוח' }));
+    expect(await panel.findByText('בגד אחד זוהה')).toBeInTheDocument();
   });
 });

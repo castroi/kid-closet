@@ -239,8 +239,8 @@ function BulkSection({ deviceStorage, now }: { deviceStorage: DeviceStorage; now
   const left = Math.max(0, data.ai.analysis.monthlyCap - readAnalysisUse(deviceStorage, now()));
   const ready = queue.isReady();
 
-  const counts = [`${known} מזוהים`];
-  if (failedNow > 0) counts.push(`${failedNow} נכשלו`);
+  const counts = [known === 1 ? 'בגד אחד מזוהה' : `${known} מזוהים`];
+  if (failedNow > 0) counts.push(failedNow === 1 ? 'אחד נכשל' : `${failedNow} נכשלו`);
   if (unclear > 0) counts.push(unclear === 1 ? 'תמונה אחת לא ברורה' : `${unclear} תמונות לא ברורות`);
 
   const start = () => {
@@ -341,7 +341,8 @@ function BulkSummary({ run, onClose }: { run: BulkRun; onClose: () => void }) {
   return (
     <div className="bulk-summary" role="status">
       <p>
-        {run.analysed} זוהו{run.failed.length > 0 ? ` · ${run.failed.length} נכשלו` : ''}
+        {run.analysed === 1 ? 'בגד אחד זוהה' : `${run.analysed} זוהו`}
+        {run.failed.length === 1 ? ' · אחד נכשל' : run.failed.length > 1 ? ` · ${run.failed.length} נכשלו` : ''}
       </p>
       {run.stoppedBy !== null && <p className="error">{stopReasonText(run.stoppedBy)}</p>}
       {run.failed.length > 0 && (

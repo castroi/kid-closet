@@ -71,7 +71,7 @@ export function AiPanel({
         {status}
       </div>
       <div className="kv">
-        <span className="muted">השימוש החודש</span>
+        <span className="muted">בובות החודש</span>
         <span>
           {used} מתוך {monthlyCap} · מתאפס ב־{formatDay(nextResetDate(now))}
         </span>
@@ -79,7 +79,7 @@ export function AiPanel({
       <div
         className="usage-bar"
         role="progressbar"
-        aria-label="השימוש החודש"
+        aria-label="בובות החודש"
         aria-valuemin={0}
         aria-valuemax={Math.max(1, monthlyCap)}
         aria-valuenow={monthlyCap === 0 ? 1 : Math.min(used, monthlyCap)}

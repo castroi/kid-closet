@@ -152,7 +152,7 @@ describe('ItemAnalysisProvider', () => {
     act(() => {
       queue().analyse('a', 'new');
     });
-    await waitFor(() => expect(queue().jobs).toEqual({}));
+    await waitFor(() => expect(queue().jobs.a).toMatchObject({ kind: 'failed', source: 'new', error: { reason: 'network' } }));
     expect(fetchFn).not.toHaveBeenCalled();
     online = true;
     act(() => {
@@ -327,5 +327,73 @@ describe('bulk run next to her own request', () => {
     }
     await waitFor(() => expect(queue().bulk?.running).toBe(false));
     expect(queue().bulk).toMatchObject({ total: 1, analysed: 1, skipped: 0, failed: [] });
+  });
+});
+
+describe('review fixes', () => {
+  it('puts her request ahead of a running bulk run', async () => {
+    const replies: ((r: Response) => void)[] = [];
+    const fetchFn = vi.fn<FetchLike>(() => new Promise<Response>((resolve) => replies.push(resolve)));
+    // An outgrown garment isn't part of a bulk run, but she can still show it to the AI herself.
+    await setup(closetWithAnalysis([makeItem({ id: 'a' }), makeItem({ id: 'b' }), makeItem({ id: 'c' }), makeItem({ id: 'mine', status: 'outgrown' })]), fetchFn);
+    act(() => {
+      expect(queue().startBulk()).toBeNull();
+    });
+    expect(queue().bulk?.total).toBe(3);
+    await waitFor(() => expect(queue().jobs.a?.kind).toBe('waiting'));
+    act(() => {
+      expect(queue().analyse('mine', 'kid')).toBeNull();
+    });
+    await act(async () => replies[0](goodAnswer()));
+    await waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(2));
+    // The second call is hers, ahead of b and c.
+    expect(queue().jobs.mine?.kind).toBe('waiting');
+    expect(queue().jobs.b?.kind).toBe('queued');
+  });
+
+  it('keeps who asked on a failure, so only her resend shows her an error', async () => {
+    const fetchFn = vi.fn<FetchLike>().mockImplementation(async () => new Response('', { status: 503 }));
+    await setup(closetWithAnalysis(), fetchFn);
+    act(() => {
+      queue().analyse('a', 'new');
+      queue().analyse('b', 'kid');
+    });
+    await waitFor(() => expect(queue().jobs.b?.kind).toBe('failed'));
+    expect(queue().jobs.a).toMatchObject({ kind: 'failed', source: 'new' });
+    expect(queue().jobs.b).toMatchObject({ kind: 'failed', source: 'kid' });
+  });
+
+  it('records why a run stopped even when the last garment hit it', async () => {
+    const fetchFn = vi.fn<FetchLike>().mockResolvedValueOnce(goodAnswer()).mockResolvedValue(new Response('', { status: 401 }));
+    await setup(closetWithAnalysis(), fetchFn);
+    act(() => {
+      queue().startBulk();
+    });
+    await waitFor(() => expect(queue().bulk?.running).toBe(false));
+    expect(queue().bulk).toMatchObject({ analysed: 1, failed: [{ id: 'b' }], stoppedBy: { reason: 'unauthorized' } });
+  });
+
+  it('stops a run when there is no answer at all (offline or CORS) while the phone says it is online', async () => {
+    const fetchFn = vi.fn<FetchLike>().mockRejectedValue(new TypeError('Load failed'));
+    await setup(closetWithAnalysis([makeItem({ id: 'a' }), makeItem({ id: 'b' }), makeItem({ id: 'c' })]), fetchFn);
+    act(() => {
+      queue().startBulk();
+    });
+    await waitFor(() => expect(queue().bulk?.running).toBe(false));
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(queue().bulk?.stoppedBy).toMatchObject({ reason: 'network' });
+  });
+
+  it('sends her garment again on the "online" event after a call that got no answer', async () => {
+    const fetchFn = vi.fn<FetchLike>().mockRejectedValueOnce(new TypeError('Load failed')).mockImplementation(async () => goodAnswer());
+    const { repo } = await setup(closetWithAnalysis(), fetchFn);
+    act(() => {
+      queue().analyse('a', 'kid');
+    });
+    await waitFor(() => expect(queue().jobs.a).toMatchObject({ kind: 'failed', error: { reason: 'network' } }));
+    act(() => {
+      window.dispatchEvent(new Event('online'));
+    });
+    await waitFor(() => expect(repo.getData().items[0].analysis?.result).toBe('ok'));
   });
 });

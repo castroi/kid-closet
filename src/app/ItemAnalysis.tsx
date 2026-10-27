@@ -16,7 +16,8 @@ import { useCloset } from './ClosetContext';
 /** Where a request came from: decides what is skipped and who sees a failure. */
 export type AnalysisSource = 'new' | 'kid' | 'bulk';
 
-export type AnalysisJob = { kind: 'queued' } | { kind: 'waiting' } | { kind: 'failed'; error: unknown };
+/** `source` on a failure: only her own resend shows her an error (docs/ai-item-attributes.md §7). */
+export type AnalysisJob = { kind: 'queued' } | { kind: 'waiting' } | { kind: 'failed'; error: unknown; source: AnalysisSource };
 
 /** Why nothing was queued. */
 export type AnalyseRefusal = 'not-ready' | 'busy' | 'done' | 'cap';
@@ -69,9 +70,14 @@ export function useItemAnalysis(): ItemAnalysisApi {
   return api;
 }
 
-/** A failure every later item would hit too, so a bulk run stops at once. */
+/** A failure every later item would hit too, so a bulk run stops at once (no answer at all, e.g. CORS, included). */
 function stopsTheRun(err: unknown): boolean {
-  return err instanceof AiError && ['unauthorized', 'no-credit', 'rate-limited'].includes(err.reason);
+  return err instanceof AiError && ['unauthorized', 'no-credit', 'rate-limited', 'network'].includes(err.reason);
+}
+
+/** No answer at all: worth trying again by itself once the phone is (back) online. */
+function noAnswer(err: unknown): boolean {
+  return err instanceof AiError && err.reason === 'network';
 }
 
 /** The cap was reached while items were waiting. */
@@ -147,7 +153,7 @@ export function ItemAnalysisProvider({ deviceStorage, children, now = defaultNow
   }, []);
 
   const finishBulkItem = useCallback(
-    (id: string, outcome: 'analysed' | 'skipped' | { error: unknown }) => {
+    (id: string, outcome: 'analysed' | 'skipped' | { error: unknown }, stop?: unknown) => {
       const run = bulkRef.current;
       if (!run?.running) return;
       const next: BulkRun =
@@ -156,10 +162,18 @@ export function ItemAnalysisProvider({ deviceStorage, children, now = defaultNow
           : outcome === 'skipped'
             ? { ...run, skipped: run.skipped + 1 }
             : { ...run, failed: [...run.failed, { id, error: outcome.error }] };
+      if (stop !== undefined) {
+        // Every later item would fail the same way: drop them, and keep why, even after the last item.
+        const dropped = queue.current.filter((q) => q.source === 'bulk');
+        queue.current = queue.current.filter((q) => q.source !== 'bulk');
+        for (const q of dropped) setJob(q.id, null);
+        setBulk({ ...next, running: false, stopping: false, stoppedBy: stop });
+        return;
+      }
       const left = queue.current.some((q) => q.source === 'bulk');
       setBulk(left ? next : { ...next, running: false, stopping: false });
     },
-    [setBulk],
+    [setBulk, setJob],
   );
 
   /** Ends a bulk run early: nothing new starts, and why is kept for the summary. */
@@ -196,15 +210,19 @@ export function ItemAnalysisProvider({ deviceStorage, children, now = defaultNow
           continue;
         }
         if (monthlyUse() >= closet.ai.analysis.monthlyCap) {
-          setJob(id, source === 'kid' ? { kind: 'failed', error: new AnalysisCapReached() } : null);
+          setJob(id, source === 'kid' ? { kind: 'failed', error: new AnalysisCapReached(), source } : null);
           if (source === 'bulk') endBulk(new AnalysisCapReached());
           continue;
         }
         if (!isOnline()) {
           // Costs nothing to try again later: her items go out on the "online" event; the parent restarts a run.
-          setJob(id, null);
-          if (source === 'bulk') endBulk(new AiError('network', 'offline'));
-          else offline.current.set(id, source);
+          if (source === 'bulk') {
+            setJob(id, null);
+            endBulk(new AiError('network', 'offline'));
+          } else {
+            offline.current.set(id, source);
+            setJob(id, { kind: 'failed', error: new AiError('network', 'offline'), source });
+          }
           continue;
         }
         setJob(id, { kind: 'waiting' });
@@ -232,11 +250,10 @@ export function ItemAnalysisProvider({ deviceStorage, children, now = defaultNow
           setJob(id, null);
           if (source === 'bulk') finishBulkItem(id, 'analysed');
         } catch (error) {
-          setJob(id, { kind: 'failed', error });
-          if (source === 'bulk') {
-            finishBulkItem(id, { error });
-            if (stopsTheRun(error)) endBulk(error);
-          }
+          setJob(id, { kind: 'failed', error, source });
+          if (source === 'bulk') finishBulkItem(id, { error }, stopsTheRun(error) ? error : undefined);
+          // No answer at all costs nothing: her items go out again when the phone is back online.
+          else if (noAnswer(error)) offline.current.set(id, source);
         }
         if (bulkRef.current?.stopping && !queue.current.some((q) => q.source === 'bulk')) {
           setBulk({ ...bulkRef.current, running: false, stopping: false });
@@ -250,7 +267,10 @@ export function ItemAnalysisProvider({ deviceStorage, children, now = defaultNow
   const enqueue = useCallback(
     (id: string, source: AnalysisSource, item?: Item) => {
       if (queue.current.some((q) => q.id === id) || jobsRef.current[id]?.kind === 'waiting') return;
-      queue.current.push({ id, source, item });
+      // Her own requests go ahead of a running bulk run, so she never waits behind the whole closet.
+      const firstBulk = queue.current.findIndex((q) => q.source === 'bulk');
+      if (source !== 'bulk' && firstBulk >= 0) queue.current.splice(firstBulk, 0, { id, source, item });
+      else queue.current.push({ id, source, item });
       setJob(id, { kind: 'queued' });
       void work();
     },

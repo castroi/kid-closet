@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { nextResetDate } from '../app/aiDevice';
 import { useCloset } from '../app/ClosetContext';
 import { AnalysisCapReached, useItemAnalysis } from '../app/ItemAnalysis';
+import { AiError } from '../ai/providers';
 import { isAnalysed } from '../core/closet';
 import { hebrewDay } from '../core/gallery';
 import { OCCASION_LABEL, SLOTS, slotOf, type Item, type ItemStatus, type Slot } from '../core/model';
@@ -319,11 +320,15 @@ function AiRow({ item }: { item: Item }) {
   const invalid = item.analysis?.result === 'invalid-photo' && isAnalysed(item);
   const failed = job?.kind === 'failed';
   const waiting = job !== undefined && !failed;
+  // Only her own resend tells her it failed; an automatic or parent's send stays silent for her.
+  const hers = failed && job.source === 'kid';
+  const offline = hers && job.error instanceof AiError && job.error.reason === 'network';
 
   return (
     <div className="ai-action">
       {invalid && <p className="muted">ה־AI לא הצליח לזהות את הבגד בתמונה. כדאי לצלם על רקע חלק ובהיר.</p>}
-      {failed && !(job.error instanceof AnalysisCapReached) && (
+      {offline && <p className="muted">צריך אינטרנט. ננסה שוב כשיהיה.</p>}
+      {hers && !offline && !(job.error instanceof AnalysisCapReached) && (
         <p className="error" role="alert">
           לא הצלחנו הפעם. נסי שוב אחר כך.
         </p>
@@ -335,7 +340,7 @@ function AiRow({ item }: { item: Item }) {
         onClick={() => analysis.analyse(item.id, 'kid')}
       >
         <Icon name="sparkle" />
-        {waiting ? 'ה־AI מסתכל על הבגד…' : invalid || failed ? 'לנסות שוב עם ה־AI' : 'להראות ל־AI'}
+        {waiting ? 'ה־AI מסתכל על הבגד…' : invalid || hers ? 'לנסות שוב עם ה־AI' : 'להראות ל־AI'}
       </button>
       {atCap && !waiting && <p className="muted ai-caption">אפשר לנסות שוב ב־{hebrewDay(nextResetDate(now))}</p>}
     </div>
