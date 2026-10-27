@@ -36,8 +36,8 @@ export function typeFromAttributes(a: ItemAttributes): ItemType | null {
   }
 }
 
-/** Whole words only, so "colored" is never red and "tangerine" never tan. */
-const words = (...list: string[]) => new RegExp(`\\b(?:${list.join('|')})\\b`, 'i');
+/** Whole words only, so "colored" is never red and "tangerine" never tan; "pinkish" still counts as pink. */
+const words = (...list: string[]) => new RegExp(`\\b(?:${list.join('|')})(?:ish)?\\b`, 'i');
 
 /** A print in many colours, whatever its busyness: what she calls "צבעוני". */
 const MULTI_WORDS = words('multi-?colou?r(?:ed)?', 'rainbow', 'colou?rful', 'tie-?dye', 'patchwork');
@@ -45,13 +45,13 @@ const MULTI_WORDS = words('multi-?colou?r(?:ed)?', 'rainbow', 'colou?rful', 'tie
 /** Colour words the model may use, to her 12 groups. Checked in order, so "light blue" is blue and "off-white" white. */
 const COLOR_WORDS: [RegExp, ColorGroup][] = [
   [words('black', 'charcoal', 'jet'), 'black'],
-  [words('white', 'ivory', 'off-?white', 'snow'), 'white'],
+  [words('white', 'whitish', 'ivory', 'off-?white', 'snow'), 'white'],
   [words('gr[ae]y', 'silver', 'graphite'), 'gray'],
-  [words('navy', 'blue', 'denim', 'indigo', 'azure', 'cobalt', 'sky', 'turquoise', 'aqua', 'cyan'), 'blue'],
+  [words('navy', 'blue', 'bluish', 'denim', 'indigo', 'azure', 'cobalt', 'sky', 'turquoise', 'aqua', 'cyan'), 'blue'],
   [words('pink', 'rose', 'fuchsia', 'magenta', 'blush', 'salmon', 'coral'), 'pink'],
-  [words('red', 'burgundy', 'maroon', 'crimson', 'wine', 'cherry'), 'red'],
+  [words('red', 'reddish', 'burgundy', 'maroon', 'crimson', 'wine', 'cherry'), 'red'],
   [words('green', 'olive', 'mint', 'lime', 'emerald', 'sage', 'teal', 'forest'), 'green'],
-  [words('purple', 'violet', 'lavender', 'lilac', 'plum', 'mauve'), 'purple'],
+  [words('purple', 'purplish', 'violet', 'lavender', 'lilac', 'plum', 'mauve'), 'purple'],
   [words('yellow', 'gold', 'golden', 'mustard', 'lemon', 'orange', 'tangerine', 'peach', 'apricot'), 'yellow'],
   [words('beige', 'tan', 'khaki', 'cream', 'sand', 'camel', 'nude', 'oatmeal'), 'beige'],
   [words('brown', 'chocolate', 'coffee', 'rust', 'copper', 'bronze'), 'brown'],

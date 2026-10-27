@@ -57,6 +57,13 @@ describe('prefillFromAttributes', () => {
     ['tangerine', 'yellow'],
     ['cream-colored', 'beige'],
     ['golden', 'yellow'],
+    ['bluish', 'blue'],
+    ['reddish', 'red'],
+    ['greyish', 'gray'],
+    ['pinkish', 'pink'],
+    ['greenish', 'green'],
+    ['purplish', 'purple'],
+    ['whitish', 'white'],
   ] as const)('maps the colour word "%s" to %s', (primary_color, group) => {
     expect(colorFromAttributes(attrs({ primary_color, busyness: 'low' }))).toBe(group);
   });
