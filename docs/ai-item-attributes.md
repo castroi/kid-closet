@@ -28,15 +28,20 @@ Each garment photo is sent once to a vision AI model, which describes it in a fi
 | # | Question | Proposal |
 |---|---|---|
 | 1 | Do the providers allow `chat/completions` calls from a web page (CORS)? | **Left to the owner after PR 2:** "בדיקת זיהוי" with a real key on her iPhone, as for the doll looks. |
-| 2 | Does DeepSeek V4.1 Flash enforce `response_format` with `json_schema`? | Venice's model page mentions structured JSON output without detail; OpenRouter's page doesn't say. PR 2 sends the schema with `strict: true` and validates the answer anyway. If a provider rejects the parameter, send without it and rely on the prompt plus validation. Confirm with the first real call. |
-| 3 | Do provider-specific request options apply? | Venice may need its own system prompt turned off; OpenRouter may need `provider.require_parameters`. Checked against each provider's docs in PR 2, not assumed here. |
+| 2 | Does DeepSeek V4.1 Flash enforce `response_format` with `json_schema`? | OpenRouter's model page says it accepts images and supports a JSON schema in `response_format`, though support can vary by upstream provider, so PR 2 also sets `provider.require_parameters`. Venice's model page mentions structured JSON output without detail. PR 2 sends the schema with `strict: true` and validates the answer anyway. If a provider rejects the parameter, send without it and rely on the prompt plus validation. Confirm with the first real call. |
+| 3 | Do provider-specific request options apply? | Venice may need its own system prompt turned off. Checked against Venice's docs in PR 2, not assumed here. |
 | 4 | Replacing a photo (PR 4): what happens to that item's AI doll looks? | They show the old garment. Proposal: ask the parent whether to delete them, like the doll-change question. Decide in PR 4. |
 
 ## 4. Privacy and security changes
 
 - **CSP** (`vercel.json`): `connect-src` adds exactly two URLs, `https://api.venice.ai/api/v1/chat/completions` and `https://openrouter.ai/api/v1/chat/completions`. `securityHeaders.test.ts` checks the list against `src/ai/catalog.ts`.
 - **Sent data:** the photo (metadata stripped again by `stripPhotoMetadata()` right before sending) and the prompt. Nothing else.
-- **Docs:** README "How data is stored", the `CLAUDE.md` platform table and the status text in the parent's AI panel say that, when the parent turns it on, garment photos are sent to the provider automatically and in bulk.
+- **Docs and code comments that PR 2 updates**, because each one describes today's endpoints or behaviour:
+  - README "How data is stored", and the status text in the parent's AI panel: when the parent turns it on, garment photos are sent to the provider automatically and in bulk
+  - `CLAUDE.md` rows: the CSP row ("one for a look, one for the key check"), the provider-calls row ("checks the answer is a picture"), the AI-settings row (the new `analysis` settings and the second usage counter)
+  - `docs/ai-doll-look.md` §4, which says `connect-src` lists four exact URLs and nothing else
+  - the `endpoints` comment in `src/ai/catalog.ts`
+  - `src/app/securityHeaders.test.ts`, which lists `look` and `check` and must add `analyze`
 - **Answer size cap:** the answer is text; anything over 64 KB is refused before parsing.
 
 ## 5. Data model
@@ -199,7 +204,7 @@ Reviewed by the UI/UX agent (2026-10-27). All existing UX rules apply: Hebrew RT
 
 **Auto-analysis after adding**
 - The add flow doesn't change: "נשמר בארון" with "לארון", no extra toast.
-- Offline: nothing is sent; the session's items are retried on the `online` event.
+- Offline: nothing is sent; the session's items are retried on the `online` event. An item added offline whose app is closed before the phone reconnects is not retried automatically; her resend or the parent's bulk run covers it.
 - Failures are silent for her; the parent sees the reason. No automatic retry after a counted failure.
 - Its own one-at-a-time queue in shared state (like `src/app/AiLooks.tsx`), separate from the doll queue, so analysis never delays a doll she is waiting for.
 
@@ -213,6 +218,7 @@ Reviewed by the UI/UX agent (2026-10-27). All existing UX rules apply: Hebrew RT
 
 **Parent: "הגדרות AI" → new section "זיהוי בגדים"**
 - Switch to turn it on, model field (placeholder = the provider's default), monthly cap (default 300), counts ("38 מזוהים · 2 נכשלו · 1 תמונה לא ברורה").
+- **"בדיקת זיהוי"** checks the whole path (CORS, key, model, schema) before any of her photos leave the phone: it sends a bundled sample garment photo (`src/assets/sample-garment.webp`, pre-cached by the service worker like the default doll), never one of hers, and works with the switch still off. On success it shows the answer's `short_title` ("הזיהוי עובד · Blue striped t-shirt"); on failure, the reason from `src/ui/aiErrors.ts`. It counts toward the analysis cap, because it is paid.
 - Button "לשלוח N בגדים לזיהוי" (not analysed, not outgrown).
 - Confirmation sheet like the delete flow in `Parent.tsx`: "לשלוח N תמונות בגדים ל־AI?" / "כל בגד = בקשה אחת. נשארו החודש: M." A cost estimate only when the catalog has a confirmed price, in ISO currency format (USD); never guessed.
 - Progress: a determinate `.usage-bar`, "נשלחו 12 מתוך 47". It keeps running when she leaves the parent area.
@@ -232,7 +238,7 @@ Each PR follows `CLAUDE.md`: branch from `main`, draft PR, review agent, fixes a
 |---|---|---|---|
 | 0 | `docs/ai-item-attributes` | This plan, `CLAUDE.md` pointer | — |
 | 1 | `feat/item-attributes-model` | Schema v5 and migration, types and enums, validation on load, the prompt and JSON schema as constants, strict parser of the AI answer, `photoRevision` on items. No UI, no network. | 0 |
-| 2 | `feat/ai-analyze-provider` | `analyze` endpoint and default model in the catalog, CSP, `analyzeItem` in both adapters, `requestAttributes` in `send.ts`, analysis usage counter, "זיהוי בגדים" settings (switch, model, cap) and "בדיקת זיהוי", privacy text in README / `CLAUDE.md` / AI panel | 1 |
+| 2 | `feat/ai-analyze-provider` | `analyze` endpoint and default model in the catalog, CSP, `analyzeItem` in both adapters, `requestAttributes` in `send.ts`, analysis usage counter, "זיהוי בגדים" settings (switch, model, cap) and "בדיקת זיהוי" with the bundled sample photo, the docs and comments listed in §4, privacy text in README / `CLAUDE.md` / AI panel | 1 |
 | 3 | `feat/analyze-items` | Analysis queue in shared state, auto-analysis after adding, retry on `online`, kid's resend, sparkle mark, parent bulk run with confirmation, progress, stop and summary, panel usage line | 2 |
 | 4 | `feat/replace-item-photo` | "החלפת תמונה" in the edit sheet, `photoRevision` raised and `analysis` cleared in one write, image cache key with the revision, the decision on that item's doll looks (§3.4) | 3 |
 | 5 | `feat/item-attributes-view` (later) | Parent sees and corrects an item's attributes | 3 |
@@ -256,9 +262,16 @@ Coverage thresholds stay: 80 % lines/statements/functions, 75 % branches.
 - `stripPhotoMetadata()` runs on the photo before sending.
 - 401, 402, 429, 5xx, refusal, timeout, a broken answer → the right reason; the key never appears in errors.
 
+**Storage and backup**
+- A backup round trip keeps every analysis and its `photoRevision`, so no item looks unanalysed after a restore.
+- The analysis counter is device-only and never in the backup.
+
 **Queue and UI**
 - Auto-analysis after adding only when on and online; one call at a time; nothing sent when off.
 - Resend shown only when not done; disabled while waiting and at the cap.
 - Bulk run skips analysed and outgrown items, counts usage, stops on 401/402/429 and on "עצירה" after the current item.
 - The mark shows only for done items; garment photos are never dimmed.
-- The CSP list matches the catalog's endpoints.
+- A late answer is dropped when the item was deleted or its photo replaced while the call ran, and still counts.
+- Analysis uses only its own counter and cap; the dolls' count and countdown never change.
+- "בדיקת זיהוי" sends the bundled sample, never one of her photos, works with the switch off, and counts toward the analysis cap.
+- The CSP list matches the catalog's endpoints, including `analyze`.
