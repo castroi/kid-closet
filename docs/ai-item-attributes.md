@@ -137,13 +137,16 @@ and return ONLY a JSON object that follows the schema below. No extra text.
 RULES
 - Describe only the clothing item. Never describe a person, face, body
   or background, even if visible.
-- Use ONLY the allowed values listed for each enum field. If nothing fits,
-  use "other" and explain in "notes".
-- If something is not visible or you are unsure, use null. Do not guess.
+- Use ONLY the allowed values listed for each enum field. For "category",
+  "pattern" and "material_guess", use "other" when nothing fits and explain
+  in "notes". For every other enum field, pick the closest value.
+- Fields marked "| null" may be null when the detail is not visible or you
+  are unsure. Fields without "| null" always need your best estimate.
 - Colors: judge the true fabric color, correcting for lighting and shadows.
   Name colors with simple words a child understands.
 - If the photo contains no clothing item, or more than one item, set
-  "valid_image" to false and explain in "notes".
+  "valid_image" to false, explain in "notes", and still fill every other
+  field with your best guess (it will be ignored).
 
 SCHEMA
 {
@@ -179,6 +182,8 @@ SCHEMA
   "notes": string | null
 }
 ```
+
+When `valid_image` is false the answer is stored as `invalid-photo` with its `notes` only; the other fields are not validated.
 
 The prompt is built in; the parent can't edit it, because the code validates against its schema. A change to it raises `promptVersion`.
 
