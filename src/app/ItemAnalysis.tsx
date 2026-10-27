@@ -2,7 +2,9 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { AiError, countsTowardCap, type FetchLike } from '../ai/providers';
 import { requestAttributes, type AttributesResponse } from '../ai/send';
 import { isAnalysed, itemsToAnalyse } from '../core/closet';
+import type { AnalysisMeta, AnalysisResult } from '../core/attributes';
 import type { Item } from '../core/model';
+import type { StoredImage } from '../storage/repository';
 import { blobToBytes } from '../storage/fileStore';
 import { analysisReady, readAnalysisUse, readApiKey, recordAnalysisUse, type DeviceStorage } from './aiDevice';
 import { useCloset } from './ClosetContext';
@@ -60,7 +62,17 @@ export interface ItemAnalysisApi {
   clearBulk(): void;
   /** Counts one analysis made elsewhere ("בדיקת זיהוי"). */
   countUse(): void;
+  /**
+   * Describes a photo she just picked on the add screen, before there is a garment (decision 13).
+   * Sent at once, not behind the queue, because she is waiting on the form. Resolves to null when
+   * nothing was sent (analysis off, no key, offline, at the cap); rejects with the AiError when
+   * the call failed. Counts like any analysis.
+   */
+  describePhoto(image: StoredImage): Promise<PhotoDescription | null>;
 }
+
+/** What the AI said about a photo not yet saved; the garment's photoRevision is added when it is stored. */
+export type PhotoDescription = AnalysisResult & Omit<AnalysisMeta, 'photoRevision'>;
 
 const ItemAnalysisContext = createContext<ItemAnalysisApi | null>(null);
 
@@ -366,6 +378,27 @@ export function ItemAnalysisProvider({ deviceStorage, children, now = defaultNow
     return () => window.removeEventListener('online', onOnline);
   }, [analyse]);
 
+  const describePhoto = useCallback(
+    async (image: StoredImage): Promise<PhotoDescription | null> => {
+      const closet = dataRef.current;
+      const provider = closet.ai.provider;
+      const apiKey = provider ? readApiKey(deviceStorage, provider) : null;
+      if (!provider || !apiKey || !analysisReady(closet.ai, deviceStorage)) return null;
+      if (!isOnline() || monthlyUse() >= closet.ai.analysis.monthlyCap) return null;
+      const photo = { bytes: await blobToBytes(image.blob), ext: image.ext };
+      let response: AttributesResponse;
+      try {
+        response = await requestAttributes({ provider, settings: closet.ai, apiKey, photo, fetch: fetchFn });
+      } catch (err) {
+        if (countsTowardCap(err)) countUse();
+        throw err;
+      }
+      countUse();
+      return { ...response.analysis, provider, model: response.model, promptVersion: response.promptVersion, analyzedAt: now().toISOString() };
+    },
+    [deviceStorage, fetchFn, isOnline, monthlyUse, countUse, now],
+  );
+
   const api = useMemo<ItemAnalysisApi>(
     () => ({
       isReady: () => analysisReady(data.ai, deviceStorage),
@@ -378,8 +411,9 @@ export function ItemAnalysisProvider({ deviceStorage, children, now = defaultNow
       stopBulk,
       clearBulk: () => setBulk(null),
       countUse,
+      describePhoto,
     }),
-    [data.ai, deviceStorage, monthlyUse, usageVersion, jobs, analyse, bulk, startBulk, stopBulk, setBulk, countUse],
+    [data.ai, deviceStorage, monthlyUse, usageVersion, jobs, analyse, bulk, startBulk, stopBulk, setBulk, countUse, describePhoto],
   );
 
   return <ItemAnalysisContext.Provider value={api}>{children}</ItemAnalysisContext.Provider>;

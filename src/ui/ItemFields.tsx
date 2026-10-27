@@ -10,7 +10,7 @@ import {
   type ItemType,
   type Occasion,
 } from '../core/model';
-import { ColorPicker } from './common';
+import { ColorPicker, Icon } from './common';
 
 export interface ItemDraft {
   name: string;
@@ -34,7 +34,29 @@ export function finalName(d: ItemDraft): string {
   return d.type && d.colorGroup ? defaultName(d.type, d.colorGroup) : '';
 }
 
-export function ItemFields({ draft, onChange }: { draft: ItemDraft; onChange: (d: ItemDraft) => void }) {
+/** A field the AI filled on the add screen, until she touches it. */
+export type AiFilledField = 'type' | 'occasions' | 'colorGroup';
+
+/** The small sparkle after a label the AI filled (docs/ai-item-attributes.md decision 13). */
+function AiMark({ on }: { on: boolean }) {
+  if (!on) return null;
+  return (
+    <span className="ai-field-mark" role="img" aria-label="מולא על ידי ה־AI">
+      <Icon name="sparkle" size={14} />
+    </span>
+  );
+}
+
+export function ItemFields({
+  draft,
+  onChange,
+  aiFilled,
+}: {
+  draft: ItemDraft;
+  onChange: (d: ItemDraft) => void;
+  /** Fields the AI filled and she hasn't touched yet; only the add screen passes them. */
+  aiFilled?: ReadonlySet<AiFilledField>;
+}) {
   const nameId = useId();
   const toggleOccasion = (o: Occasion) =>
     onChange({
@@ -47,6 +69,7 @@ export function ItemFields({ draft, onChange }: { draft: ItemDraft; onChange: (d
       <div className="field" role="group" aria-label="מה זה?">
         <span className="label">
           מה זה? <small>(חובה)</small>
+          <AiMark on={aiFilled?.has('type') ?? false} />
         </span>
         <div className="grid" style={{ gap: 8 }}>
           {ITEM_TYPES.map((t) => (
@@ -60,6 +83,7 @@ export function ItemFields({ draft, onChange }: { draft: ItemDraft; onChange: (d
       <div className="field" role="group" aria-label="לאן לובשים?">
         <span className="label">
           לאן לובשים? <small>(אפשר כמה)</small>
+          <AiMark on={aiFilled?.has('occasions') ?? false} />
         </span>
         <div className="segmented">
           {OCCASIONS.map((o) => (
@@ -71,7 +95,10 @@ export function ItemFields({ draft, onChange }: { draft: ItemDraft; onChange: (d
       </div>
 
       <div className="field" role="group" aria-label="איזה צבע?">
-        <span className="label">איזה צבע?</span>
+        <span className="label">
+          איזה צבע?
+          <AiMark on={aiFilled?.has('colorGroup') ?? false} />
+        </span>
         <ColorPicker colors={COLOR_GROUPS} value={draft.colorGroup} onChange={(c) => onChange({ ...draft, colorGroup: c })} />
       </div>
 

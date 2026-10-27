@@ -1,6 +1,6 @@
 # AI item attributes — decisions and implementation plan
 
-Feature for `castroi/kid-closet`. Status: **in progress**. PRs 0–3 merged; PR 4 `feat/replace-item-photo`. Date: 2026-10-27.
+Feature for `castroi/kid-closet`. Status: **in progress**. PRs 0–4 merged; PR 5 `feat/ai-fills-add-form`. Date: 2026-10-27.
 
 ## 1. Goal
 
@@ -17,11 +17,12 @@ Each garment photo is sent once to a vision AI model, which describes it in a fi
 | 5 | The kid can resend one item | Only for an item that isn't analysed yet, or failed. Never for one that is done: the same photo costs again and gives the same answer. |
 | 6 | Bulk analysis of existing items is parent-only | Behind a confirmation; it costs money. Outgrown items are skipped. |
 | 7 | Separate monthly counter and cap: **300 analyses**, editable by the parent | A bulk run must never use up her dolls. Same counting rules as the dolls (`docs/ai-doll-look.md` §8). |
-| 8 | Attributes are stored as the AI returned them, separate from her own fields | Her type, colour and occasion are never overwritten or prefilled. Mapping the AI's categories (dress, shoes, sport…) to the app's types belongs to the matching feature. |
+| 8 | ~~Attributes are stored separately and never fill her fields~~ **Replaced by 13 (owner, 2026-10-27).** The full answer is still stored as the AI returned it, every attribute, also those no screen shows | Her existing garments are never changed |
 | 9 | The kid sees only a "done" sign, never the attributes | A sparkle mark on the photo. Not analysed and failed items carry no mark. |
 | 10 | Each item has a photo revision number; the analysis records the revision it was made from | It changes only when she replaces the photo (PR 4), so those attributes become stale and the item counts as not analysed. A number, not a hash of the bytes: a backup restore re-encodes photos (`cleanPhoto()` in `src/storage/backup.ts`) and must not make every item look unanalysed. |
 | 11 | She can replace a garment's photo (PR 4) | Without it, a photo the AI couldn't read is a dead end. |
 | 12 | The app validates every answer itself | Schema enforcement for this model is not confirmed on either provider (§3). An answer that doesn't match the schema is a failed call. |
+| 13 | **The AI fills the add form; she checks it and saves** (owner, 2026-10-27) | Right after she picks a photo, it is sent at once (not behind the queue). Type, colour and occasions are filled only in fields she hasn't touched, in one render, within 20 s; the Hebrew name follows from type + colour. Dresses, shoes and accessories, a near-tie colour, an unclear photo, offline or analysis off leave fields for her, and the form works as before. She always presses "שמירה בארון". One call at a time from this screen, and a photo she replaced before its turn is never sent. The answer is stored with the garment, never paid twice; a photo she picks and abandons is still one paid analysis. New garments only. Mapping: `src/core/prefill.ts` |
 
 ## 3. Open questions
 
@@ -201,6 +202,11 @@ Reviewed by the UI/UX agent (2026-10-27). All existing UX rules apply: Hebrew RT
 - In progress: the same mark at reduced opacity, no animation in the grid. Only the mark is faded, never the photo.
 - Not analysed, failed: no mark.
 - The edit sheet explains the mark once: "ה־AI כבר מכיר את הבגד הזה". Card `aria-label`: "עריכת {name} · ה־AI מכיר".
+
+**The add form, filled by the AI (decision 13, reviewed by the UI/UX agent 2026-10-27)**
+- Waiting: "ה־AI מסתכל על הבגד…" with the sparkle, in place of the photo tip; the form stays usable and "שמירה בארון" is never blocked.
+- Filled: "ה־AI מילא את הפרטים · בדקי שהכול נכון" above "שמירה בארון", and a small sparkle after each filled field's label ("מולא על ידי ה־AI"); both go when she changes a field. No marks on the chips themselves.
+- An unclear photo shows the existing hint "ה־AI לא הצליח לזהות את הבגד בתמונה. כדאי לצלם על רקע חלק ובהיר."; any other failure shows nothing.
 
 **Auto-analysis after adding**
 - The add flow doesn't change: "נשמר בארון" with "לארון", no extra toast.

@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { AI_ANALYSIS_USAGE_KEY, AI_KEY_PREFIX } from '../app/aiDevice';
@@ -159,7 +159,7 @@ describe('AddItem and garment analysis', () => {
     return { ...result, fetchFn, deviceStorage };
   }
 
-  it('sends the new photo to the AI in the background when the parent turned analysis on', async () => {
+  it('sends the photo once and stores the answer with the garment, whatever she tapped meanwhile', async () => {
     const { repo, fetchFn, deviceStorage } = await addOne(true);
     await waitFor(() => expect(repo.getData().items[0].analysis?.result).toBe('ok'));
     expect(fetchFn).toHaveBeenCalledTimes(1);
@@ -172,5 +172,207 @@ describe('AddItem and garment analysis', () => {
     const { repo, fetchFn } = await addOne(false);
     expect(fetchFn).not.toHaveBeenCalled();
     expect(repo.getData().items[0].analysis).toBeNull();
+  });
+});
+
+describe('the AI fills the form (decision 13)', () => {
+  const answer = (patch: Record<string, unknown> = {}) =>
+    Response.json({ choices: [{ message: { content: JSON.stringify({ valid_image: true, ...sampleAttributes(), ...patch }) } }] });
+
+  /** Answers the provider only when the test says so. */
+  function heldProvider() {
+    const replies: ((r: Response) => void)[] = [];
+    const fetchFn = vi.fn<FetchLike>(() => new Promise<Response>((resolve) => replies.push(resolve)));
+    return { fetchFn, reply: (r: Response) => replies.shift()!(r) };
+  }
+
+  async function renderAdd(fetchFn: FetchLike, options: { enabled?: boolean; fillDeadlineMs?: number } = {}) {
+    const data = emptyCloset();
+    const closet = { ...data, ai: { ...data.ai, provider: 'venice' as const, analysis: { enabled: options.enabled ?? true, model: '', monthlyCap: 300 } } };
+    const deviceStorage = memoryStorage({ [`${AI_KEY_PREFIX}venice`]: 'sk-venice-123' });
+    const deps = imageDeps({ encodeWebp: vi.fn().mockResolvedValue(testPhoto('webp').buffer) });
+    return renderWithCloset(
+      <AddItem imageDeps={deps} onOpenCloset={vi.fn()} fillDeadlineMs={options.fillDeadlineMs} />,
+      closet,
+      { deviceStorage, fetchFn },
+    );
+  }
+
+  const pressed = (name: string) => screen.getByRole('button', { name }).getAttribute('aria-pressed');
+
+  it('fills type, colour and occasions, marks them, and stores every attribute with the garment she saves', async () => {
+    const user = userEvent.setup();
+    const { fetchFn, reply } = heldProvider();
+    const { repo } = await renderAdd(fetchFn);
+    await user.upload(screen.getByLabelText('בחירת תמונה מהגלריה'), photo());
+    expect(await screen.findByText('ה־AI מסתכל על הבגד…')).toBeInTheDocument();
+    // The form stays usable while waiting.
+    expect(screen.getByRole('button', { name: 'חולצה קצרה' })).toBeEnabled();
+    await waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(1));
+    await act(async () => reply(answer()));
+
+    expect(await screen.findByText('ה־AI מילא את הפרטים · בדקי שהכול נכון')).toBeInTheDocument();
+    expect(pressed('חולצה קצרה')).toBe('true');
+    expect(pressed('ורוד')).toBe('true');
+    expect(pressed('בית ספר')).toBe('true');
+    expect(pressed('יום רגיל')).toBe('true');
+    expect(screen.getAllByRole('img', { name: 'מולא על ידי ה־AI' })).toHaveLength(3);
+    expect(screen.getByRole('textbox')).toHaveAttribute('placeholder', 'חולצה קצרה בצבע ורוד');
+
+    // She fixes the colour: that field's mark goes, and so does the "check" line.
+    await user.click(screen.getByRole('button', { name: 'לבן' }));
+    expect(screen.getAllByRole('img', { name: 'מולא על ידי ה־AI' })).toHaveLength(2);
+    expect(screen.queryByText(/בדקי שהכול נכון/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'שמירה בארון' }));
+    expect(await screen.findByText('"חולצה קצרה בצבע לבן" נשמר בארון')).toBeInTheDocument();
+    const [item] = repo.getData().items;
+    expect(item).toMatchObject({ type: 'tee', colorGroup: 'white', occasions: ['school', 'casual'] });
+    // Every attribute is kept, also the ones the form doesn't show.
+    await waitFor(() => expect(repo.getData().items[0].analysis).toMatchObject({ result: 'ok', attributes: sampleAttributes(), photoRevision: 0 }));
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('never fills a field she already touched', async () => {
+    const user = userEvent.setup();
+    const { fetchFn, reply } = heldProvider();
+    await renderAdd(fetchFn);
+    await user.upload(screen.getByLabelText('בחירת תמונה מהגלריה'), photo());
+    await screen.findByText('ה־AI מסתכל על הבגד…');
+    await user.click(screen.getByRole('button', { name: 'מכנסיים ארוכים' }));
+    // Tapped and un-tapped: still hers.
+    await user.click(screen.getByRole('button', { name: 'חגיגי' }));
+    await user.click(screen.getByRole('button', { name: 'חגיגי' }));
+    await waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(1));
+    await act(async () => reply(answer()));
+    await waitFor(() => expect(pressed('ורוד')).toBe('true'));
+    expect(pressed('מכנסיים ארוכים')).toBe('true');
+    expect(pressed('בית ספר')).toBe('false');
+    expect(screen.getAllByRole('img', { name: 'מולא על ידי ה־AI' })).toHaveLength(1);
+  });
+
+  it('suggests a better photo when the AI sees no single garment, and fills nothing', async () => {
+    const user = userEvent.setup();
+    const { fetchFn, reply } = heldProvider();
+    await renderAdd(fetchFn);
+    await user.upload(screen.getByLabelText('בחירת תמונה מהגלריה'), photo());
+    await waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(1));
+    await act(async () => reply(Response.json({ choices: [{ message: { content: '{"valid_image":false,"notes":"Two items."}' } }] })));
+    expect(await screen.findByText(/ה־AI לא הצליח לזהות את הבגד בתמונה/)).toBeInTheDocument();
+    expect(pressed('חולצה קצרה')).toBe('false');
+  });
+
+  async function fillAndSave(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole('button', { name: 'חולצה ארוכה' }));
+    await user.click(screen.getByRole('button', { name: 'בית ספר' }));
+    await user.click(screen.getByRole('button', { name: 'ירוק' }));
+    await user.click(screen.getByRole('button', { name: 'שמירה בארון' }));
+    expect(await screen.findByText('"חולצה ארוכה בצבע ירוק" נשמר בארון')).toBeInTheDocument();
+  }
+
+  it('says nothing when a call that may have cost money fails, and never pays for it twice', async () => {
+    const user = userEvent.setup();
+    const fetchFn = vi.fn<FetchLike>().mockResolvedValueOnce(new Response('', { status: 503 })).mockImplementation(async () => answer());
+    const { repo } = await renderAdd(fetchFn);
+    await user.upload(screen.getByLabelText('בחירת תמונה מהגלריה'), photo());
+    await waitFor(() => expect(screen.queryByText('ה־AI מסתכל על הבגד…')).not.toBeInTheDocument());
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByText('טיפ: לצלם על רקע חלק ובהיר')).toBeInTheDocument();
+    await fillAndSave(user);
+    await new Promise((r) => setTimeout(r, 20));
+    // Not sent again by itself (§7); her "להראות ל־AI" or the parent's run can.
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(repo.getData().items[0].analysis).toBeNull();
+  });
+
+  it('sends the garment after she saves it when the first call got no answer at all', async () => {
+    const user = userEvent.setup();
+    const fetchFn = vi.fn<FetchLike>().mockRejectedValueOnce(new TypeError('Load failed')).mockImplementation(async () => answer());
+    const { repo } = await renderAdd(fetchFn);
+    await user.upload(screen.getByLabelText('בחירת תמונה מהגלריה'), photo());
+    await waitFor(() => expect(screen.queryByText('ה־AI מסתכל על הבגד…')).not.toBeInTheDocument());
+    await fillAndSave(user);
+    await waitFor(() => expect(repo.getData().items[0]?.analysis?.result).toBe('ok'));
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
+  it("clears the last photo's AI values when she picks another photo", async () => {
+    const user = userEvent.setup();
+    const { fetchFn, reply } = heldProvider();
+    await renderAdd(fetchFn);
+    await user.upload(screen.getByLabelText('בחירת תמונה מהגלריה'), photo());
+    await waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(1));
+    await act(async () => reply(answer()));
+    await waitFor(() => expect(pressed('ורוד')).toBe('true'));
+    // She set the type herself: that stays; the AI's colour and occasions go with the old photo.
+    await user.click(screen.getByRole('button', { name: 'חולצה ארוכה' }));
+    await user.upload(screen.getByLabelText('בחירת תמונה מהגלריה'), photo());
+    await waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(2));
+    expect(pressed('חולצה ארוכה')).toBe('true');
+    expect(pressed('ורוד')).toBe('false');
+    expect(pressed('בית ספר')).toBe('false');
+    await act(async () => reply(answer({ primary_color: 'black' })));
+    await waitFor(() => expect(pressed('שחור')).toBe('true'));
+    expect(pressed('חולצה ארוכה')).toBe('true');
+  });
+
+  it('stores an answer that arrives after she saved, without filling the next form', async () => {
+    const user = userEvent.setup();
+    const { fetchFn, reply } = heldProvider();
+    const { repo } = await renderAdd(fetchFn);
+    await user.upload(screen.getByLabelText('בחירת תמונה מהגלריה'), photo());
+    await user.click(screen.getByRole('button', { name: 'חולצה ארוכה' }));
+    await user.click(screen.getByRole('button', { name: 'בית ספר' }));
+    await user.click(screen.getByRole('button', { name: 'ירוק' }));
+    await user.click(screen.getByRole('button', { name: 'שמירה בארון' }));
+    expect(await screen.findByText('"חולצה ארוכה בצבע ירוק" נשמר בארון')).toBeInTheDocument();
+    await waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(1));
+    await act(async () => reply(answer()));
+    await waitFor(() => expect(repo.getData().items[0].analysis?.result).toBe('ok'));
+    // The empty form for the next garment stays empty, and nothing was sent twice.
+    expect(pressed('חולצה קצרה')).toBe('false');
+    expect(pressed('ורוד')).toBe('false');
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends one photo at a time, and never a photo she replaced before its turn', async () => {
+    const user = userEvent.setup();
+    const { fetchFn, reply } = heldProvider();
+    await renderAdd(fetchFn);
+    await user.upload(screen.getByLabelText('בחירת תמונה מהגלריה'), photo());
+    await waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(1));
+    // Two more picks while the first is out: only the last one is sent, after the first answer.
+    await user.upload(screen.getByLabelText('בחירת תמונה מהגלריה'), photo());
+    await user.upload(screen.getByLabelText('בחירת תמונה מהגלריה'), photo());
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    await act(async () => reply(answer({ primary_color: 'black' })));
+    await waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(2));
+    // The first photo's answer filled nothing: it is no longer on the form.
+    expect(pressed('שחור')).toBe('false');
+    await act(async () => reply(answer()));
+    await waitFor(() => expect(pressed('ורוד')).toBe('true'));
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops waiting after the deadline and never changes the form later', async () => {
+    const user = userEvent.setup();
+    const { fetchFn, reply } = heldProvider();
+    await renderAdd(fetchFn, { fillDeadlineMs: 30 });
+    await user.upload(screen.getByLabelText('בחירת תמונה מהגלריה'), photo());
+    await waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByText('ה־AI מסתכל על הבגד…')).not.toBeInTheDocument());
+    await act(async () => reply(answer()));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(pressed('ורוד')).toBe('false');
+  });
+
+  it('works as before while analysis is off', async () => {
+    const user = userEvent.setup();
+    const fetchFn = vi.fn<FetchLike>();
+    await renderAdd(fetchFn, { enabled: false });
+    await user.upload(screen.getByLabelText('בחירת תמונה מהגלריה'), photo());
+    await screen.findByAltText('התמונה שנבחרה');
+    expect(screen.queryByText('ה־AI מסתכל על הבגד…')).not.toBeInTheDocument();
+    expect(fetchFn).not.toHaveBeenCalled();
   });
 });
