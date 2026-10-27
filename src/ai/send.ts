@@ -1,6 +1,8 @@
+import { AttributesAnswerError, parseAttributesAnswer, type AnalysisResult } from '../core/attributes';
 import type { AiProviderId, AiSettings } from '../core/model';
 import { stripPhotoMetadata } from '../image/metadata';
-import { effectiveModel } from './catalog';
+import { ATTRIBUTES_PROMPT, ATTRIBUTES_PROMPT_VERSION, ATTRIBUTES_SCHEMA, ATTRIBUTES_SCHEMA_NAME } from './attributesPrompt';
+import { effectiveAnalysisModel, effectiveModel } from './catalog';
 import { effectivePrompt } from './prompt';
 import { ADAPTERS, AiError, MAX_RESULT_BYTES, type FetchLike } from './providers';
 
@@ -25,6 +27,8 @@ export interface LookResult {
  */
 export const LOOK_TIMEOUT_MS = 180_000;
 export const CHECK_TIMEOUT_MS = 20_000;
+/** A vision chat answer takes seconds; a call that hangs longer is cut (docs/ai-item-attributes.md §6). */
+export const ANALYSIS_TIMEOUT_MS = 60_000;
 export { MAX_RESULT_BYTES } from './providers';
 
 const defaultFetch: FetchLike = (url, init) => fetch(url, init);
@@ -125,4 +129,48 @@ export function checkConnection(
   return withDeadline(options.signal, options.timeoutMs ?? CHECK_TIMEOUT_MS, (signal) =>
     ADAPTERS[provider].checkKey({ apiKey, signal, fetch: options.fetch ?? defaultFetch }),
   );
+}
+
+export interface AttributesRequest {
+  provider: AiProviderId;
+  settings: AiSettings;
+  apiKey: string;
+  /** The garment photo as stored, or the bundled sample for "בדיקת זיהוי". */
+  photo: StoredPicture;
+  fetch?: FetchLike;
+  timeoutMs?: number;
+}
+
+export interface AttributesResponse {
+  analysis: AnalysisResult;
+  /** What made it, recorded with the analysis. */
+  model: string;
+  promptVersion: number;
+}
+
+/**
+ * Sends one garment photo to the provider the parent picked and returns what the model said
+ * about it, validated (docs/ai-item-attributes.md §6). Throws AiError with a reason the UI can
+ * explain; an answer that doesn't fit the schema is 'bad-response', which still counts.
+ */
+export async function requestAttributes(req: AttributesRequest): Promise<AttributesResponse> {
+  const model = effectiveAnalysisModel(req.provider, req.settings.analysis.model);
+  const photo = toCleanDataUrl(req.photo);
+  const answer = await withDeadline(undefined, req.timeoutMs ?? ANALYSIS_TIMEOUT_MS, (signal) =>
+    ADAPTERS[req.provider].analyzeItem({
+      photo,
+      prompt: ATTRIBUTES_PROMPT,
+      schema: { name: ATTRIBUTES_SCHEMA_NAME, schema: ATTRIBUTES_SCHEMA },
+      model,
+      apiKey: req.apiKey,
+      signal,
+      fetch: req.fetch ?? defaultFetch,
+    }),
+  );
+  try {
+    return { analysis: parseAttributesAnswer(answer), model, promptVersion: ATTRIBUTES_PROMPT_VERSION };
+  } catch (err) {
+    if (err instanceof AttributesAnswerError) throw new AiError('bad-response', err.detail);
+    throw err;
+  }
 }

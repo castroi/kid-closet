@@ -6,7 +6,9 @@ through her own clothes: an outer layer when it is cold, a shirt and trousers.
 
 Everything runs **on the phone**. There is no server and no account. Photos leave the device only when a parent
 exports a backup, or after a parent sets up AI looks (an AI provider and her own API key, in the parent area): then
-the doll and the two garments of a look are sent to that provider, and nowhere else.
+the doll and the two garments of a look are sent to that provider, and nowhere else. When the parent also turns on
+"זיהוי בגדים" (garment analysis), garment photos are sent to the same provider automatically, so a vision model can
+describe them (colours, pattern, season); only the photo is sent.
 
 ## Screens
 
@@ -16,7 +18,7 @@ the doll and the two garments of a look are sent to that provider, and nowhere e
 | מועדפים (Favourites) | Saved looks, filter by occasion, tap to open, remove. |
 | הארון שלי (My closet) | Items by category, tap to edit, select several to move to / from "outgrown" with undo. |
 | הוספה (Add) | Take or choose a photo, pick type, occasions and colour. The name is optional. |
-| אזור הורים (Parents) | Behind a simple question: backup export / restore, "בובה ו־AI" (status, monthly use, and the "הגדרות AI" screen: provider, API key, model, monthly cap, doll, prompt), storage status, permanent delete. |
+| אזור הורים (Parents) | Behind a simple question: backup export / restore, "בובה ו־AI" (status, monthly use, and the "הגדרות AI" screen: provider, API key, model, monthly cap, garment analysis with its own model and cap and "בדיקת זיהוי", doll, prompt), storage status, permanent delete. |
 
 ## How data is stored
 
@@ -31,6 +33,9 @@ images/doll-<id>.webp  the parent's doll picture, if she replaced the bundled on
 images/look-<id>.webp  a picture of the doll wearing a look, made by the AI
 ```
 
+- Garment photos stay on the phone unless the parent turns on "זיהוי בגדים" in "הגדרות AI": then each photo is sent,
+  automatically and without its metadata, to the AI provider she picked, and what the model says about it is saved in
+  `closet.json`. "בדיקת זיהוי" sends only a sample photo bundled with the app.
 - Photos are resized on the phone to at most 800 px and encoded to WebP with a WebAssembly
   encoder ([`@jsquash/webp`](https://github.com/jamsinclair/jSquash)), because Safari cannot encode
   WebP itself.

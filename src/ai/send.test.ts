@@ -2,11 +2,24 @@
 import { describe, expect, it, vi } from 'vitest';
 import { defaultAiSettings } from '../core/model';
 import bundledDollDataUrl from '../assets/doll-default.webp?inline';
+import sampleGarmentDataUrl from '../assets/sample-garment.webp?inline';
+import { sampleAttributes } from '../test/data';
 import { cleanWebp, gpsJpeg, gpsWebp } from '../test/photos';
+import { ATTRIBUTES_PROMPT, ATTRIBUTES_PROMPT_VERSION, ATTRIBUTES_SCHEMA } from './attributesPrompt';
 import { AI_PROVIDERS } from './catalog';
 import { DEFAULT_PROMPT } from './prompt';
 import type { FetchLike } from './providers';
-import { MAX_RESULT_BYTES, bytesToBase64, checkConnection, requestLook, sniffImage, type LookRequest } from './send';
+import {
+  ANALYSIS_TIMEOUT_MS,
+  MAX_RESULT_BYTES,
+  bytesToBase64,
+  checkConnection,
+  requestAttributes,
+  requestLook,
+  sniffImage,
+  type AttributesRequest,
+  type LookRequest,
+} from './send';
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0]);
 const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0]);
@@ -132,5 +145,81 @@ describe('helpers', () => {
     const big = new Uint8Array(200_000).map((_, i) => i % 256);
     expect(atob(bytesToBase64(big)).length).toBe(big.length);
     expect(bytesToBase64(new Uint8Array([1, 2, 3]))).toBe('AQID');
+  });
+});
+
+describe('requestAttributes', () => {
+  const answer = (patch: Record<string, unknown> = {}) =>
+    Response.json({ choices: [{ message: { content: JSON.stringify({ valid_image: true, ...sampleAttributes(), ...patch }) } }] });
+
+  function attributesRequest(fetch: FetchLike, overrides: Partial<AttributesRequest> = {}): AttributesRequest {
+    return {
+      provider: 'openrouter',
+      settings: { ...defaultAiSettings(), provider: 'openrouter' },
+      apiKey: 'sk-test-123',
+      photo: { bytes: gpsJpeg, ext: 'jpg' },
+      fetch,
+      ...overrides,
+    };
+  }
+
+  function sentPhoto(fetch: ReturnType<typeof vi.fn<FetchLike>>): string {
+    const body = JSON.parse(fetch.mock.calls[0][1].body as string) as { messages: { content: unknown }[] };
+    const parts = body.messages[1].content as { type: string; image_url?: { url: string } }[];
+    return parts.find((p) => p.type === 'image_url')!.image_url!.url;
+  }
+
+  it('sends the photo without metadata, with the built-in prompt and schema, and returns the validated attributes', async () => {
+    const fetch = vi.fn<FetchLike>().mockResolvedValue(answer());
+    const result = await requestAttributes(attributesRequest(fetch));
+    expect(result).toEqual({
+      analysis: { result: 'ok', attributes: sampleAttributes() },
+      model: AI_PROVIDERS.openrouter.defaultAnalysisModel,
+      promptVersion: ATTRIBUTES_PROMPT_VERSION,
+    });
+    const url = sentPhoto(fetch);
+    expect(url.startsWith('data:image/jpeg;base64,')).toBe(true);
+    const sent = atob(url.split(',')[1]);
+    expect(sent).not.toContain('Exif');
+    expect(sent).not.toContain('GPSXMP');
+    const body = JSON.parse(fetch.mock.calls[0][1].body as string) as { messages: { content: unknown }[]; response_format: unknown };
+    expect(body.messages[0].content).toBe(ATTRIBUTES_PROMPT);
+    expect(body.response_format).toMatchObject({ json_schema: { strict: true, schema: ATTRIBUTES_SCHEMA } });
+  });
+
+  it('sends the bundled sample photo unchanged, as it has no metadata', async () => {
+    const sample = Uint8Array.from(atob(sampleGarmentDataUrl.split(',')[1]), (c) => c.charCodeAt(0));
+    expect(sample.length).toBeGreaterThan(4096); // over Vite's inline limit, so the build keeps it a file
+    const fetch = vi.fn<FetchLike>().mockResolvedValue(answer());
+    await requestAttributes(attributesRequest(fetch, { photo: { bytes: sample, ext: 'webp' } }));
+    expect(sentPhoto(fetch)).toBe(`data:image/webp;base64,${bytesToBase64(sample)}`);
+  });
+
+  it("uses the parent's analysis model, never the doll model", async () => {
+    const fetch = vi.fn<FetchLike>().mockResolvedValue(answer());
+    const settings = { ...defaultAiSettings(), provider: 'venice' as const, model: 'muse-image-edit', analysis: { enabled: true, model: ' my-vision ', monthlyCap: 9 } };
+    const result = await requestAttributes(attributesRequest(fetch, { provider: 'venice', settings }));
+    expect(result.model).toBe('my-vision');
+    expect((JSON.parse(fetch.mock.calls[0][1].body as string) as { model: string }).model).toBe('my-vision');
+  });
+
+  it('returns an invalid photo as it is', async () => {
+    const fetch = vi.fn<FetchLike>().mockResolvedValue(
+      Response.json({ choices: [{ message: { content: '{"valid_image":false,"notes":"Two shirts."}' } }] }),
+    );
+    expect((await requestAttributes(attributesRequest(fetch))).analysis).toEqual({ result: 'invalid-photo', notes: 'Two shirts.' });
+  });
+
+  it('reports an answer that does not fit the schema as a bad response, naming the field', async () => {
+    const fetch = vi.fn<FetchLike>().mockResolvedValue(answer({ pattern: 'paisley' }));
+    await expect(requestAttributes(attributesRequest(fetch))).rejects.toMatchObject({ reason: 'bad-response', detail: 'pattern' });
+  });
+
+  it('refuses to send a photo that is not what its name says, and gives up after the time limit', async () => {
+    const fetch = vi.fn<FetchLike>();
+    await expect(requestAttributes(attributesRequest(fetch, { photo: { bytes: PNG, ext: 'jpg' } }))).rejects.toMatchObject({ reason: 'bad-photo' });
+    expect(fetch).not.toHaveBeenCalled();
+    await expect(requestAttributes(attributesRequest(hangingFetch, { timeoutMs: 20 }))).rejects.toMatchObject({ reason: 'timeout' });
+    expect(ANALYSIS_TIMEOUT_MS).toBe(60_000);
   });
 });

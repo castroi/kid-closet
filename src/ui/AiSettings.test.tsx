@@ -89,10 +89,18 @@ describe('AiSettingsScreen', () => {
 
   it('picks a provider, back to its default model', async () => {
     const user = userEvent.setup();
-    const { repo } = await renderScreen({ provider: 'venice', model: 'custom-venice-model' });
+    const { repo } = await renderScreen({
+      provider: 'venice',
+      model: 'custom-venice-model',
+      analysis: { enabled: true, model: 'custom-venice-vision', monthlyCap: 40 },
+    });
     await user.click(screen.getByRole('button', { name: 'OpenRouter' }));
     expect(await screen.findByText('נבחר OpenRouter.')).toBeInTheDocument();
-    expect(repo.getData().ai).toMatchObject({ provider: 'openrouter', model: '' });
+    // Both model names belonged to Venice; the switch and cap stay as they were.
+    expect(repo.getData().ai).toMatchObject({ provider: 'openrouter', model: '', analysis: { enabled: true, model: '', monthlyCap: 40 } });
+    const analysis = within(screen.getByRole('region', { name: 'זיהוי בגדים' }));
+    expect(analysis.getByLabelText(/מודל לזיהוי/)).toHaveValue('');
+    expect(analysis.getByLabelText(/מודל לזיהוי/)).toHaveAttribute('placeholder', 'deepseek/deepseek-v4.1-flash');
     expect(screen.getByRole('button', { name: 'OpenRouter' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('link', { name: 'איפה יוצרים מפתח ב־OpenRouter' })).toHaveAttribute('href', 'https://openrouter.ai/keys');
   });

@@ -24,6 +24,7 @@ import { formatBytes } from '../app/device';
 import { aiPicturesText, deletedPicturesText } from '../core/gallery';
 import { Icon, Sheet, explainedElsewhere } from './common';
 import { aiErrorDetail, aiErrorText } from './aiErrors';
+import { AnalysisPanel } from './AnalysisPanel';
 import { DollPanel } from './DollPanel';
 
 /** `detail` is the provider's own (English) words, shown in their own direction inside the Hebrew line. */
@@ -50,9 +51,10 @@ export function AiPanel({
   const ready = aiReady(data.ai, deviceStorage);
   const check = provider ? readLastCheck(deviceStorage, provider) : null;
   const used = readMonthlyUse(deviceStorage, now);
-  let status = 'לא מוגדר. הכפתור "להלביש את הבובה" לא יופיע לה עד שתגדירי ספק ומפתח.';
+  let status = 'לא מוגדר. הכפתור "להלביש את הבובה" לא יופיע לה ושום תמונה לא תישלח עד שתגדירי ספק ומפתח.';
   if (ready && provider) {
     status = `מוגדר · ${AI_PROVIDERS[provider].label}`;
+    if (data.ai.analysis.enabled) status += ' · זיהוי בגדים פועל';
     if (check?.ok) status += ` · נבדק ב־${formatDay(new Date(check.at))}`;
     else if (check) status += ' · הבדיקה האחרונה נכשלה';
   }
@@ -128,8 +130,8 @@ export function AiSettingsScreen({
   return (
     <>
       <p className="muted">
-        כשהיא לוחצת "להלביש את הבובה", שלוש תמונות נשלחות לספק שבחרת: הבובה, החולצה (או השכבה העליונה) והמכנסיים. בלי שמות
-        ובלי מיקום. שום דבר לא נשלח עד שתגדירי ספק ומפתח.
+        כשהיא לוחצת "להלביש את הבובה", שלוש תמונות נשלחות לספק שבחרת: הבובה, החולצה (או השכבה העליונה) והמכנסיים. כשזיהוי
+        הבגדים פועל, גם תמונה של כל בגד נשלחת אליו, אוטומטית. בלי שמות ובלי מיקום. שום דבר לא נשלח עד שתגדירי ספק ומפתח.
       </p>
       {message && (
         <p ref={messageRef} role="status" className={message.error ? 'error' : 'muted'}>
@@ -154,8 +156,10 @@ export function AiSettingsScreen({
               className="chip"
               aria-pressed={provider === id}
               onClick={() => {
-                // A model name belongs to one provider; switching goes back to the new one's default.
-                if (provider !== id) void save({ provider: id, model: '' }, `נבחר ${AI_PROVIDERS[id].label}.`);
+                // A model name belongs to one provider; switching goes back to the new one's defaults, for both models.
+                if (provider !== id) {
+                  void save({ provider: id, model: '', analysis: { ...data.ai.analysis, model: '' } }, `נבחר ${AI_PROVIDERS[id].label}.`);
+                }
               }}
             >
               {AI_PROVIDERS[id].label}
@@ -174,6 +178,8 @@ export function AiSettingsScreen({
       )}
 
       {provider && <UsagePanel key={`${provider}:${data.ai.model}:${data.ai.monthlyCap}`} provider={provider} save={save} />}
+
+      {provider && <AnalysisPanel key={provider} provider={provider} deviceStorage={deviceStorage} fetchFn={fetchFn} />}
 
       <DollPanel imageDeps={imageDeps} />
 

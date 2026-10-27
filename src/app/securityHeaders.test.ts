@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import indexHtml from '../../index.html?raw';
 import vercel from '../../vercel.json';
-import { AI_PROVIDERS } from '../ai/catalog';
+import { AI_PROVIDERS, allEndpoints } from '../ai/catalog';
 
 const siteHeaders = vercel.headers.find((rule) => rule.source === '/(.*)')?.headers ?? [];
 const header = (key: string) => siteHeaders.find((h) => h.key === key)?.value;
@@ -32,18 +32,18 @@ describe('security headers (vercel.json)', () => {
   });
 
   it("lets the page call only its own origin and the AI providers' exact endpoints", () => {
-    // Photos may leave the phone only to these URLs (docs/ai-doll-look.md); anything else stays blocked,
-    // including other paths on the providers' own sites.
+    // Photos may leave the phone only to these URLs (docs/ai-doll-look.md, docs/ai-item-attributes.md);
+    // anything else stays blocked, including other paths on the providers' own sites.
     const csp = header('Content-Security-Policy') ?? '';
     const connect = csp
       .split(';')
       .map((d) => d.trim())
       .find((d) => d.startsWith('connect-src '));
     const sources = connect?.split(/\s+/).slice(1) ?? [];
-    const endpoints = Object.values(AI_PROVIDERS).flatMap((p) => [p.endpoints.look, p.endpoints.check]);
-    expect([...sources].sort()).toEqual(["'self'", ...endpoints].sort());
+    expect([...sources].sort()).toEqual(["'self'", ...allEndpoints()].sort());
     for (const p of Object.values(AI_PROVIDERS)) {
-      for (const url of [p.endpoints.look, p.endpoints.check]) {
+      expect(Object.keys(p.endpoints).sort()).toEqual(['analyze', 'check', 'look']);
+      for (const url of Object.values(p.endpoints)) {
         // A full path, not a folder: CSP treats a trailing "/" as "everything below".
         expect(url.startsWith(`${p.origin}/`)).toBe(true);
         expect(url).toMatch(/^https:\/\/[a-z0-9.-]+(\/[a-z0-9_-]+)+$/);

@@ -2,12 +2,14 @@ import type { AiProviderId, AiSettings } from '../core/model';
 
 /**
  * What belongs to this phone only, never to the closet or its backups: the API keys
- * (backups go to iCloud and get shared) and how many AI pictures were made this month.
+ * (backups go to iCloud and get shared), how many AI pictures were made this month, and
+ * how many garment analyses (counted apart, docs/ai-item-attributes.md decision 7).
  */
 export type DeviceStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> | null;
 
 export const AI_KEY_PREFIX = 'kid-closet:ai-key:';
 export const AI_USAGE_KEY = 'kid-closet:ai-usage';
+export const AI_ANALYSIS_USAGE_KEY = 'kid-closet:ai-analysis-usage';
 export const AI_CHECK_KEY = 'kid-closet:ai-check';
 
 /** The last "בדיקת חיבור" on this phone, shown in the parent panel. */
@@ -91,6 +93,11 @@ export function aiReady(ai: AiSettings, storage: DeviceStorage): boolean {
   return ai.provider !== null && readApiKey(storage, ai.provider) !== null;
 }
 
+/** Garment photos are sent only when AI is set up and the parent turned analysis on. */
+export function analysisReady(ai: AiSettings, storage: DeviceStorage): boolean {
+  return ai.analysis.enabled && aiReady(ai, storage);
+}
+
 /** The phone's local month, e.g. "2026-10"; usage starts again on the 1st. */
 export function monthOf(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -101,9 +108,9 @@ export function nextResetDate(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth() + 1, 1);
 }
 
-export function readMonthlyUse(storage: DeviceStorage, now: Date): number {
+export function readMonthlyUse(storage: DeviceStorage, now: Date, key = AI_USAGE_KEY): number {
   try {
-    const raw = JSON.parse(storage?.getItem(AI_USAGE_KEY) ?? 'null') as { month?: unknown; count?: unknown } | null;
+    const raw = JSON.parse(storage?.getItem(key) ?? 'null') as { month?: unknown; count?: unknown } | null;
     if (raw?.month !== monthOf(now)) return 0;
     return typeof raw.count === 'number' && Number.isInteger(raw.count) && raw.count > 0 ? raw.count : 0;
   } catch {
@@ -112,11 +119,21 @@ export function readMonthlyUse(storage: DeviceStorage, now: Date): number {
 }
 
 /** Counts one AI picture against this month on this phone (plan §8: anything that may cost money). */
-export function recordUse(storage: DeviceStorage, now: Date): void {
-  const count = readMonthlyUse(storage, now) + 1;
+export function recordUse(storage: DeviceStorage, now: Date, key = AI_USAGE_KEY): void {
+  const count = readMonthlyUse(storage, now, key) + 1;
   try {
-    storage?.setItem(AI_USAGE_KEY, JSON.stringify({ month: monthOf(now), count }));
+    storage?.setItem(key, JSON.stringify({ month: monthOf(now), count }));
   } catch {
     // the cap can't be kept without storage; the provider's own limit still applies
   }
+}
+
+/** This month's garment analyses on this phone; never touches the dolls' count. */
+export function readAnalysisUse(storage: DeviceStorage, now: Date): number {
+  return readMonthlyUse(storage, now, AI_ANALYSIS_USAGE_KEY);
+}
+
+/** Counts one garment analysis against this month (same rule as the dolls: anything that may cost money). */
+export function recordAnalysisUse(storage: DeviceStorage, now: Date): void {
+  recordUse(storage, now, AI_ANALYSIS_USAGE_KEY);
 }

@@ -15,7 +15,7 @@ export function aiErrorText(err: unknown): string {
     case 'provider-down':
       return 'אצל הספק יש תקלה כרגע. כדאי לנסות שוב מאוחר יותר.';
     case 'refused':
-      return 'הספק סירב ליצור את התמונה (מסנן תוכן).';
+      return 'הספק סירב לבקשה (מסנן תוכן).';
     case 'network':
       return 'אין תשובה מהספק: אין אינטרנט, או שהספק לא מאפשר פנייה ישירה מהאפליקציה.';
     case 'timeout':
@@ -23,7 +23,7 @@ export function aiErrorText(err: unknown): string {
     case 'cancelled':
       return 'בוטל.';
     case 'bad-response':
-      return 'הספק החזיר תשובה שאינה תמונה.';
+      return 'הספק החזיר תשובה שאי אפשר להשתמש בה.';
     case 'bad-photo':
       return 'לא הצלחנו לקרוא את אחת התמונות לפני השליחה.';
     default:
