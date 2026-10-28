@@ -52,7 +52,7 @@ function Screens({ imageDeps, shareEnv, storage, today, themeEnv, deviceStorage 
   const [env] = useState<ThemeEnv>(() => themeEnv ?? browserThemeEnv());
   const theme = useTheme(env);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  // Opening a favourite remounts the dress-up screen with that outfit selected.
+  // Opening a favourite remounts the dress-up screen on that outfit's preview ("לראות את הלוק").
   const [opened, setOpened] = useState<{ outfit: Outfit | LookOutfit; preview: boolean; key: number } | null>(null);
   const ai = useAiLooks();
 
@@ -73,7 +73,7 @@ function Screens({ imageDeps, shareEnv, storage, today, themeEnv, deviceStorage 
             onOpenFavorites={() => setTab('favorites')}
           />
         )}
-        {tab === 'favorites' && <Favorites onOpen={(o) => openOutfit(o)} />}
+        {tab === 'favorites' && <Favorites onOpen={(o) => openOutfit(o, true)} />}
         {tab === 'closet' && <Closet onOpenParent={() => setTab('parent')} onOpenSettings={() => setSettingsOpen(true)} imageDeps={imageDeps} />}
         {tab === 'add' && <AddItem imageDeps={imageDeps} onOpenCloset={() => setTab('closet')} />}
         {tab === 'parent' && (
