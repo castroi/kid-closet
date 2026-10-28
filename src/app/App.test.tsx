@@ -53,12 +53,15 @@ describe('App', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  it('opens a favourite in the dress-up screen', async () => {
+  it('opens a favourite on its look preview, and "לשנות משהו" leads to the dress-up rows', async () => {
     const user = userEvent.setup();
     await renderWithCloset(<App imageDeps={deps} shareEnv={{ download: vi.fn() }} today={WARM} />, sampleCloset());
     await user.click(screen.getByRole('button', { name: 'מועדפים' }));
     await user.click(screen.getByRole('button', { name: /^פתיחת הלוק/ }));
-    expect(screen.getByRole('region', { name: 'שכבה עליונה' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'הלוק של היום' })).toBeInTheDocument();
     expect(screen.getByText('סוודר צהוב')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'שמור במועדפים' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'לשנות משהו' }));
+    expect(screen.getByRole('region', { name: 'שכבה עליונה' })).toBeInTheDocument();
   });
 });
