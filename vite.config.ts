@@ -42,6 +42,11 @@ export default defineConfig(({ mode }) => ({
     __APP_COMMIT__: JSON.stringify(buildCommit(loadEnv(mode, '.', ''))),
   },
   plugins: [react(), serviceWorker()],
+  // `vite preview` (the e2e server) otherwise sends "Vary: Origin" on every file. The page's
+  // module script and CSS ask with an Origin header and the pre-cached copies were fetched
+  // without one, so the worker's cache wouldn't match them and the app couldn't start offline.
+  // Without CORS, preview serves plain static files, as the deployed site does.
+  preview: { cors: false },
   optimizeDeps: {
     // The WebP encoder loads its own .wasm file; pre-bundling breaks that lookup.
     exclude: ['@jsquash/webp'],
