@@ -66,7 +66,7 @@ The e2e tests run the production build in WebKit on an iPhone SE and an iPhone 1
 bars already taken off the height), and in Chromium for the offline and AI tests (Playwright's WebKit on Linux can't
 answer the provider's cross-origin call with a fake one). They use the real OPFS, write worker, WebP encoder and
 service worker, and never reach a real AI provider: every outside request is blocked twice (a route and a dead
-proxy, checked by `e2e/guard.spec.ts`), and the AI tests answer for the provider. They can't show Safari's bar collapsing, the notch or the home indicator; check those
+proxy, checked by `e2e/guard.spec.ts`; the offline test can't use a route, so it has the proxy only), and the AI tests answer for the provider. They can't show Safari's bar collapsing, the notch or the home indicator; check those
 on the iOS Simulator or the phone when the layout changes.
 
 Code layout:
