@@ -93,11 +93,12 @@ jobs:
         id: playwright
         run: echo "version=$(npx playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
 
-      # Browsers are tied to the Playwright version, so the cache is too.
+      # Browsers are tied to the Playwright version and built for one Ubuntu release and CPU, so the
+      # cache is too (ImageOS changes when ubuntu-latest moves on).
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+          key: playwright-${{ runner.os }}-${{ env.ImageOS }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
 
       # Skips the download when cached; the system libraries are installed every time.
       - name: Install browsers
