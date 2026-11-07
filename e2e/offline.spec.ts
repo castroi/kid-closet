@@ -1,47 +1,78 @@
+import { spawn, type ChildProcess } from 'node:child_process';
 import { expect, test } from '@playwright/test';
 
-// Runs in the "chromium" project only (playwright.config.ts): service workers are most reliable there.
-test('after one visit the app opens and works with no network', async ({ page, context }) => {
-  await page.goto('/');
-  const nav = page.getByRole('navigation', { name: 'ניווט ראשי' });
-  await expect(nav).toBeVisible();
-  // The generated /sw.js pre-caches the whole build and claims the page once it's active.
-  await page.waitForFunction(() => !!navigator.serviceWorker?.controller, null, { timeout: 30_000 });
+/*
+ * Runs in the "chromium" project only (playwright.config.ts): service workers are most reliable there.
+ * No network is made the plain way: the test runs its own preview server and stops it. Playwright's
+ * own tools for this (context.setOffline, or failing requests with a route) also change how Chromium
+ * treats the worker's answers, so they can't tell whether the app itself works offline.
+ */
+const PORT = 4174;
+const ORIGIN = `http://localhost:${PORT}`;
 
-  // No network: every request fails, also the worker's own (Chromium routes those too), so
-  // whatever opens must come from the worker's cache. (context.setOffline() also stopped the
-  // worker from serving its cache in Chromium, which a phone without signal doesn't do.)
-  await context.route('**/*', (route) => route.abort('internetdisconnected'));
-  const failed: string[] = [];
-  const logs: string[] = [];
-  page.on('requestfailed', (r) => failed.push(`${r.url()} ${r.failure()?.errorText ?? ''}`));
-  page.on('console', (m) => logs.push(`${m.type()}: ${m.text()}`));
-  page.on('pageerror', (e) => logs.push(`pageerror: ${e.message}`));
-  await page.reload();
-  try {
-    // The worker waits up to 3 s for the network before it shows the cached page.
-    await expect(nav).toBeVisible({ timeout: 15_000 });
-  } catch {
-    const state = await page
-      .evaluate(async () => {
-        const keys = await caches.keys();
-        const cached = keys.length ? (await (await caches.open(keys[0])).keys()).map((r) => new URL(r.url).pathname) : [];
-        return {
-          controlled: !!navigator.serviceWorker.controller,
-          caches: keys,
-          cached,
-          scripts: [...document.scripts].map((s) => s.src || '(inline)'),
-          root: document.getElementById('root')?.innerHTML.slice(0, 200) ?? '(no #root)',
-        };
-      })
-      .catch((e: Error) => ({ error: e.message }));
-    throw new Error(
-      `The app didn't open offline.\nState: ${JSON.stringify(state)}\nFailed: ${failed.join(' | ') || 'none'}\nConsole: ${logs.join(' | ') || 'none'}`,
-    );
+async function startServer(): Promise<ChildProcess> {
+  const server = spawn('npx', ['vite', 'preview', '--port', String(PORT), '--strictPort'], { stdio: 'ignore', detached: true });
+  for (let i = 0; i < 100; i++) {
+    try {
+      if ((await fetch(ORIGIN)).ok) return server;
+    } catch {
+      // not up yet
+    }
+    await new Promise((r) => setTimeout(r, 200));
   }
+  stopServer(server);
+  throw new Error(`the preview server on port ${PORT} didn't start`);
+}
 
-  // A screen that loads more of the build (the photo step) still works from the cache.
-  await nav.getByRole('button', { name: 'הוספה', exact: true }).click();
-  await page.getByLabel('בחירת תמונה מהגלריה').setInputFiles('src/assets/sample-garment.webp');
-  await expect(page.getByAltText('התמונה שנבחרה')).toBeVisible();
+function stopServer(server: ChildProcess): void {
+  // npx starts vite as a child: stop the whole group.
+  if (server.pid) {
+    try {
+      process.kill(-server.pid, 'SIGTERM');
+    } catch {
+      // already gone
+    }
+  }
+}
+
+async function serverIsDown(): Promise<boolean> {
+  try {
+    await fetch(ORIGIN);
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+test('after one visit the app opens and works with no network', async ({ page }) => {
+  const server = await startServer();
+  try {
+    await page.goto(ORIGIN);
+    const nav = page.getByRole('navigation', { name: 'ניווט ראשי' });
+    await expect(nav).toBeVisible();
+    // The generated /sw.js pre-caches the whole build and claims the page once it's active.
+    await page.waitForFunction(() => !!navigator.serviceWorker?.controller, null, { timeout: 30_000 });
+
+    stopServer(server);
+    await expect.poll(serverIsDown, { message: 'the preview server stopped' }).toBe(true);
+
+    const logs: string[] = [];
+    page.on('requestfailed', (r) => logs.push(`failed: ${r.url()} ${r.failure()?.errorText ?? ''}`));
+    page.on('pageerror', (e) => logs.push(`pageerror: ${e.message}`));
+    await page.reload();
+    try {
+      // The worker waits up to 3 s for the network before it shows the cached page.
+      await expect(nav).toBeVisible({ timeout: 15_000 });
+    } catch {
+      const shown = (await page.locator('body').innerText().catch(() => '')).trim().slice(0, 300);
+      throw new Error(`The app didn't open offline. The page shows: ${shown || '(nothing)'}\n${logs.join(' | ') || 'no failed requests'}`);
+    }
+
+    // A screen that loads more of the build (the photo step) still works from the cache.
+    await nav.getByRole('button', { name: 'הוספה', exact: true }).click();
+    await page.getByLabel('בחירת תמונה מהגלריה').setInputFiles('src/assets/sample-garment.webp');
+    await expect(page.getByAltText('התמונה שנבחרה')).toBeVisible();
+  } finally {
+    stopServer(server);
+  }
 });
