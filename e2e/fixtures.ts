@@ -170,15 +170,15 @@ export async function seedCloset(page: Page, closet: Record<string, unknown>): P
 }
 
 /**
- * A closet as she uses it: an outer layer, two shirts and trousers, each with a real photo
- * file, and one saved outfit. So screens show their rows, cards and favourites, not only
+ * A closet as she uses it: an outer layer (unless `layer: false`), two shirts and trousers, each
+ * with a real photo file, and one saved outfit. So screens show their rows, cards and favourites, not only
  * their empty states.
  */
-export async function seedClothes(page: Page): Promise<void> {
+export async function seedClothes(page: Page, { layer = true }: { layer?: boolean } = {}): Promise<void> {
   const photo = readFileSync(GARMENT_PHOTO);
   const at = '2026-10-01T08:00:00.000Z';
   const garments = [
-    { id: 'e2e-sweater', name: 'סוודר בצבע כחול', type: 'sweater', colorGroup: 'blue' },
+    ...(layer ? [{ id: 'e2e-sweater', name: 'סוודר בצבע כחול', type: 'sweater', colorGroup: 'blue' }] : []),
     { id: 'e2e-tee', name: 'חולצה קצרה בצבע ורוד', type: 'tee', colorGroup: 'pink' },
     { id: 'e2e-long', name: 'חולצה ארוכה בצבע ירוק', type: 'longTop', colorGroup: 'green' },
     { id: 'e2e-pants', name: 'מכנסיים ארוכים בצבע שחור', type: 'pants', colorGroup: 'black' },
@@ -195,6 +195,6 @@ export async function seedClothes(page: Page): Promise<void> {
       createdAt: at,
       updatedAt: at,
     })),
-    outfits: [{ id: 'e2e-outfit', occasion: 'school', layerId: 'e2e-sweater', topId: 'e2e-tee', bottomId: 'e2e-pants', createdAt: at }],
+    outfits: [{ id: 'e2e-outfit', occasion: 'school', layerId: layer ? 'e2e-sweater' : null, topId: 'e2e-tee', bottomId: 'e2e-pants', createdAt: at }],
   });
 }

@@ -133,6 +133,17 @@ button:disabled {
   gap: 12px;
 }
 
+.screen-compact {
+  /* Dress-up, cold with a top layer: three photo rows. Tighter spacing (with 96 px photos in
+     DressUp.tsx) so all three garments fit above the pinned "לראות את הלוק" on her phone. */
+  padding: 10px 16px 8px;
+  gap: 8px;
+}
+
+.screen-compact .row-header {
+  min-height: 44px;
+}
+
 .screen-header {
   display: flex;
   justify-content: space-between;
@@ -388,6 +399,19 @@ button:disabled {
   align-items: center;
   gap: 4px;
   min-width: 0;
+}
+
+/* In the dress-up rows the empty box is shorter, so it takes less of the screen above the pinned button. */
+.rows .empty-slot {
+  min-height: 72px;
+}
+
+.slot-note {
+  /* One short line in place of an empty box, e.g. no top layers yet. */
+  margin: 0 8px 6px;
+  padding: 0 6px;
+  font-size: 13px;
+  color: var(--ink-2);
 }
 
 .garment-name {
@@ -856,7 +880,8 @@ button:disabled {
 }
 
 .action-bar {
-  padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+  /* Always above the tab bar, which already leaves room for the home indicator. */
+  padding: 10px 16px;
   border-top: 1px solid var(--line-2);
   background: var(--bg);
   display: flex;
