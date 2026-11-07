@@ -401,6 +401,11 @@ button:disabled {
   min-width: 0;
 }
 
+/* In the dress-up rows the empty box is shorter, so it takes less of the screen above the pinned button. */
+.rows .empty-slot {
+  min-height: 72px;
+}
+
 .slot-note {
   /* One short line in place of an empty box, e.g. no top layers yet. */
   margin: 0 8px 6px;
@@ -438,7 +443,7 @@ button:disabled {
 
 .empty-slot {
   margin: 0 8px 6px;
-  min-height: 72px;
+  min-height: 120px;
   border: 2px dashed var(--line-2);
   border-radius: 18px;
   display: flex;
