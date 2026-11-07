@@ -65,7 +65,24 @@ test('after one visit the app opens and works with no network', async ({ page })
       await expect(nav).toBeVisible({ timeout: 15_000 });
     } catch {
       const shown = (await page.locator('body').innerText().catch(() => '')).trim().slice(0, 300);
-      throw new Error(`The app didn't open offline. The page shows: ${shown || '(nothing)'}\n${logs.join(' | ') || 'no failed requests'}`);
+      // Why the worker's cache didn't answer: is the script there, and does its Vary header get in the way?
+      const cache = await page
+        .evaluate(async () => {
+          const src = [...document.scripts].map((s) => s.src).find((s) => s.includes('/assets/')) ?? '';
+          const asPage = new Request(src, { mode: 'cors', credentials: 'same-origin' });
+          const plain = await caches.match(src);
+          return {
+            src,
+            match: !!plain,
+            matchAsPage: !!(await caches.match(asPage)),
+            matchIgnoringVary: !!(await caches.match(asPage, { ignoreVary: true })),
+            vary: plain?.headers.get('vary') ?? null,
+          };
+        })
+        .catch((e: Error) => ({ error: e.message }));
+      throw new Error(
+        `The app didn't open offline. The page shows: ${shown || '(nothing)'}\n${logs.join(' | ') || 'no failed requests'}\nCache: ${JSON.stringify(cache)}`,
+      );
     }
 
     // A screen that loads more of the build (the photo step) still works from the cache.
