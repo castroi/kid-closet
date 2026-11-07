@@ -1,3 +1,5 @@
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test as base, expect, type Page } from '@playwright/test';
 
@@ -16,7 +18,9 @@ export const test = base.extend({
   // still empty and unshared, like a fresh install.
   context: async ({ playwright, browserName, viewport, userAgent, deviceScaleFactor, isMobile, hasTouch, locale, baseURL }, use, testInfo) => {
     const screen = (testInfo.project.use as { screen?: { width: number; height: number } }).screen;
-    const context = await playwright[browserName].launchPersistentContext(testInfo.outputPath('profile'), {
+    // A plain ASCII folder: WebKit can't start with a profile path holding the Hebrew test title.
+    const profile = await mkdtemp(path.join(tmpdir(), 'kid-closet-e2e-'));
+    const context = await playwright[browserName].launchPersistentContext(profile, {
       viewport,
       screen,
       userAgent,
@@ -32,6 +36,7 @@ export const test = base.extend({
     });
     await use(context);
     await context.close();
+    await rm(profile, { recursive: true, force: true });
   },
   page: async ({ context }, use) => {
     await use(context.pages()[0] ?? (await context.newPage()));
