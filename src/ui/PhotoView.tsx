@@ -14,15 +14,21 @@ export function PhotoView({ item, onClose }: { item: Item; onClose: () => void }
   const url = useImageUrl(item.image);
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const startY = useRef<number | null>(null);
+  // The latest onClose, so the effects below run once: a re-render while open (an analysis or a doll
+  // finishing) must not move focus, or VoiceOver's cursor, back to ✕.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     closeRef.current?.focus({ preventScroll: true });
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') onCloseRef.current();
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, []);
 
   return (
     <div
