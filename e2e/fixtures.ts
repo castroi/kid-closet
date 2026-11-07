@@ -11,12 +11,30 @@ export const GARMENT_PHOTO = path.join(process.cwd(), 'src/assets/sample-garment
  * answer adds its own `page.route`, which takes precedence over this one.
  */
 export const test = base.extend({
-  context: async ({ context }, use) => {
+  // WebKit's default (ephemeral) context is like a Safari private tab: OPFS refuses access with
+  // UnknownError. So each test gets a persistent profile in its own new folder: real storage,
+  // still empty and unshared, like a fresh install.
+  context: async ({ playwright, browserName, viewport, userAgent, deviceScaleFactor, isMobile, hasTouch, locale, baseURL }, use, testInfo) => {
+    const screen = (testInfo.project.use as { screen?: { width: number; height: number } }).screen;
+    const context = await playwright[browserName].launchPersistentContext(testInfo.outputPath('profile'), {
+      viewport,
+      screen,
+      userAgent,
+      deviceScaleFactor,
+      isMobile,
+      hasTouch,
+      locale,
+      baseURL,
+    });
     await context.route('**/*', (route) => {
       const { hostname } = new URL(route.request().url());
       return hostname === 'localhost' || hostname === '127.0.0.1' ? route.fallback() : route.abort('blockedbyclient');
     });
     await use(context);
+    await context.close();
+  },
+  page: async ({ context }, use) => {
+    await use(context.pages()[0] ?? (await context.newPage()));
   },
 });
 
