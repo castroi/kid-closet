@@ -8,7 +8,10 @@ test('after one visit the app opens and works with no network', async ({ page, c
   // The generated /sw.js pre-caches the whole build and claims the page once it's active.
   await page.waitForFunction(() => !!navigator.serviceWorker?.controller, null, { timeout: 30_000 });
 
-  await context.setOffline(true);
+  // No network: every request fails, also the worker's own (Chromium routes those too), so
+  // whatever opens must come from the worker's cache. (context.setOffline() also stopped the
+  // worker from serving its cache in Chromium, which a phone without signal doesn't do.)
+  await context.route('**/*', (route) => route.abort('internetdisconnected'));
   await page.reload();
   try {
     // The worker waits up to 3 s for the network before it shows the cached page.
