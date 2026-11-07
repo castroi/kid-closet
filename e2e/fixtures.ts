@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -73,28 +74,34 @@ export function tab(page: Page, name: 'להתלבש' | 'מועדפים' | 'הא�
 }
 
 /**
- * Writes a file at the top of this site's OPFS, the way a closet file sits on her phone.
- * Uses createWritable where the browser has it, otherwise a worker's sync access handle
- * (the only way older Safari writes OPFS files).
+ * Writes a file into this site's OPFS, the way the app's files sit on her phone ("closet-a.json",
+ * "images/<id>.webp"). Text or bytes. Uses createWritable where the browser has it, otherwise a
+ * worker's sync access handle (the only way older Safari writes OPFS files).
  */
-export async function writeOpfsFile(page: Page, name: string, text: string): Promise<void> {
+export async function writeOpfsFile(page: Page, name: string, data: string | Buffer): Promise<void> {
+  const payload = typeof data === 'string' ? { text: data, b64: null } : { text: null, b64: data.toString('base64') };
   const result = await page.evaluate(
-    async ({ name, text }) => {
-      const root = await navigator.storage.getDirectory();
-      const handle = await root.getFileHandle(name, { create: true });
+    async ({ name, text, b64 }) => {
+      const bytes = b64 === null ? new TextEncoder().encode(text ?? '') : Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      const parts = name.split('/');
+      let dir = await navigator.storage.getDirectory();
+      for (const part of parts.slice(0, -1)) dir = await dir.getDirectoryHandle(part, { create: true });
+      const handle = await dir.getFileHandle(parts[parts.length - 1], { create: true });
       if (typeof handle.createWritable === 'function') {
         const writable = await handle.createWritable();
-        await writable.write(text);
+        await writable.write(bytes);
         await writable.close();
         return 'ok';
       }
       const source = `onmessage = async (e) => {
         try {
-          const root = await navigator.storage.getDirectory();
-          const h = await root.getFileHandle(e.data.name, { create: true });
+          let dir = await navigator.storage.getDirectory();
+          const parts = e.data.name.split('/');
+          for (const part of parts.slice(0, -1)) dir = await dir.getDirectoryHandle(part, { create: true });
+          const h = await dir.getFileHandle(parts[parts.length - 1], { create: true });
           const a = await h.createSyncAccessHandle();
           a.truncate(0);
-          a.write(new TextEncoder().encode(e.data.text), { at: 0 });
+          a.write(e.data.bytes, { at: 0 });
           a.flush();
           a.close();
           postMessage('ok');
@@ -108,14 +115,14 @@ export async function writeOpfsFile(page: Page, name: string, text: string): Pro
         return await new Promise<string>((resolve) => {
           worker.onmessage = (e) => resolve(String(e.data));
           worker.onerror = (e) => resolve(e.message);
-          worker.postMessage({ name, text });
+          worker.postMessage({ name, bytes });
         });
       } finally {
         worker.terminate();
         URL.revokeObjectURL(url);
       }
     },
-    { name, text },
+    { name, ...payload },
   );
   expect(result, `writing ${name} into OPFS`).toBe('ok');
 }
@@ -160,4 +167,34 @@ export async function seedCloset(page: Page, closet: Record<string, unknown>): P
   await writeOpfsFile(page, 'closet-a.json', JSON.stringify(envelope));
   await page.reload();
   await expect(page.getByRole('navigation', { name: 'ניווט ראשי' })).toBeVisible();
+}
+
+/**
+ * A closet as she uses it: an outer layer, two shirts and trousers, each with a real photo
+ * file, and one saved outfit. So screens show their rows, cards and favourites, not only
+ * their empty states.
+ */
+export async function seedClothes(page: Page): Promise<void> {
+  const photo = readFileSync(GARMENT_PHOTO);
+  const at = '2026-10-01T08:00:00.000Z';
+  const garments = [
+    { id: 'e2e-sweater', name: 'סוודר בצבע כחול', type: 'sweater', colorGroup: 'blue' },
+    { id: 'e2e-tee', name: 'חולצה קצרה בצבע ורוד', type: 'tee', colorGroup: 'pink' },
+    { id: 'e2e-long', name: 'חולצה ארוכה בצבע ירוק', type: 'longTop', colorGroup: 'green' },
+    { id: 'e2e-pants', name: 'מכנסיים ארוכים בצבע שחור', type: 'pants', colorGroup: 'black' },
+  ];
+  for (const g of garments) await writeOpfsFile(page, `images/${g.id}.webp`, photo);
+  await seedCloset(page, {
+    items: garments.map((g) => ({
+      ...g,
+      occasions: ['school', 'casual', 'party'],
+      status: 'active',
+      image: `images/${g.id}.webp`,
+      photoRevision: 0,
+      analysis: null,
+      createdAt: at,
+      updatedAt: at,
+    })),
+    outfits: [{ id: 'e2e-outfit', occasion: 'school', layerId: 'e2e-sweater', topId: 'e2e-tee', bottomId: 'e2e-pants', createdAt: at }],
+  });
 }
