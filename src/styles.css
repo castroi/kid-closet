@@ -359,7 +359,7 @@ button:disabled {
   gap: 4px;
 }
 
-/* The garment photo opens the gallery. */
+/* A tap on the garment photo enlarges it (PhotoView). */
 .garment-btn {
   border: none;
   background: transparent;
@@ -403,6 +403,10 @@ button:disabled {
   justify-content: center;
   gap: 12px;
   padding: calc(env(safe-area-inset-top) + 68px) 16px calc(env(safe-area-inset-bottom) + 24px);
+  /* Nothing in it scrolls: a downward drag must reach PhotoView as a swipe (pointerup), not be taken
+     by the browser as a pan (pointercancel), or "swipe down to close" would never fire on a phone. */
+  touch-action: none;
+  overscroll-behavior: contain;
 }
 
 .photo-view-close {
