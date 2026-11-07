@@ -262,6 +262,55 @@ describe('DressUp gallery', () => {
     await user.click(row('שכבה עליונה').getByRole('button', { name: 'בלי' }));
     expect(row('שכבה עליונה').getByRole('button', { name: 'גלריה של שכבה עליונה' })).toBeDisabled();
   });
+
+  it('keeps "לראות את הלוק" in the bar above the tabs, outside the scrolling rows', async () => {
+    await renderWithCloset(<DressUp today={COLD_DAY} onOpenFavorites={vi.fn()} />, sampleCloset());
+    const button = screen.getByRole('button', { name: 'לראות את הלוק' });
+    expect(button.closest('.action-bar')).not.toBeNull();
+    expect(button.closest('.screen')).toBeNull();
+  });
+
+  it('keeps the disabled button and its reason in the bar too', async () => {
+    await renderWithCloset(<DressUp today={COLD_DAY} onOpenFavorites={vi.fn()} />);
+    const button = screen.getByRole('button', { name: 'צריך לבחור חולצה ומכנסיים' });
+    expect(button).toBeDisabled();
+    expect(button.closest('.action-bar')).not.toBeNull();
+  });
+
+  it('shows one short line, not an empty box, when there are no top layers for the occasion', async () => {
+    const user = userEvent.setup();
+    await renderWithCloset(<DressUp today={COLD_DAY} onOpenFavorites={vi.fn()} />, sampleCloset());
+    await user.click(screen.getByRole('button', { name: 'חגיגי' }));
+    expect(row('שכבה עליונה').getByText('עוד אין שכבות · מוסיפים ב״הוספה״')).toBeInTheDocument();
+    // Nothing to filter or show: no buttons for it. "בלי" stays.
+    expect(row('שכבה עליונה').queryByRole('button', { name: /סוג וצבע/ })).not.toBeInTheDocument();
+    expect(row('שכבה עליונה').queryByRole('button', { name: /גלריה/ })).not.toBeInTheDocument();
+    expect(row('שכבה עליונה').getByRole('button', { name: 'בלי' })).toBeInTheDocument();
+  });
+
+  it('never hides a filter: with a filter on and no layers for the occasion, the row keeps its buttons', async () => {
+    const user = userEvent.setup();
+    await renderWithCloset(<DressUp today={COLD_DAY} onOpenFavorites={vi.fn()} />, sampleCloset());
+    await user.click(row('שכבה עליונה').getByRole('button', { name: 'סוג וצבע של שכבה עליונה' }));
+    await user.click(within(screen.getByRole('dialog', { name: 'סינון שכבה עליונה' })).getByRole('button', { name: 'סוודר' }));
+    await user.click(screen.getByRole('button', { name: 'סיום' }));
+    // No layers at all for a party; the type filter stays (only the colour is dropped).
+    await user.click(screen.getByRole('button', { name: 'חגיגי' }));
+    expect(row('שכבה עליונה').getByRole('button', { name: 'סוג וצבע של שכבה עליונה: סוודר' })).toBeInTheDocument();
+    expect(row('שכבה עליונה').queryByText('עוד אין שכבות · מוסיפים ב״הוספה״')).not.toBeInTheDocument();
+    await user.click(row('שכבה עליונה').getByRole('button', { name: 'לבטל סינון' }));
+    expect(row('שכבה עליונה').getByText('עוד אין שכבות · מוסיפים ב״הוספה״')).toBeInTheDocument();
+  });
+
+  it('uses the compact layout only when cold with a top layer shown', async () => {
+    const user = userEvent.setup();
+    const { container } = await renderWithCloset(<DressUp today={COLD_DAY} onOpenFavorites={vi.fn()} />, sampleCloset());
+    expect(container.querySelector('.screen')).toHaveClass('screen-compact');
+    await user.click(row('שכבה עליונה').getByRole('button', { name: 'בלי' }));
+    expect(container.querySelector('.screen')).not.toHaveClass('screen-compact');
+    await user.click(screen.getByRole('button', { name: 'חם' }));
+    expect(container.querySelector('.screen')).not.toHaveClass('screen-compact');
+  });
 });
 
 describe('DressUp big photo', () => {

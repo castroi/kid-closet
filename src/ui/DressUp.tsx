@@ -84,6 +84,9 @@ export function DressUp({ initialOutfit = null, initialPreview = false, today = 
   const top = view('top').current;
   const bottom = view('bottom').current;
   const canPreview = top !== null && bottom !== null;
+  // Cold with a top layer shown: three photo rows. Slightly smaller photos and spacing, so all three
+  // garments fit above the pinned button on her phone (docs: the dress-up screen's space budget).
+  const threeRows = layer !== null;
 
   const setFilter = (slot: Slot, filter: SlotFilter) => {
     // Remember the garment she's looking at, so widening the filter keeps it instead of jumping to the first one.
@@ -190,139 +193,153 @@ export function DressUp({ initialOutfit = null, initialPreview = false, today = 
   }
 
   return (
-    <div className="screen">
-      <div className="screen-header">
-        <h1>לאן הולכים היום?</h1>
-        <div className="switch" role="group" aria-label="מזג אוויר">
-          <button type="button" aria-pressed={cold} onClick={() => chooseWeather(true)}>
-            קר
-          </button>
-          <button type="button" aria-pressed={!cold} onClick={() => chooseWeather(false)}>
-            חם
-          </button>
+    <>
+      <div className={threeRows ? 'screen screen-compact' : 'screen'}>
+        <div className="screen-header">
+          <h1>לאן הולכים היום?</h1>
+          <div className="switch" role="group" aria-label="מזג אוויר">
+            <button type="button" aria-pressed={cold} onClick={() => chooseWeather(true)}>
+              קר
+            </button>
+            <button type="button" aria-pressed={!cold} onClick={() => chooseWeather(false)}>
+              חם
+            </button>
+          </div>
         </div>
-      </div>
 
-      <div className="segmented" role="group" aria-label="לאן הולכים">
-        {OCCASIONS.map((o) => (
-          <button key={o} type="button" className="chip" aria-pressed={occasion === o} onClick={() => chooseOccasion(o)}>
-            {OCCASION_LABEL[o]}
-          </button>
-        ))}
-      </div>
+        <div className="segmented" role="group" aria-label="לאן הולכים">
+          {OCCASIONS.map((o) => (
+            <button key={o} type="button" className="chip" aria-pressed={occasion === o} onClick={() => chooseOccasion(o)}>
+              {OCCASION_LABEL[o]}
+            </button>
+          ))}
+        </div>
 
-      <div className="rows">
-        {slots.map((slot) => {
-          const { list, off, current } = view(slot);
-          const filter = filters[slot];
-          const parts = filterParts(filter);
-          const hasFilter = parts.length > 0;
-          return (
-            <section key={slot} aria-label={SLOT_LABEL[slot]}>
-              <div className="row-header">
-                <h2>{SLOT_LABEL[slot]}</h2>
-                <span className="spacer" />
-                {slot === 'layer' && (
-                  <button
-                    type="button"
-                    className="small-btn"
-                    aria-pressed={!layerOn}
-                    onClick={() => {
-                      setLayerOn((v) => !v);
-                      setJustSaved(false);
-                    }}
-                  >
-                    בלי
-                  </button>
-                )}
-                {/* When a filter is on, the button itself shows it (dark, with the colour), so the row never hides a filter. */}
-                <button
-                  type="button"
-                  className="small-btn filter-btn"
-                  aria-pressed={hasFilter}
-                  onClick={() => setSheet(slot)}
-                  disabled={off}
-                  aria-label={hasFilter ? `סוג וצבע של ${SLOT_LABEL[slot]}: ${parts.join(' ')}` : `סוג וצבע של ${SLOT_LABEL[slot]}`}
-                >
-                  {hasFilter ? (
-                    <>
-                      {filter.color && <Swatch color={filter.color} />}
-                      <span className="filter-btn-text">{parts.join(' · ')}</span>
-                    </>
-                  ) : (
-                    <>
-                      <Icon name="filter" size={14} />
-                      סוג וצבע
-                    </>
+        <div className="rows">
+          {slots.map((slot) => {
+            const { pool, list, off, current } = view(slot);
+            const filter = filters[slot];
+            const parts = filterParts(filter);
+            const hasFilter = parts.length > 0;
+            // No top layers for this occasion and no filter to keep visible: one short line instead of a big
+            // empty box and two buttons with nothing to filter or show.
+            const noLayers = slot === 'layer' && pool.length === 0 && !hasFilter;
+            return (
+              <section key={slot} aria-label={SLOT_LABEL[slot]}>
+                <div className="row-header">
+                  <h2>{SLOT_LABEL[slot]}</h2>
+                  <span className="spacer" />
+                  {slot === 'layer' && (
+                    <button
+                      type="button"
+                      className="small-btn"
+                      aria-pressed={!layerOn}
+                      onClick={() => {
+                        setLayerOn((v) => !v);
+                        setJustSaved(false);
+                      }}
+                    >
+                      בלי
+                    </button>
                   )}
-                </button>
-                <button
-                  type="button"
-                  className="small-btn"
-                  onClick={() => setGallery(slot)}
-                  disabled={off}
-                  aria-label={`גלריה של ${SLOT_LABEL[slot]}`}
-                >
-                  <Icon name="grid" size={14} />
-                  גלריה
-                </button>
-              </div>
-              {off ? (
-                <div className="empty-slot">בלי שכבה עליונה היום</div>
-              ) : current ? (
-                <Carousel
-                  item={current}
-                  index={list.indexOf(current)}
-                  total={list.length}
-                  height={cold ? 112 : 150}
-                  onStep={(d) => step(slot, list, d)}
-                />
-              ) : (
-                <div className="empty-slot">
-                  {hasFilter ? 'אין בגדים שמתאימים לסינון' : 'אין עדיין בגדים כאן. אפשר להוסיף בלשונית "הוספה".'}
-                  {hasFilter && (
-                    <button type="button" className="chip" onClick={() => setFilter(slot, NO_FILTER)}>
-                      לבטל סינון
+                  {/* When a filter is on, the button itself shows it (dark, with the colour), so the row never hides a filter. */}
+                  {!noLayers && (
+                    <button
+                      type="button"
+                      className="small-btn filter-btn"
+                      aria-pressed={hasFilter}
+                      onClick={() => setSheet(slot)}
+                      disabled={off}
+                      aria-label={hasFilter ? `סוג וצבע של ${SLOT_LABEL[slot]}: ${parts.join(' ')}` : `סוג וצבע של ${SLOT_LABEL[slot]}`}
+                    >
+                      {hasFilter ? (
+                        <>
+                          {filter.color && <Swatch color={filter.color} />}
+                          <span className="filter-btn-text">{parts.join(' · ')}</span>
+                        </>
+                      ) : (
+                        <>
+                          <Icon name="filter" size={14} />
+                          סוג וצבע
+                        </>
+                      )}
+                    </button>
+                  )}
+                  {!noLayers && (
+                    <button
+                      type="button"
+                      className="small-btn"
+                      onClick={() => setGallery(slot)}
+                      disabled={off}
+                      aria-label={`גלריה של ${SLOT_LABEL[slot]}`}
+                    >
+                      <Icon name="grid" size={14} />
+                      גלריה
                     </button>
                   )}
                 </div>
-              )}
-            </section>
-          );
-        })}
+                {off ? (
+                  <p className="slot-note">בלי שכבה עליונה היום</p>
+                ) : noLayers ? (
+                  <p className="slot-note">עוד אין שכבות · מוסיפים ב״הוספה״</p>
+                ) : current ? (
+                  <Carousel
+                    item={current}
+                    index={list.indexOf(current)}
+                    total={list.length}
+                    height={threeRows ? 96 : cold ? 112 : 150}
+                    onStep={(d) => step(slot, list, d)}
+                  />
+                ) : (
+                  <div className="empty-slot">
+                    {hasFilter ? 'אין בגדים שמתאימים לסינון' : 'אין עדיין בגדים כאן. אפשר להוסיף בלשונית "הוספה".'}
+                    {hasFilter && (
+                      <button type="button" className="chip" onClick={() => setFilter(slot, NO_FILTER)}>
+                        לבטל סינון
+                      </button>
+                    )}
+                  </div>
+                )}
+              </section>
+            );
+          })}
+        </div>
       </div>
 
-      <button type="button" className="btn btn-primary" disabled={!canPreview} onClick={() => setPreview(true)}>
-        <Icon name="eye" />
-        {canPreview ? 'לראות את הלוק' : 'צריך לבחור חולצה ומכנסיים'}
-      </button>
+      {/* Pinned above the tab bar like the other screens' main buttons: always in view, however long the rows. */}
+      <div className="action-bar">
+        <button type="button" className="btn btn-primary" disabled={!canPreview} onClick={() => setPreview(true)}>
+          <Icon name="eye" />
+          {canPreview ? 'לראות את הלוק' : 'צריך לבחור חולצה ומכנסיים'}
+        </button>
+      </div>
 
-      {gallery && (
-        <Gallery
-          slot={gallery}
-          pool={view(gallery).pool}
-          filter={filters[gallery]}
-          selectedId={view(gallery).current?.id ?? selected[gallery]}
-          context={slots
-            .filter((s) => s !== gallery)
-            .map((s) => view(s).current)
-            .filter((it): it is Item => it !== null)}
-          onFilterChange={(f) => setFilter(gallery, f)}
-          onPick={(id) => pick(gallery, id)}
-          onClose={() => setGallery(null)}
-        />
-      )}
+        {gallery && (
+          <Gallery
+            slot={gallery}
+            pool={view(gallery).pool}
+            filter={filters[gallery]}
+            selectedId={view(gallery).current?.id ?? selected[gallery]}
+            context={slots
+              .filter((s) => s !== gallery)
+              .map((s) => view(s).current)
+              .filter((it): it is Item => it !== null)}
+            onFilterChange={(f) => setFilter(gallery, f)}
+            onPick={(id) => pick(gallery, id)}
+            onClose={() => setGallery(null)}
+          />
+        )}
 
-      {sheet && (
-        <FilterSheet
-          slot={sheet}
-          pool={view(sheet).pool}
-          filter={filters[sheet]}
-          onChange={(f) => setFilter(sheet, f)}
-          onClose={() => setSheet(null)}
-        />
-      )}
-    </div>
+        {sheet && (
+          <FilterSheet
+            slot={sheet}
+            pool={view(sheet).pool}
+            filter={filters[sheet]}
+            onChange={(f) => setFilter(sheet, f)}
+            onClose={() => setSheet(null)}
+          />
+        )}
+    </>
   );
 }
 
