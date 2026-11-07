@@ -238,34 +238,6 @@ describe('DressUp gallery', () => {
     expect(gallery.getAllByRole('button', { name: /^חולצה/ })).toHaveLength(3);
   });
 
-  it('opens from a tap on the photo, but not after a swipe', async () => {
-    const user = userEvent.setup();
-    await renderWithCloset(<DressUp today={WARM_DAY} onOpenFavorites={vi.fn()} />, sampleCloset());
-    const photo = row('חולצה').getByRole('button', { name: 'פתיחת הגלריה: חולצה כחולה' });
-
-    // A swipe: the finger moves, then the browser still sends a click.
-    fireEvent.pointerDown(photo, { clientX: 200, clientY: 100 });
-    fireEvent.pointerUp(photo, { clientX: 120, clientY: 100 });
-    // A click from a finger has detail 1 (keyboard and VoiceOver clicks have 0).
-    fireEvent.click(photo, { detail: 1 });
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    expect(row('חולצה').getByText('חולצה לבנה')).toBeInTheDocument();
-
-    await user.click(row('חולצה').getByRole('button', { name: 'פתיחת הגלריה: חולצה לבנה' }));
-    expect(screen.getByRole('dialog', { name: 'חולצות' })).toBeInTheDocument();
-  });
-
-  it('still opens from the keyboard after a swipe that ended without a click', async () => {
-    await renderWithCloset(<DressUp today={WARM_DAY} onOpenFavorites={vi.fn()} />, sampleCloset());
-    const photo = row('חולצה').getByRole('button', { name: 'פתיחת הגלריה: חולצה כחולה' });
-    // A small sideways move (not enough to change the shirt), then no click from the browser.
-    fireEvent.pointerDown(photo, { clientX: 200, clientY: 100 });
-    fireEvent.pointerUp(photo, { clientX: 180, clientY: 100 });
-    // Enter or a VoiceOver double-tap: a click with detail 0.
-    fireEvent.click(photo, { detail: 0 });
-    expect(screen.getByRole('dialog', { name: 'חולצות' })).toBeInTheDocument();
-  });
-
   it('closes without changing anything', async () => {
     const user = userEvent.setup();
     await renderWithCloset(<DressUp today={WARM_DAY} onOpenFavorites={vi.fn()} />, sampleCloset());
@@ -291,3 +263,79 @@ describe('DressUp gallery', () => {
     expect(row('שכבה עליונה').getByRole('button', { name: 'גלריה של שכבה עליונה' })).toBeDisabled();
   });
 });
+
+describe('DressUp big photo', () => {
+  it('enlarges the photo on a tap, but not after a swipe', async () => {
+    const user = userEvent.setup();
+    await renderWithCloset(<DressUp today={WARM_DAY} onOpenFavorites={vi.fn()} />, sampleCloset());
+    const photo = row('חולצה').getByRole('button', { name: 'הגדלת התמונה: חולצה כחולה' });
+
+    // A swipe: the finger moves, then the browser still sends a click.
+    fireEvent.pointerDown(photo, { clientX: 200, clientY: 100 });
+    fireEvent.pointerUp(photo, { clientX: 120, clientY: 100 });
+    // A click from a finger has detail 1 (keyboard and VoiceOver clicks have 0).
+    fireEvent.click(photo, { detail: 1 });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(row('חולצה').getByText('חולצה לבנה')).toBeInTheDocument();
+
+    await user.click(row('חולצה').getByRole('button', { name: 'הגדלת התמונה: חולצה לבנה' }));
+    const view = within(screen.getByRole('dialog', { name: 'חולצה לבנה' }));
+    expect(view.getByRole('img', { name: 'חולצה לבנה' })).toBeInTheDocument();
+    expect(view.getByText('חולצה לבנה')).toBeInTheDocument();
+    // Not the gallery: that stays on its own button.
+    expect(screen.queryByRole('dialog', { name: 'חולצות' })).not.toBeInTheDocument();
+  });
+
+  it('still enlarges from the keyboard after a swipe that ended without a click', async () => {
+    await renderWithCloset(<DressUp today={WARM_DAY} onOpenFavorites={vi.fn()} />, sampleCloset());
+    const photo = row('חולצה').getByRole('button', { name: 'הגדלת התמונה: חולצה כחולה' });
+    // A small sideways move (not enough to change the shirt), then no click from the browser.
+    fireEvent.pointerDown(photo, { clientX: 200, clientY: 100 });
+    fireEvent.pointerUp(photo, { clientX: 180, clientY: 100 });
+    // Enter or a VoiceOver double-tap: a click with detail 0.
+    fireEvent.click(photo, { detail: 0 });
+    expect(screen.getByRole('dialog', { name: 'חולצה כחולה' })).toBeInTheDocument();
+  });
+
+  it('puts focus on ✕ while open and back on the photo after closing', async () => {
+    const user = userEvent.setup();
+    await renderWithCloset(<DressUp today={WARM_DAY} onOpenFavorites={vi.fn()} />, sampleCloset());
+    const photo = row('חולצה').getByRole('button', { name: 'הגדלת התמונה: חולצה כחולה' });
+    await user.click(photo);
+    expect(within(screen.getByRole('dialog')).getByRole('button', { name: 'סגירה' })).toHaveFocus();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(photo).toHaveFocus();
+  });
+
+  it.each([
+    ['✕', (dialog: HTMLElement) => fireEvent.click(within(dialog).getByRole('button', { name: 'סגירה' }))],
+    ['a tap beside the photo', (dialog: HTMLElement) => fireEvent.click(dialog)],
+    [
+      'a swipe down',
+      (dialog: HTMLElement) => {
+        fireEvent.pointerDown(dialog, { clientX: 200, clientY: 100 });
+        fireEvent.pointerUp(dialog, { clientX: 120, clientY: 260 });
+      },
+    ],
+    ['Escape', () => fireEvent.keyDown(document, { key: 'Escape' })],
+  ])('closes with %s and never changes what she picked', async (_how, close) => {
+    const user = userEvent.setup();
+    await renderWithCloset(<DressUp today={WARM_DAY} onOpenFavorites={vi.fn()} />, sampleCloset());
+    await user.click(row('חולצה').getByRole('button', { name: 'הבא' }));
+    await user.click(row('חולצה').getByRole('button', { name: 'הגדלת התמונה: חולצה לבנה' }));
+    close(screen.getByRole('dialog', { name: 'חולצה לבנה' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    // Still the same shirt: the swipe down didn't reach the row's own swipe.
+    expect(row('חולצה').getByText('חולצה לבנה')).toBeInTheDocument();
+    expect(row('חולצה').getByText('· 2/3')).toBeInTheDocument();
+  });
+
+  it('keeps "גלריה" for the grid', async () => {
+    const user = userEvent.setup();
+    await renderWithCloset(<DressUp today={WARM_DAY} onOpenFavorites={vi.fn()} />, sampleCloset());
+    await user.click(row('חולצה').getByRole('button', { name: 'גלריה של חולצה' }));
+    expect(screen.getByRole('dialog', { name: 'חולצות' })).toBeInTheDocument();
+  });
+});
+
