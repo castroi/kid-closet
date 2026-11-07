@@ -318,6 +318,9 @@ button:disabled {
 
 .small-btn {
   min-height: 44px;
+  /* A short label like "בלי" would otherwise make it narrower than a finger (found by e2e/layout.spec.ts). */
+  min-width: 44px;
+  justify-content: center;
   padding: 0 12px;
   border-radius: 22px;
   border: 1.5px solid var(--ink);

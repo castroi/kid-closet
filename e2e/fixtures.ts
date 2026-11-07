@@ -29,17 +29,26 @@ export const test = base.extend({
       hasTouch,
       locale,
       baseURL,
+      // The hard stop: everything but the local server goes to a proxy that isn't there, so
+      // nothing leaves the machine even if a route below is missed. A test's own page.route
+      // still answers first, before the request reaches the network.
+      proxy: { server: 'http://127.0.0.1:9', bypass: 'localhost,127.0.0.1' },
     });
     await context.route('**/*', (route) => {
-      const { hostname } = new URL(route.request().url());
-      return hostname === 'localhost' || hostname === '127.0.0.1' ? route.fallback() : route.abort('blockedbyclient');
+      const { protocol, hostname } = new URL(route.request().url());
+      const local = hostname === 'localhost' || hostname === '127.0.0.1' || protocol === 'blob:' || protocol === 'data:';
+      return local ? route.fallback() : route.abort('blockedbyclient');
     });
     await use(context);
     await context.close();
     await rm(profile, { recursive: true, force: true });
   },
   page: async ({ context }, use) => {
-    await use(context.pages()[0] ?? (await context.newPage()));
+    // The profile's first page opened before the routes were set, so they may not apply to it:
+    // use a page made after them, and close the first one.
+    const page = await context.newPage();
+    for (const other of context.pages()) if (other !== page) await other.close();
+    await use(page);
   },
 });
 
