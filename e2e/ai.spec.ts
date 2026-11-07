@@ -109,9 +109,14 @@ test('the AI fills type, colour and occasions from the photo, and she saves it',
   // She still checks and presses save herself.
   await page.getByRole('button', { name: 'שמירה בארון' }).click();
   await expect(page.getByText('"חולצה קצרה בצבע ורוד" נשמר בארון')).toBeVisible();
-  // The answer was stored with the garment, so it is never paid for twice.
+  // The answer was stored with the garment, so it is never paid for twice: not after saving,
+  // and not after the app reopens and its analysis queue looks at the closet again.
   await tab(page, 'הארון שלי').click();
   await expect(page.getByRole('button', { name: 'עריכת חולצה קצרה בצבע ורוד · ה־AI מכיר' })).toBeVisible();
+  await page.reload();
+  await tab(page, 'הארון שלי').click();
+  await expect(page.getByRole('button', { name: 'עריכת חולצה קצרה בצבע ורוד · ה־AI מכיר' })).toBeVisible();
+  await page.waitForTimeout(2_000);
   expect(provider.sent).toHaveLength(1);
 });
 
