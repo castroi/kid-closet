@@ -24,8 +24,16 @@ export { expect };
 
 /** Opens the app and waits until the closet has loaded (the tab bar is shown). */
 export async function openApp(page: Page): Promise<void> {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(err.message));
   await page.goto('/');
-  await expect(page.getByRole('navigation', { name: 'ניווט ראשי' })).toBeVisible();
+  try {
+    await expect(page.getByRole('navigation', { name: 'ניווט ראשי' })).toBeVisible();
+  } catch {
+    // Say what she would see instead (the unsupported-browser or recovery screen, say).
+    const shown = (await page.locator('body').innerText()).trim().slice(0, 500);
+    throw new Error(`The app didn't open. The page shows: ${shown || '(nothing)'}\nPage errors: ${errors.join(' | ') || 'none'}`);
+  }
 }
 
 export function tab(page: Page, name: 'להתלבש' | 'מועדפים' | 'הארון שלי' | 'הוספה') {
