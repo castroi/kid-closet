@@ -316,6 +316,20 @@ describe('DressUp gallery', () => {
     expect(row('שכבה עליונה').getByRole('button', { name: 'בלי' })).toBeInTheDocument();
   });
 
+  it('never hides a filter: with a filter on and no layers for the occasion, the row keeps its buttons', async () => {
+    const user = userEvent.setup();
+    await renderWithCloset(<DressUp today={COLD_DAY} onOpenFavorites={vi.fn()} />, sampleCloset());
+    await user.click(row('שכבה עליונה').getByRole('button', { name: 'סוג וצבע של שכבה עליונה' }));
+    await user.click(within(screen.getByRole('dialog', { name: 'סינון שכבה עליונה' })).getByRole('button', { name: 'סוודר' }));
+    await user.click(screen.getByRole('button', { name: 'סיום' }));
+    // No layers at all for a party; the type filter stays (only the colour is dropped).
+    await user.click(screen.getByRole('button', { name: 'חגיגי' }));
+    expect(row('שכבה עליונה').getByRole('button', { name: 'סוג וצבע של שכבה עליונה: סוודר' })).toBeInTheDocument();
+    expect(row('שכבה עליונה').queryByText('עוד אין שכבות · מוסיפים ב״הוספה״')).not.toBeInTheDocument();
+    await user.click(row('שכבה עליונה').getByRole('button', { name: 'לבטל סינון' }));
+    expect(row('שכבה עליונה').getByText('עוד אין שכבות · מוסיפים ב״הוספה״')).toBeInTheDocument();
+  });
+
   it('uses the compact layout only when cold with a top layer shown', async () => {
     const user = userEvent.setup();
     const { container } = await renderWithCloset(<DressUp today={COLD_DAY} onOpenFavorites={vi.fn()} />, sampleCloset());
