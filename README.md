@@ -63,9 +63,10 @@ npm run test:e2e       # build, then end-to-end tests in real browsers (e2e/)
 ```
 
 The e2e tests run the production build in WebKit on an iPhone SE and an iPhone 15 Pro Max viewport (Safari's
-bars already taken off the height), and in Chromium for the offline test. They use the real OPFS, write worker,
-WebP encoder and service worker, and never reach a real AI provider: every outside request is blocked, and the AI
-tests answer for the provider. They can't show Safari's bar collapsing, the notch or the home indicator; check those
+bars already taken off the height), and in Chromium for the offline and AI tests (Playwright's WebKit on Linux can't
+answer the provider's cross-origin call with a fake one). They use the real OPFS, write worker, WebP encoder and
+service worker, and never reach a real AI provider: every outside request is blocked twice (a route and a dead
+proxy, checked by `e2e/guard.spec.ts`), and the AI tests answer for the provider. They can't show Safari's bar collapsing, the notch or the home indicator; check those
 on the iOS Simulator or the phone when the layout changes.
 
 Code layout:
@@ -87,7 +88,7 @@ fakes.
 
 GitHub Actions (`.github/workflows/ci.yml`) runs lint, typecheck, tests with coverage and the build on
 every push to `main` and every pull request. The coverage report is uploaded as a build artifact. An `e2e` job runs
-next to it: WebKit only on pull requests, WebKit and Chromium on `main`; when it fails, the Playwright report and
+next to it, in WebKit and Chromium; when it fails, the Playwright report and
 traces are uploaded as the `playwright-report` artifact.
 
 ## Deploying to Vercel

@@ -71,9 +71,9 @@ jobs:
           path: coverage/
           if-no-files-found: ignore
 
-  # Real browsers (playwright.config.ts), next to "check" so it doesn't wait for it.
-  # PRs: WebKit only, on the smallest and largest iPhone, because her phone is Safari.
-  # main: also Chromium for the offline (service worker) test.
+  # Real browsers (playwright.config.ts), next to "check" so it doesn't wait for it:
+  # WebKit on the smallest and largest iPhone (her phone is Safari), Chromium for the
+  # offline and AI tests.
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -97,21 +97,17 @@ jobs:
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-${{ github.ref == 'refs/heads/main' && 'all' || 'webkit' }}
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
 
       # Skips the download when cached; the system libraries are installed every time.
       - name: Install browsers
-        env:
-          BROWSERS: ${{ github.ref == 'refs/heads/main' && 'webkit chromium' || 'webkit' }}
-        run: npx playwright install --with-deps $BROWSERS
+        run: npx playwright install --with-deps webkit chromium
 
       - name: Build
         run: npm run build
 
       - name: E2E tests
-        env:
-          PROJECTS: ${{ github.ref == 'refs/heads/main' && '' || '--project=iphone-se --project=iphone-pro-max' }}
-        run: npx playwright test $PROJECTS
+        run: npx playwright test
 
       - name: Upload e2e report
         if: failure()
