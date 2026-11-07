@@ -5,8 +5,10 @@ test('nothing the page asks for outside the local server gets through', async ({
   await openApp(page);
   const outcome = await page.evaluate(async () => {
     try {
-      const response = await fetch('https://openrouter.ai/api/v1/key', { headers: { Authorization: 'Bearer e2e-guard' } });
-      return `reached the network: ${response.status}`;
+      // no-cors: any answer from the network resolves (as an opaque response), so only a request
+      // that never left the machine rejects. A CORS refusal can't pass for "blocked".
+      await fetch('https://openrouter.ai/api/v1/key', { mode: 'no-cors' });
+      return 'reached the network';
     } catch {
       return 'blocked';
     }
