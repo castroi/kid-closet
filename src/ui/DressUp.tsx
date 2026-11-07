@@ -25,6 +25,7 @@ import {
 import { ColorPicker, Garment, Icon, Sheet, Swatch, Toast, explainedElsewhere } from './common';
 import { AiLookPreview } from './AiLook';
 import { Gallery } from './Gallery';
+import { PhotoView } from './PhotoView';
 
 /** November to March counts as cold by default (Israel). */
 export function isColdSeason(date: Date): boolean {
@@ -288,7 +289,6 @@ export function DressUp({ initialOutfit = null, initialPreview = false, today = 
                     total={list.length}
                     height={threeRows ? 96 : cold ? 112 : 150}
                     onStep={(d) => step(slot, list, d)}
-                    onOpen={() => setGallery(slot)}
                   />
                 ) : (
                   <div className="empty-slot">
@@ -349,65 +349,78 @@ function Carousel({
   total,
   height,
   onStep,
-  onOpen,
 }: {
   item: Item;
   index: number;
   total: number;
   height: number;
   onStep: (delta: 1 | -1) => void;
-  onOpen: () => void;
 }) {
   const start = useRef<{ x: number; y: number } | null>(null);
   // When the finger last moved (a swipe or scroll). Only the click the browser sends right after it is ignored,
-  // so a later keyboard or VoiceOver activation, which has no pointer, still opens the gallery.
+  // so a later keyboard or VoiceOver activation, which has no pointer, still enlarges the photo.
   const movedAt = useRef<number | null>(null);
+  const photoRef = useRef<HTMLButtonElement | null>(null);
+  const [enlarged, setEnlarged] = useState(false);
   return (
-    <div
-      className="carousel"
-      onPointerDown={(e) => {
-        start.current = { x: e.clientX, y: e.clientY };
-        movedAt.current = null;
-      }}
-      onPointerUp={(e) => {
-        if (start.current === null) return;
-        const dx = e.clientX - start.current.x;
-        const dy = e.clientY - start.current.y;
-        start.current = null;
-        if (Math.abs(dx) > 10 || Math.abs(dy) > 10) movedAt.current = e.timeStamp;
-        if (Math.abs(dx) > 40 && total > 1) onStep(dx < 0 ? 1 : -1);
-      }}
-      onPointerCancel={(e) => {
-        start.current = null;
-        movedAt.current = e.timeStamp;
-      }}
-    >
-      <button type="button" className="icon-btn step" aria-label="הקודם" onClick={() => onStep(-1)} disabled={total < 2}>
-        <Icon name="prev" />
-      </button>
-      <div className="garment-box">
-        <button
-          type="button"
-          className="garment-btn"
-          aria-label={`פתיחת הגלריה: ${item.name}`}
-          onClick={(e) => {
-            const swipedJustNow = movedAt.current !== null && e.timeStamp - movedAt.current < SWIPE_CLICK_MS;
-            movedAt.current = null;
-            // detail is 0 for keyboard and assistive-technology clicks: never ignore those.
-            if (swipedJustNow && e.detail !== 0) return;
-            onOpen();
-          }}
-        >
-          <Garment item={item} height={height} />
+    <>
+      <div
+        className="carousel"
+        onPointerDown={(e) => {
+          start.current = { x: e.clientX, y: e.clientY };
+          movedAt.current = null;
+        }}
+        onPointerUp={(e) => {
+          if (start.current === null) return;
+          const dx = e.clientX - start.current.x;
+          const dy = e.clientY - start.current.y;
+          start.current = null;
+          if (Math.abs(dx) > 10 || Math.abs(dy) > 10) movedAt.current = e.timeStamp;
+          if (Math.abs(dx) > 40 && total > 1) onStep(dx < 0 ? 1 : -1);
+        }}
+        onPointerCancel={(e) => {
+          start.current = null;
+          movedAt.current = e.timeStamp;
+        }}
+      >
+        <button type="button" className="icon-btn step" aria-label="הקודם" onClick={() => onStep(-1)} disabled={total < 2}>
+          <Icon name="prev" />
         </button>
-        <span className="garment-name">
-          {item.name} <span className="count">· {index + 1}/{total}</span>
-        </span>
+        <div className="garment-box">
+          <button
+            ref={photoRef}
+            type="button"
+            className="garment-btn"
+            aria-label={`הגדלת התמונה: ${item.name}`}
+            onClick={(e) => {
+              const swipedJustNow = movedAt.current !== null && e.timeStamp - movedAt.current < SWIPE_CLICK_MS;
+              movedAt.current = null;
+              // detail is 0 for keyboard and assistive-technology clicks: never ignore those.
+              if (swipedJustNow && e.detail !== 0) return;
+              setEnlarged(true);
+            }}
+          >
+            <Garment item={item} height={height} />
+          </button>
+          <span className="garment-name">
+            {item.name} <span className="count">· {index + 1}/{total}</span>
+          </span>
+        </div>
+        <button type="button" className="icon-btn step" aria-label="הבא" onClick={() => onStep(1)} disabled={total < 2}>
+          <Icon name="next" />
+        </button>
       </div>
-      <button type="button" className="icon-btn step" aria-label="הבא" onClick={() => onStep(1)} disabled={total < 2}>
-        <Icon name="next" />
-      </button>
-    </div>
+      {/* Beside the carousel, not inside it: a swipe down to close must not count as a swipe on the row. */}
+      {enlarged && (
+        <PhotoView
+          item={item}
+          onClose={() => {
+            setEnlarged(false);
+            photoRef.current?.focus({ preventScroll: true });
+          }}
+        />
+      )}
+    </>
   );
 }
 
